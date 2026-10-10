@@ -1,0 +1,7 @@
+appId: com.xinglian.desktop
+productName: xinglian
+files:
+  - out/**
+asar: true
+win:
+  target: nsis

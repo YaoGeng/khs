@@ -1,0 +1,2385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>星链 · AI 选品营销工作台</title>
+    <style>
+        :root {
+            --bg: #f5f6f8;
+            --panel: #fff;
+            --line: #e8eaef;
+            --line2: #f0f1f4;
+            --text: #1a1d24;
+            --sub: #6b7280;
+            --sub2: #9aa1ad;
+            --primary: #ff2442;
+            --primary-soft: #fff1f3;
+            --ok: #10b981;
+            --ok-soft: #ecfdf5;
+            --warn: #f59e0b;
+            --warn-soft: #fffbeb;
+            --danger: #ef4444;
+            --danger-soft: #fef2f2;
+            --info: #3b82f6;
+            --info-soft: #eff6ff;
+            --radius: 10px;
+            --shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 3px rgba(16, 24, 40, .06);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
+        }
+
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 13px;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .app {
+            display: flex;
+            height: 100vh;
+            overflow: hidden
+        }
+
+        /* ---------- 侧边栏 ---------- */
+        .sidebar {
+            width: 212px;
+            flex: 0 0 212px;
+            background: var(--panel);
+            border-right: 1px solid var(--line);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 16px 16px 14px
+        }
+
+        .brand-logo {
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #ff2442, #ff7a59);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .brand-name {
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: .2px
+        }
+
+        .brand-ver {
+            font-size: 10px;
+            color: var(--sub2);
+            margin-left: auto
+        }
+
+        .nav {
+            padding: 6px 10px;
+            flex: 1;
+            overflow-y: auto
+        }
+
+        .nav-group {
+            font-size: 10px;
+            color: var(--sub2);
+            padding: 12px 8px 6px;
+            letter-spacing: .6px
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            color: #4b5563;
+            user-select: none;
+            margin-bottom: 1px;
+        }
+
+        .nav-item:hover {
+            background: #f7f8fa
+        }
+
+        .nav-item.active {
+            background: var(--primary-soft);
+            color: var(--primary);
+            font-weight: 600
+        }
+
+        .nav-ico {
+            width: 16px;
+            text-align: center;
+            font-size: 13px;
+            opacity: .85
+        }
+
+        .nav-badge {
+            margin-left: auto;
+            background: var(--danger);
+            color: #fff;
+            font-size: 10px;
+            padding: 1px 6px;
+            border-radius: 9px;
+            font-weight: 600;
+        }
+
+        .nav-item.active .nav-badge {
+            background: var(--primary)
+        }
+
+        .side-foot {
+            padding: 10px;
+            border-top: 1px solid var(--line2)
+        }
+
+        .plan-card {
+            background: linear-gradient(135deg, #1f2937, #374151);
+            color: #fff;
+            border-radius: 10px;
+            padding: 11px 12px;
+        }
+
+        .plan-card .t {
+            font-size: 11px;
+            opacity: .7
+        }
+
+        .plan-card .v {
+            font-size: 14px;
+            font-weight: 600;
+            margin: 2px 0 6px
+        }
+
+        .plan-bar {
+            height: 4px;
+            background: rgba(255, 255, 255, .18);
+            border-radius: 3px;
+            overflow: hidden
+        }
+
+        .plan-bar i {
+            display: block;
+            height: 100%;
+            width: 62%;
+            background: linear-gradient(90deg, #ff2442, #ff7a59)
+        }
+
+        .plan-card .d {
+            font-size: 10px;
+            opacity: .6;
+            margin-top: 6px
+        }
+
+        /* ---------- 主区 ---------- */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden
+        }
+
+        .topbar {
+            height: 52px;
+            flex: 0 0 52px;
+            background: var(--panel);
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 0 18px;
+        }
+
+        .page-title {
+            font-size: 15px;
+            font-weight: 600
+        }
+
+        .page-sub {
+            font-size: 11px;
+            color: var(--sub);
+            margin-left: 8px
+        }
+
+        .topbar-right {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+            padding: 4px 9px;
+            border-radius: 20px;
+            background: #f3f4f6;
+            color: #4b5563;
+            border: 1px solid transparent;
+            white-space: nowrap;
+        }
+
+        .pill .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--sub2)
+        }
+
+        .pill.ok {
+            background: var(--ok-soft);
+            color: #047857
+        }
+
+        .pill.ok .dot {
+            background: var(--ok)
+        }
+
+        .pill.warn {
+            background: var(--warn-soft);
+            color: #b45309
+        }
+
+        .pill.warn .dot {
+            background: var(--warn)
+        }
+
+        .pill.danger {
+            background: var(--danger-soft);
+            color: #b91c1c
+        }
+
+        .pill.danger .dot {
+            background: var(--danger)
+        }
+
+        .pill.info {
+            background: var(--info-soft);
+            color: #1d4ed8
+        }
+
+        .pill.info .dot {
+            background: var(--info)
+        }
+
+        .btn {
+            border: 1px solid var(--line);
+            background: #fff;
+            color: var(--text);
+            padding: 6px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-family: inherit;
+        }
+
+        .btn:hover {
+            background: #f9fafb
+        }
+
+        .btn.primary {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #fff;
+            font-weight: 500
+        }
+
+        .btn.primary:hover {
+            background: #e91e3c
+        }
+
+        .btn.ghost {
+            border-color: transparent;
+            background: transparent;
+            color: var(--sub)
+        }
+
+        .btn.sm {
+            padding: 4px 9px;
+            font-size: 11px
+        }
+
+        .btn:disabled {
+            opacity: .45;
+            cursor: not-allowed
+        }
+
+        .content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 18px
+        }
+
+        .view {
+            display: none
+        }
+
+        .view.active {
+            display: block
+        }
+
+        /* ---------- 通用卡片 ---------- */
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            margin-bottom: 14px;
+        }
+
+        .card-h {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--line2);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-h h3 {
+            font-size: 13px;
+            font-weight: 600
+        }
+
+        .card-h .hint {
+            font-size: 11px;
+            color: var(--sub)
+        }
+
+        .card-h .right {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px
+        }
+
+        .card-b {
+            padding: 14px 16px
+        }
+
+        .card-b.tight {
+            padding: 0
+        }
+
+        .grid {
+            display: grid;
+            gap: 14px
+        }
+
+        .g2 {
+            grid-template-columns: 1fr 1fr
+        }
+
+        .g3 {
+            grid-template-columns: repeat(3, 1fr)
+        }
+
+        .g4 {
+            grid-template-columns: repeat(4, 1fr)
+        }
+
+        .g-2-1 {
+            grid-template-columns: 2fr 1fr
+        }
+
+        /* ---------- 看板 ---------- */
+        .kanban {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px
+        }
+
+        .col {
+            background: #eef0f4;
+            border-radius: 10px;
+            padding: 10px;
+            min-height: 380px
+        }
+
+        .col-h {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 2px 4px 10px
+        }
+
+        .col-h .t {
+            font-size: 12px;
+            font-weight: 600
+        }
+
+        .col-h .n {
+            font-size: 10px;
+            background: #fff;
+            color: var(--sub);
+            padding: 1px 6px;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+
+        .kcard {
+            background: #fff;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 8px;
+            box-shadow: var(--shadow);
+            cursor: grab;
+            border: 1px solid transparent;
+        }
+
+        .kcard:hover {
+            border-color: #dfe3ea
+        }
+
+        .kcard .kt {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 5px
+        }
+
+        .kcard .km {
+            font-size: 11px;
+            color: var(--sub);
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap
+        }
+
+        .kcard .kf {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 8px
+        }
+
+        /* ---------- 表格 ---------- */
+        table {
+            width: 100%;
+            border-collapse: collapse
+        }
+
+        thead th {
+            text-align: left;
+            font-size: 11px;
+            color: var(--sub);
+            font-weight: 600;
+            padding: 9px 12px;
+            border-bottom: 1px solid var(--line);
+            background: #fafbfc;
+            white-space: nowrap;
+        }
+
+        tbody td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--line2);
+            font-size: 12px;
+            vertical-align: middle
+        }
+
+        tbody tr:hover {
+            background: #fafbfc
+        }
+
+        tbody tr:last-child td {
+            border-bottom: none
+        }
+
+        .thumb {
+            width: 38px;
+            height: 38px;
+            border-radius: 6px;
+            background: #eef0f4;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex: 0 0 38px;
+        }
+
+        .rowflex {
+            display: flex;
+            align-items: center;
+            gap: 10px
+        }
+
+        .ellip {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap
+        }
+
+        /* ---------- 评分 ---------- */
+        .score {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            font-weight: 700;
+            font-size: 12px;
+            background: var(--ok-soft);
+            color: #047857;
+        }
+
+        .score.mid {
+            background: var(--warn-soft);
+            color: #b45309
+        }
+
+        .score.low {
+            background: #f3f4f6;
+            color: var(--sub)
+        }
+
+        /* ---------- 进度 ---------- */
+        .prog {
+            height: 6px;
+            background: #eef0f4;
+            border-radius: 4px;
+            overflow: hidden
+        }
+
+        .prog i {
+            display: block;
+            height: 100%;
+            background: linear-gradient(90deg, #ff2442, #ff7a59);
+            border-radius: 4px;
+            transition: width .3s
+        }
+
+        .prog.ok i {
+            background: linear-gradient(90deg, #10b981, #34d399)
+        }
+
+        /* ---------- 表单 ---------- */
+        label.f {
+            display: block;
+            font-size: 11px;
+            color: var(--sub);
+            margin-bottom: 5px;
+            font-weight: 500
+        }
+
+        input[type=text],
+        input[type=number],
+        input[type=password],
+        select,
+        textarea {
+            width: 100%;
+            padding: 7px 10px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            font-size: 12px;
+            font-family: inherit;
+            color: var(--text);
+            background: #fff;
+            outline: none;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(255, 36, 66, .08)
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 74px;
+            line-height: 1.6
+        }
+
+        .frow {
+            display: flex;
+            gap: 10px
+        }
+
+        .frow>* {
+            flex: 1
+        }
+
+        /* ---------- 标签 ---------- */
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 6px;
+            background: #f3f4f6;
+            color: #4b5563;
+        }
+
+        .tag.red {
+            background: var(--primary-soft);
+            color: var(--primary)
+        }
+
+        .tag.green {
+            background: var(--ok-soft);
+            color: #047857
+        }
+
+        .tag.amber {
+            background: var(--warn-soft);
+            color: #b45309
+        }
+
+        .tag.blue {
+            background: var(--info-soft);
+            color: #1d4ed8
+        }
+
+        .tags {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap
+        }
+
+        /* ---------- 待审池 ---------- */
+        .tabs {
+            display: flex;
+            gap: 2px;
+            border-bottom: 1px solid var(--line);
+            padding: 0 16px
+        }
+
+        .tab {
+            padding: 10px 14px;
+            font-size: 12px;
+            color: var(--sub);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            font-weight: 500;
+        }
+
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+            font-weight: 600
+        }
+
+        .review-item {
+            display: flex;
+            gap: 12px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--line2);
+            align-items: flex-start;
+        }
+
+        .review-item:hover {
+            background: #fafbfc
+        }
+
+        .review-item input[type=checkbox] {
+            margin-top: 3px;
+            accent-color: var(--primary)
+        }
+
+        .ri-main {
+            flex: 1;
+            min-width: 0
+        }
+
+        .ri-title {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 4px
+        }
+
+        .ri-body {
+            font-size: 12px;
+            color: #4b5563;
+            line-height: 1.65;
+            white-space: pre-wrap
+        }
+
+        .ri-meta {
+            font-size: 11px;
+            color: var(--sub2);
+            margin-top: 6px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap
+        }
+
+        .ri-acts {
+            display: flex;
+            gap: 6px;
+            flex: 0 0 auto
+        }
+
+        /* ---------- 时间线 ---------- */
+        .tl {
+            position: relative;
+            padding-left: 20px
+        }
+
+        .tl::before {
+            content: "";
+            position: absolute;
+            left: 5px;
+            top: 6px;
+            bottom: 6px;
+            width: 1px;
+            background: var(--line)
+        }
+
+        .tl-item {
+            position: relative;
+            padding: 0 0 16px
+        }
+
+        .tl-item::before {
+            content: "";
+            position: absolute;
+            left: -18px;
+            top: 4px;
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: #fff;
+            border: 2px solid var(--sub2);
+        }
+
+        .tl-item.ok::before {
+            border-color: var(--ok)
+        }
+
+        .tl-item.err::before {
+            border-color: var(--danger)
+        }
+
+        .tl-item.warn::before {
+            border-color: var(--warn)
+        }
+
+        .tl-t {
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            gap: 8px;
+            align-items: center
+        }
+
+        .tl-time {
+            font-size: 11px;
+            color: var(--sub2);
+            font-weight: 400
+        }
+
+        .tl-d {
+            font-size: 11px;
+            color: var(--sub);
+            margin-top: 3px
+        }
+
+        .shot {
+            width: 112px;
+            height: 70px;
+            border-radius: 6px;
+            background: #eef0f4;
+            border: 1px solid var(--line);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: var(--sub2);
+            margin-top: 7px;
+        }
+
+        /* ---------- 图片网格 ---------- */
+        .imgs {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px
+        }
+
+        .img-cell {
+            aspect-ratio: 3/4;
+            border-radius: 8px;
+            background: #eef0f4;
+            border: 1px solid var(--line);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            position: relative;
+        }
+
+        .img-cell .badge {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            font-size: 9px;
+            background: rgba(0, 0, 0, .55);
+            color: #fff;
+            padding: 1px 5px;
+            border-radius: 4px;
+        }
+
+        /* ---------- 笔记预览 ---------- */
+        .note-preview {
+            width: 250px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .np-img {
+            aspect-ratio: 3/4;
+            background: linear-gradient(135deg, #e8eaef, #d5d9e0);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 30px;
+            color: #9aa1ad
+        }
+
+        .np-b {
+            padding: 10px
+        }
+
+        .np-title {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            line-height: 1.4
+        }
+
+        .np-text {
+            font-size: 11px;
+            color: #4b5563;
+            line-height: 1.6;
+            max-height: 64px;
+            overflow: hidden
+        }
+
+        .np-foot {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 9px;
+            font-size: 11px;
+            color: var(--sub2)
+        }
+
+        /* ---------- 统计块 ---------- */
+        .stat {
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 13px 14px
+        }
+
+        .stat .l {
+            font-size: 11px;
+            color: var(--sub)
+        }
+
+        .stat .v {
+            font-size: 20px;
+            font-weight: 700;
+            margin: 3px 0 2px;
+            letter-spacing: -.3px
+        }
+
+        .stat .s {
+            font-size: 11px;
+            color: var(--sub2)
+        }
+
+        .stat .s.up {
+            color: #047857
+        }
+
+        .stat .s.down {
+            color: #b91c1c
+        }
+
+        /* ---------- 柱状图（纯 CSS） ---------- */
+        .bars {
+            display: flex;
+            align-items: flex-end;
+            gap: 10px;
+            height: 120px;
+            padding: 0 4px
+        }
+
+        .bar-wrap {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            height: 100%;
+            justify-content: flex-end
+        }
+
+        .bar {
+            width: 100%;
+            background: linear-gradient(180deg, #ff7a59, #ff2442);
+            border-radius: 5px 5px 0 0;
+            min-height: 4px
+        }
+
+        .bar-l {
+            font-size: 10px;
+            color: var(--sub2)
+        }
+
+        /* ---------- 弹窗 ---------- */
+        .mask {
+            position: fixed;
+            inset: 0;
+            background: rgba(16, 24, 40, .45);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 99;
+            padding: 20px;
+        }
+
+        .mask.show {
+            display: flex
+        }
+
+        .modal {
+            background: #fff;
+            border-radius: 12px;
+            width: 520px;
+            max-width: 100%;
+            max-height: 86vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 50px rgba(16, 24, 40, .2);
+        }
+
+        .modal-h {
+            padding: 16px 18px 12px;
+            border-bottom: 1px solid var(--line2);
+            display: flex;
+            align-items: center;
+            gap: 9px
+        }
+
+        .modal-h h3 {
+            font-size: 14px;
+            font-weight: 600
+        }
+
+        .modal-b {
+            padding: 16px 18px
+        }
+
+        .modal-f {
+            padding: 12px 18px 16px;
+            display: flex;
+            gap: 9px;
+            justify-content: flex-end
+        }
+
+        .warnbox {
+            background: var(--warn-soft);
+            border: 1px solid #fde68a;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 11px;
+            color: #92400e;
+            line-height: 1.6;
+        }
+
+        .okbox {
+            background: var(--ok-soft);
+            border: 1px solid #a7f3d0;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 11px;
+            color: #065f46;
+            line-height: 1.6;
+        }
+
+        .infobox {
+            background: var(--info-soft);
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 11px;
+            color: #1e40af;
+            line-height: 1.6;
+        }
+
+        .kv {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 12px;
+            border-bottom: 1px dashed var(--line2)
+        }
+
+        .kv:last-child {
+            border-bottom: none
+        }
+
+        .kv .k {
+            color: var(--sub)
+        }
+
+        .kv .v {
+            font-weight: 500
+        }
+
+        .mono {
+            font-family: ui-monospace, Menlo, Consolas, monospace;
+            font-size: 11px
+        }
+
+        .muted {
+            color: var(--sub);
+            font-size: 11px
+        }
+
+        .divider {
+            height: 1px;
+            background: var(--line2);
+            margin: 12px 0
+        }
+
+        .flex {
+            display: flex;
+            align-items: center;
+            gap: 10px
+        }
+
+        .between {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px
+        }
+
+        .wrap {
+            flex-wrap: wrap
+        }
+
+        ::-webkit-scrollbar {
+            width: 9px;
+            height: 9px
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #d5d9e0;
+            border-radius: 5px;
+            border: 2px solid transparent;
+            background-clip: content-box
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #b9bfc9;
+            background-clip: content-box
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+
+        <!-- ================= 侧边栏 ================= -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-logo">星</div>
+                <div class="brand-name">星链 AI 工作台</div>
+                <div class="brand-ver">v1.0</div>
+            </div>
+
+            <nav class="nav" id="nav">
+                <div class="nav-group">工作流</div>
+                <div class="nav-item active" data-view="dashboard"><span class="nav-ico">▦</span>工作台</div>
+                <div class="nav-item" data-view="insight"><span class="nav-ico">◎</span>市场洞察</div>
+                <div class="nav-item" data-view="report"><span class="nav-ico">▤</span>需求报告</div>
+                <div class="nav-item" data-view="sourcing"><span class="nav-ico">◈</span>智能选品</div>
+                <div class="nav-item" data-view="publish"><span class="nav-ico">✎</span>内容发布</div>
+                <div class="nav-item" data-view="promo"><span class="nav-ico">◐</span>推广引流</div>
+
+                <div class="nav-group">协作</div>
+                <div class="nav-item" data-view="review"><span class="nav-ico">☑</span>待审池<span
+                        class="nav-badge">7</span></div>
+                <div class="nav-item" data-view="logs"><span class="nav-ico">≡</span>日志与审计</div>
+
+                <div class="nav-group">账户</div>
+                <div class="nav-item" data-view="settings"><span class="nav-ico">⚙</span>设置</div>
+            </nav>
+
+            <div class="side-foot">
+                <div class="plan-card">
+                    <div class="t">当前套餐</div>
+                    <div class="v">季卡 · 团队版 3 设备</div>
+                    <div class="plan-bar"><i></i></div>
+                    <div class="d">剩余 58 天 · 已用 2/3 设备</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ================= 主区 ================= -->
+        <main class="main">
+            <header class="topbar">
+                <div class="page-title" id="pageTitle">工作台</div>
+                <div class="page-sub" id="pageSub">全链路选品 · 发布 · 推广</div>
+                <div class="topbar-right">
+                    <span class="pill ok" id="pillBrowser"><span class="dot"></span>浏览器已接管</span>
+                    <span class="pill info"><span class="dot"></span>LLM Key 正常 · 320ms</span>
+                    <span class="pill warn" id="pillQuota"><span class="dot"></span>今日发布 6/10</span>
+                    <button class="btn sm" onclick="openModal('modalFuse')">🔔 2</button>
+                    <button class="btn sm">帮助</button>
+                </div>
+            </header>
+
+            <div class="content">
+
+                <!-- ============ 1. 工作台 ============ -->
+                <section class="view active" id="view-dashboard">
+                    <div class="grid g4" style="margin-bottom:14px">
+                        <div class="stat">
+                            <div class="l">本月成功发布</div>
+                            <div class="v">18</div>
+                            <div class="s up">↑ 12% 环比</div>
+                        </div>
+                        <div class="stat">
+                            <div class="l">选品 → 货源转化</div>
+                            <div class="v">34%</div>
+                            <div class="s up">↑ 5pt</div>
+                        </div>
+                        <div class="stat">
+                            <div class="l">待审池</div>
+                            <div class="v">7</div>
+                            <div class="s">需人工确认</div>
+                        </div>
+                        <div class="stat">
+                            <div class="l">LLM 本月成本</div>
+                            <div class="v">¥12.40</div>
+                            <div class="s">BYOK · 本地计量</div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-h">
+                            <h3>工作流看板</h3>
+                            <span class="hint">卡片可拖拽流转（FR-7.3）</span>
+                            <div class="right">
+                                <button class="btn sm">筛选</button>
+                                <button class="btn sm primary" onclick="go('insight')">+ 新建选品</button>
+                            </div>
+                        </div>
+                        <div class="card-b">
+                            <div class="kanban">
+                                <div class="col">
+                                    <div class="col-h"><span class="t">选品中</span><span class="n">2</span></div>
+                                    <div class="kcard">
+                                        <div class="kt">露营灯 · 氛围款</div>
+                                        <div class="km"><span>报告已生成</span><span>候选 12</span></div>
+                                        <div class="kf"><span class="tag blue">1688 检索中</span></div>
+                                    </div>
+                                    <div class="kcard">
+                                        <div class="kt">户外折叠桌</div>
+                                        <div class="km"><span>采集中 68/200</span></div>
+                                        <div class="kf"><span class="tag">待生成报告</span></div>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <div class="col-h"><span class="t">待发布</span><span class="n">3</span></div>
+                                    <div class="kcard">
+                                        <div class="kt">露营灯 · 种草测评</div>
+                                        <div class="km"><span>3 版文案</span><span>图片 6</span></div>
+                                        <div class="kf"><span class="tag amber">待人工确认</span></div>
+                                    </div>
+                                    <div class="kcard">
+                                        <div class="kt">露营灯 · 干货清单</div>
+                                        <div class="km"><span>已入队</span><span>12:00</span></div>
+                                        <div class="kf"><span class="tag green">定时队列</span></div>
+                                    </div>
+                                    <div class="kcard">
+                                        <div class="kt">折叠椅 · 真实体验</div>
+                                        <div class="km"><span>等待挑图</span></div>
+                                        <div class="kf"><span class="tag">草稿</span></div>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <div class="col-h"><span class="t">推广中</span><span class="n">1</span></div>
+                                    <div class="kcard">
+                                        <div class="kt">露营灯 · 评论区引流</div>
+                                        <div class="km"><span>已评 8/30</span><span>存活 100%</span></div>
+                                        <div class="kf"><span class="tag green">运行中</span></div>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <div class="col-h"><span class="t">已完成</span><span class="n">5</span></div>
+                                    <div class="kcard">
+                                        <div class="kt">收纳箱 · 对比避坑</div>
+                                        <div class="km"><span>已发布</span><span>赞 42</span></div>
+                                        <div class="kf"><span class="tag green">✓</span></div>
+                                    </div>
+                                    <div class="kcard">
+                                        <div class="kt">野餐垫 · 种草</div>
+                                        <div class="km"><span>已发布</span><span>赞 18</span></div>
+                                        <div class="kf"><span class="tag green">✓</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============ 2. 市场洞察 ============ -->
+                <section class="view" id="view-insight">
+                    <div class="grid g-2-1">
+                        <div class="card">
+                            <div class="card-h">
+                                <h3>采集主题</h3><span class="hint">FR-4.1 支持关键词 / 竞品账号 / 笔记链接</span>
+                            </div>
+                            <div class="card-b">
+                                <label class="f">输入方式</label>
+                                <div class="frow" style="margin-bottom:12px">
+                                    <select style="flex:0 0 130px">
+                                        <option>关键词</option>
+                                        <option>竞品账号链接</option>
+                                        <option>笔记链接</option>
+                                    </select>
+                                    <input type="text" value="露营灯, 户外照明, 氛围灯" />
+                                </div>
+                                <div class="frow" style="margin-bottom:12px">
+                                    <div>
+                                        <label class="f">采集上限（条/主题）</label>
+                                        <input type="number" value="200" />
+                                    </div>
+                                    <div>
+                                        <label class="f">请求间隔</label>
+                                        <input type="text" value="3 – 8s（截断正态）" disabled />
+                                    </div>
+                                    <div>
+                                        <label class="f">今日账号配额</label>
+                                        <input type="text" value="128 / 300" disabled />
+                                    </div>
+                                </div>
+                                <div class="warnbox" style="margin-bottom:12px">
+                                    ⚠ 反爬策略：间隔随机化 · 拟人滚动 · 触发验证码立即熔断 · 02:00–07:00 默认禁跑。所有阈值仅可下调。
+                                </div>
+                                <div class="flex">
+                                    <button class="btn primary" onclick="startCollect()">开始采集</button>
+                                    <button class="btn">暂停</button>
+                                    <button class="btn">终止</button>
+                                    <span class="muted" style="margin-left:auto">检测到人工操作浏览器时自动让位</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-h">
+                                <h3>运行状态</h3>
+                            </div>
+                            <div class="card-b">
+                                <div class="between" style="margin-bottom:8px">
+                                    <span class="muted">采集进度</span>
+                                    <span style="font-weight:600" id="collectPct">68 / 200</span>
+                                </div>
+                                <div class="prog" style="margin-bottom:14px"><i id="collectBar" style="width:34%"></i>
+                                </div>
+                                <div class="kv"><span class="k">去重后</span><span class="v">61 条</span></div>
+                                <div class="kv"><span class="k">平均耗时</span><span class="v">6.4s / 条</span></div>
+                                <div class="kv"><span class="k">熔断状态</span><span class="v" style="color:#047857">CLOSED
+                                        正常</span></div>
+                                <div class="kv"><span class="k">预估剩余</span><span class="v">约 14 分钟</span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-h">
+                            <h3>采集结果</h3>
+                            <span class="hint">按笔记 ID 去重，互动数据保留历史快照</span>
+                            <div class="right">
+                                <button class="btn sm">导出 CSV</button>
+                                <button class="btn sm primary" onclick="go('report')">生成需求报告 →</button>
+                            </div>
+                        </div>
+                        <div class="card-b tight">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width:52px"></th>
+                                        <th>标题</th>
+                                        <th style="width:92px">作者</th>
+                                        <th style="width:70px">点赞</th>
+                                        <th style="width:70px">收藏</th>
+                                        <th style="width:70px">评论</th>
+                                        <th style="width:150px">标签</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>
+                                            <div class="thumb">🏕</div>
+                                        </td>
+                                        <td>
+                                            <div class="ellip">露营氛围感拉满！这盏灯我愿称之为天花板</div>
+                                        </td>
+                                        <td>山野小铺</td>
+                                        <td>3.2k</td>
+                                        <td>1.1k</td>
+                                        <td>186</td>
+                                        <td>
+                                            <div class="tags"><span class="tag red">露营</span><span
+                                                    class="tag">氛围灯</span></div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div class="thumb">💡</div>
+                                        </td>
+                                        <td>
+                                            <div class="ellip">平价露营灯测评｜百元内哪款最值得买</div>
+                                        </td>
+                                        <td>户外老王</td>
+                                        <td>1.8k</td>
+                                        <td>920</td>
+                                        <td>134</td>
+                                        <td>
+                                            <div class="tags"><span class="tag red">测评</span><span class="tag">平价</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div class="thumb">🔦</div>
+                                        </td>
+                                        <td>
+                                            <div class="ellip">露营灯选购避坑指南，别交智商税</div>
+                                        </td>
+                                        <td>野趣研究所</td>
+                                        <td>5.6k</td>
+                                        <td>3.4k</td>
+                                        <td>421</td>
+                                        <td>
+                                            <div class="tags"><span class="tag red">避坑</span><span class="tag">选购</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div class="thumb">🌙</div>
+                                        </td>
+                                        <td>
+                                            <div class="ellip">夜营必备｜续航 40 小时的露营灯实测</div>
+                                        </td>
+                                        <td>露营日记</td>
+                                        <td>2.1k</td>
+                                        <td>780</td>
+                                        <td>96</td>
+                                        <td>
+                                            <div class="tags"><span class="tag red">实测</span><span class="tag">续航</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============ 3. 需求报告 ============ -->
+                <section class="view" id="view-report">
+                    <div class="card">
+                        <div class="card-h">
+                            <h3>需求分析报告 · 露营灯</h3>
+                            <span class="pill info"><span class="dot"></span>基于 61 条去重笔记</span>
+                            <span class="pill"><span class="dot"></span>deepseek-chat · ¥0.42</span>
+                            <div class="right">
+                                <button class="btn sm">导出 PDF</button>
+                                <button class="btn sm">导出 MD</button>
+                                <button class="btn sm primary" onclick="go('sourcing')">用此报告选品 →</button>
+                            </div>
+                        </div>
+                        <div class="card-b">
+                            <div class="grid g2">
+                                <div>
+                                    <div class="card-h" style="padding:0 0 10px;border:none">
+                                        <h3 style="font-size:12px">① 需求场景聚类与热度</h3>
+                                    </div>
+                                    <div class="bars" style="margin-bottom:18px">
+                                        <div class="bar-wrap">
+                                            <div class="bar" style="height:92%"></div>
+                                            <div class="bar-l">氛围照明</div>
+                                        </div>
+                                        <div class="bar-wrap">
+                                            <div class="bar" style="height:64%"></div>
+                                            <div class="bar-l">长续航</div>
+                                        </div>
+                                        <div class="bar-wrap">
+                                            <div class="bar" style="height:48%"></div>
+                                            <div class="bar-l">便携轻量</div>
+                                        </div>
+                                        <div class="bar-wrap">
+                                            <div class="bar" style="height:36%"></div>
+                                            <div class="bar-l">多档调光</div>
+                                        </div>
+                                        <div class="bar-wrap">
+                                            <div class="bar" style="height:24%"></div>
+                                            <div class="bar-l">防水</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="card-h" style="padding:0 0 10px;border:none">
+                                        <h3 style="font-size:12px">② 用户痛点 TopN</h3>
+                                    </div>
+                                    <div style="margin-bottom:18px">
+                                        <div class="kv"><span class="k">续航虚标、实际用不到 3 小时</span><span class="v">提及 23
+                                                次</span></div>
+                                        <div class="kv"><span class="k">亮度不足 / 频闪伤眼</span><span class="v">提及 17 次</span>
+                                        </div>
+                                        <div class="kv"><span class="k">充电口易进水、易坏</span><span class="v">提及 11 次</span>
+                                        </div>
+                                        <div class="kv"><span class="k">支架不稳、风一吹就倒</span><span class="v">提及 8 次</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="card-h" style="padding:0 0 10px;border:none">
+                                        <h3 style="font-size:12px">③ 价格带分布</h3>
+                                    </div>
+                                    <div class="bars" style="height:80px">
+                                        <div class="bar-wrap">
+                                            <div class="bar" style="height:30%"></div>
+                                            <div class="bar-l">&lt;50</div>
+                                        </div>
+                                        <div class="bar-wrap">
+                                            <div class="bar" style="height:78%"></div>
+                                            <div class="bar-l">50-100</div>
+                                        </div>
+                                        <div class="bar-wrap">
+                                            <div class="bar" style="height:100%"></div>
+                                            <div class="bar-l">100-200</div>
+                                        </div>
+                                        <div class="bar-wrap">
+                                            <div class="bar" style="height:52%"></div>
+                                            <div class="bar-l">200-350</div>
+                                        </div>
+                                        <div class="bar-wrap">
+                                            <div class="bar" style="height:20%"></div>
+                                            <div class="bar-l">&gt;350</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div class="card-h" style="padding:0 0 10px;border:none">
+                                        <h3 style="font-size:12px">④ 购买决策因素</h3>
+                                    </div>
+                                    <div class="tags" style="margin-bottom:18px">
+                                        <span class="tag red">续航时长</span><span class="tag red">亮度可调</span>
+                                        <span class="tag">防水等级</span><span class="tag">重量</span>
+                                        <span class="tag">充电方式</span><span class="tag">颜值</span>
+                                    </div>
+
+                                    <div class="card-h" style="padding:0 0 10px;border:none">
+                                        <h3 style="font-size:12px">⑤ 竞品内容打法</h3>
+                                    </div>
+                                    <div style="font-size:12px;color:#4b5563;line-height:1.8;margin-bottom:18px">
+                                        头部笔记以「实拍夜景 + 参数对比表」为主；中部账号多用「避坑清单」；
+                                        高互动笔记普遍含 <b>具体续航数字</b> 与 <b>场景化实拍</b>。
+                                    </div>
+
+                                    <div class="card-h" style="padding:0 0 10px;border:none">
+                                        <h3 style="font-size:12px">⑥ 内容机会点</h3>
+                                    </div>
+                                    <div style="font-size:12px;color:#4b5563;line-height:1.8;margin-bottom:18px">
+                                        「续航实测对比」+「百元价位段」组合内容供给不足，互动效率高于均值 2.3 倍。
+                                    </div>
+
+                                    <div class="card-h" style="padding:0 0 10px;border:none">
+                                        <h3 style="font-size:12px">⑦ 1688 选品关键词建议</h3>
+                                    </div>
+                                    <div class="tags">
+                                        <span class="tag blue">露营灯 长续航</span>
+                                        <span class="tag blue">户外氛围灯 充电</span>
+                                        <span class="tag blue">露营灯 可调光</span>
+                                        <span class="tag blue">帐篷灯 防水</span>
+                                        <span class="tag blue">露营灯 一件代发</span>
+                                    </div>
+                                    <div class="infobox" style="margin-top:12px">
+                                        已按「价格带 100–200 元 + 支持一件代发」预填选品筛选条件，点击右上角即可进入选品工作流。
+                                    </div>
+
+                                    <div class="card-h" style="padding:0 0 10px;border:none;margin-top:18px">
+                                        <h3 style="font-size:12px">⑧ 数据来源与方法说明</h3>
+                                    </div>
+                                    <div style="font-size:11px;color:#6b7280;line-height:1.7;margin-bottom:18px">
+                                        样本量 <b>187</b> 条（采集 200，去重去低质清洗后 187）；数据窗口 <b>2026-09-10 ~ 10-08</b>；
+                                        清洗规则：去广告/去重复（MD5）/去低质（互动<均值 5%）；聚类轮廓系数 ≥0.62；
+                                        结论置信度：高（各章均标注引用样本子集，点击章节标题可查看原始笔记清单）。
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============ 4. 智能选品 ============ -->
+                <section class="view" id="view-sourcing">
+                    <div class="card">
+                        <div class="card-h">
+                            <h3>1688 候选清单</h3>
+                            <span class="hint">评分 = Σ 维度分 × 权重，每维给出可解释理由</span>
+                            <div class="right">
+                                <button class="btn sm" onclick="openModal('modalScore')">调整权重</button>
+                                <button class="btn sm">导出</button>
+                            </div>
+                        </div>
+                        <div class="card-b" style="padding-bottom:0">
+                            <div class="frow wrap" style="margin-bottom:12px">
+                                <div style="flex:0 0 150px"><label class="f">价格带</label><input type="text"
+                                        value="80 – 220 元" /></div>
+                                <div style="flex:0 0 130px"><label class="f">起订量</label><input type="text"
+                                        value="≤ 50" /></div>
+                                <div style="flex:0 0 150px"><label class="f">供应商等级</label><select>
+                                        <option>不限</option>
+                                        <option>实力商家</option>
+                                        <option>超级工厂</option>
+                                    </select></div>
+                                <div style="flex:0 0 140px"><label class="f">一件代发</label><select>
+                                        <option>仅显示支持</option>
+                                        <option>不限</option>
+                                    </select></div>
+                                <div style="flex:1"></div>
+                                <div style="flex:0 0 auto;display:flex;align-items:flex-end"><button
+                                        class="btn primary sm">重新检索</button></div>
+                            </div>
+                        </div>
+                        <div class="card-b tight">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width:38px"><input type="checkbox" checked /></th>
+                                        <th style="width:52px"></th>
+                                        <th>商品</th>
+                                        <th style="width:110px">价格 / MOQ</th>
+                                        <th style="width:96px">供应商</th>
+                                        <th style="width:120px">关键指标</th>
+                                        <th style="width:78px">综合分</th>
+                                        <th style="width:210px">推荐理由</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><input type="checkbox" checked /></td>
+                                        <td>
+                                            <div class="thumb">🔆</div>
+                                        </td>
+                                        <td>
+                                            <div class="ellip" style="font-weight:600">USB 充电露营灯 三档调光</div>
+                                            <div class="muted">回头率 28% · 货描 4.8 · 响应 4.9</div>
+                                        </td>
+                                        <td>¥86<br /><span class="muted">MOQ 10 · 代发</span></td>
+                                        <td><span class="tag green">实力商家</span>
+                                            <div class="muted">诚信通 8 年</div>
+                                        </td>
+                                        <td>
+                                            <div class="muted">销量 2.1 万<br />复购 21%</div>
+                                        </td>
+                                        <td><span class="score">92</span></td>
+                                        <td class="muted">价格位于目标带低位；支持一件代发；指标全面优于同类均值</td>
+                                    </tr>
+                                    <tr>
+                                        <td><input type="checkbox" checked /></td>
+                                        <td>
+                                            <div class="thumb">🏮</div>
+                                        </td>
+                                        <td>
+                                            <div class="ellip" style="font-weight:600">户外帐篷灯 长续航 40h</div>
+                                            <div class="muted">回头率 31% · 货描 4.9 · 响应 4.7</div>
+                                        </td>
+                                        <td>¥118<br /><span class="muted">MOQ 5 · 代发</span></td>
+                                        <td><span class="tag amber">超级工厂</span>
+                                            <div class="muted">诚信通 6 年</div>
+                                        </td>
+                                        <td>
+                                            <div class="muted">销量 1.4 万<br />复购 25%</div>
+                                        </td>
+                                        <td><span class="score">88</span></td>
+                                        <td class="muted">续航参数直击痛点 Top1；超级工厂但 MOQ 极低</td>
+                                    </tr>
+                                    <tr>
+                                        <td><input type="checkbox" /></td>
+                                        <td>
+                                            <div class="thumb">💡</div>
+                                        </td>
+                                        <td>
+                                            <div class="ellip" style="font-weight:600">氛围灯 复古钨丝款</div>
+                                            <div class="muted">回头率 19% · 货描 4.6 · 响应 4.5</div>
+                                        </td>
+                                        <td>¥142<br /><span class="muted">MOQ 30 · 囤货</span></td>
+                                        <td><span class="tag">普通商家</span>
+                                            <div class="muted">诚信通 3 年</div>
+                                        </td>
+                                        <td>
+                                            <div class="muted">销量 6.8k<br />复购 12%</div>
+                                        </td>
+                                        <td><span class="score mid">74</span></td>
+                                        <td class="muted">颜值匹配「氛围」场景，但不支持代发、MOQ 偏高</td>
+                                    </tr>
+                                    <tr>
+                                        <td><input type="checkbox" /></td>
+                                        <td>
+                                            <div class="thumb">🔦</div>
+                                        </td>
+                                        <td>
+                                            <div class="ellip" style="font-weight:600">多功能手电露营灯二合一</div>
+                                            <div class="muted">回头率 14% · 货描 4.5 · 响应 4.4</div>
+                                        </td>
+                                        <td>¥64<br /><span class="muted">MOQ 20 · 代发</span></td>
+                                        <td><span class="tag">普通商家</span>
+                                            <div class="muted">诚信通 2 年</div>
+                                        </td>
+                                        <td>
+                                            <div class="muted">销量 3.2k<br />复购 8%</div>
+                                        </td>
+                                        <td><span class="score low">63</span></td>
+                                        <td class="muted">价格低但复购与供应商等级弱，价格战风险高</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="card-h" style="border-top:1px solid var(--line2);border-bottom:none">
+                            <span class="muted">已勾选 <b>2</b> 个商品</span>
+                            <div class="right">
+                                <button class="btn sm">仅收藏店铺</button>
+                                <button class="btn sm primary" onclick="openModal('modalInquiry')">收藏并发送询盘 →</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============ 5. 内容发布 ============ -->
+                <section class="view" id="view-publish">
+                    <div class="grid g-2-1">
+                        <div class="card">
+                            <div class="card-h">
+                                <h3>文案生成</h3><span class="hint">风格模板 × 3 版，人工选定后进入待审</span>
+                            </div>
+                            <div class="card-b">
+                                <div class="frow" style="margin-bottom:12px">
+                                    <div>
+                                        <label class="f">选择商品</label>
+                                        <select>
+                                            <option>USB 充电露营灯 三档调光</option>
+                                            <option>户外帐篷灯 长续航 40h</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="f">风格</label>
+                                        <select>
+                                            <option>种草测评</option>
+                                            <option>干货清单</option>
+                                            <option>真实体验</option>
+                                            <option>对比避坑</option>
+                                            <option>自定义 Prompt</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="tabs" style="padding:0;margin-bottom:12px">
+                                    <div class="tab active">版本 A · 种草测评</div>
+                                    <div class="tab">版本 B · 痛点切入</div>
+                                    <div class="tab">版本 C · 清单体</div>
+                                </div>
+
+                                <label class="f">标题</label>
+                                <input type="text" value="露营灯的续航焦虑，被这盏 40 小时的灯治好了" style="margin-bottom:12px" />
+
+                                <label class="f">正文</label>
+                                <textarea style="min-height:130px">上周末去山里露营，带的旧灯不到三小时就灭了，摸黑收拾帐篷的体验真的不想再来一次。
+
+换了这盏之后，实测开中档亮度能撑一整晚，第二天早上还有电。三档调光切换很顺手，挂帐篷顶上光线是那种柔和的暖白，不会刺眼。
+
+关键是重量只有 180g，塞进背包侧袋几乎无感。USB-C 充电，和手机共用一根线。
+
+⚠️ 提醒：买露营灯一定要看实测续航，标称值水分普遍很大。
+
+#露营装备 #露营灯 #户外照明 #露营好物</textarea>
+
+                                <div class="divider"></div>
+
+                                <div class="between" style="margin-bottom:10px">
+                                    <label class="f" style="margin:0">图片（已智能挑选 6 张，自动裁 3:4）</label>
+                                    <button class="btn sm">+ 本地上传</button>
+                                </div>
+                                <div class="imgs">
+                                    <div class="img-cell">🏕<span class="badge">主图</span></div>
+                                    <div class="img-cell">🔆<span class="badge">细节</span></div>
+                                    <div class="img-cell">📊<span class="badge">参数</span></div>
+                                    <div class="img-cell">🌙</div>
+                                    <div class="img-cell">🎒</div>
+                                    <div class="img-cell">🔌</div>
+                                    <div class="img-cell" style="border-style:dashed;color:var(--sub2);font-size:22px">+
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="card">
+                                <div class="card-h">
+                                    <h3>发布预览</h3>
+                                </div>
+                                <div class="card-b" style="display:flex;justify-content:center">
+                                    <div class="note-preview">
+                                        <div class="np-img">🏕</div>
+                                        <div class="np-b">
+                                            <div class="np-title">露营灯的续航焦虑，被这盏 40 小时的灯治好了</div>
+                                            <div class="np-text">上周末去山里露营，带的旧灯不到三小时就灭了……</div>
+                                            <div class="np-foot"><span>❤ 0</span><span>⭐ 0</span><span>💬 0</span></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card">
+                                <div class="card-h">
+                                    <h3>发布设置</h3>
+                                </div>
+                                <div class="card-b">
+                                    <label class="f">发布方式</label>
+                                    <select style="margin-bottom:12px">
+                                        <option>加入定时队列</option>
+                                        <option>立即发布</option>
+                                    </select>
+                                    <div class="frow" style="margin-bottom:12px">
+                                        <div><label class="f">首次时间</label><input type="text" value="今天 20:00" /></div>
+                                        <div><label class="f">间隔</label><input type="text" value="10–30 min 随机"
+                                                disabled /></div>
+                                    </div>
+                                    <div class="warnbox" style="margin-bottom:12px">
+                                        ⚠ 今日发布配额 6/10（硬上限，仅可下调）。同一时刻仅一个自动化任务在跑。
+                                    </div>
+                                    <div class="okbox" style="margin-bottom:12px">
+                                        ✓ 内容已过合规三道闸：违禁词 0 命中 · 导流变体 0 命中 · 类目正常
+                                    </div>
+                                    <button class="btn primary" style="width:100%"
+                                        onclick="openModal('modalPublish')">确认加入队列</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============ 6. 推广引流 ============ -->
+                <section class="view" id="view-promo">
+                    <div class="grid g4" style="margin-bottom:14px">
+                        <div class="stat">
+                            <div class="l">候选帖</div>
+                            <div class="v">42</div>
+                            <div class="s">已过筛选 Agent</div>
+                        </div>
+                        <div class="stat">
+                            <div class="l">待审评论</div>
+                            <div class="v">7</div>
+                            <div class="s">需人工确认</div>
+                        </div>
+                        <div class="stat">
+                            <div class="l">今日已评论</div>
+                            <div class="v">8 / 30</div>
+                            <div class="s">本小时 2 / 6</div>
+                        </div>
+                        <div class="stat">
+                            <div class="l">熔断状态</div>
+                            <div class="v" style="color:#047857;font-size:16px">CLOSED</div>
+                            <div class="s up">运行正常</div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-h">
+                            <h3>帖子筛选结果</h3>
+                            <span class="hint">相关性 × 热度 × 时效打分，剔除软文 / 竞品 / 官媒 / 已评论</span>
+                            <div class="right">
+                                <button class="btn sm">重设阈值</button>
+                                <button class="btn sm primary" onclick="go('review')">去待审池 →</button>
+                            </div>
+                        </div>
+                        <div class="card-b tight">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width:38px"><input type="checkbox" /></th>
+                                        <th>帖子</th>
+                                        <th style="width:92px">点赞</th>
+                                        <th style="width:96px">发布时间</th>
+                                        <th style="width:84px">相关性</th>
+                                        <th style="width:230px">筛选理由</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><input type="checkbox" checked /></td>
+                                        <td>
+                                            <div class="ellip" style="font-weight:600">新手露营装备清单，预算 500 怎么配</div>
+                                            <div class="muted">作者：露营小白日记</div>
+                                        </td>
+                                        <td>1.2k</td>
+                                        <td>2 天前</td>
+                                        <td><span class="score">94</span></td>
+                                        <td class="muted">主题高度相关 · 真实讨论 · 评论区活跃 · 未评论过</td>
+                                    </tr>
+                                    <tr>
+                                        <td><input type="checkbox" checked /></td>
+                                        <td>
+                                            <div class="ellip" style="font-weight:600">露营灯到底怎么选？看完这篇不踩坑</div>
+                                            <div class="muted">作者：户外装备控</div>
+                                        </td>
+                                        <td>3.4k</td>
+                                        <td>5 天前</td>
+                                        <td><span class="score">91</span></td>
+                                        <td class="muted">主题高度相关 · 高热度 · 时效在窗口内</td>
+                                    </tr>
+                                    <tr>
+                                        <td><input type="checkbox" /></td>
+                                        <td>
+                                            <div class="ellip" style="font-weight:600">周末去了趟莫干山，带了这些</div>
+                                            <div class="muted">作者：旅行碎片</div>
+                                        </td>
+                                        <td>860</td>
+                                        <td>1 天前</td>
+                                        <td><span class="score mid">76</span></td>
+                                        <td class="muted">相关性中等 · 可切入照明话题</td>
+                                    </tr>
+                                    <tr>
+                                        <td><input type="checkbox" /></td>
+                                        <td>
+                                            <div class="ellip" style="font-weight:600">【广告】露营灯工厂直供，批发价</div>
+                                            <div class="muted">作者：源头工厂号</div>
+                                        </td>
+                                        <td>120</td>
+                                        <td>3 天前</td>
+                                        <td><span class="score low">—</span></td>
+                                        <td class="muted" style="color:#b91c1c">已剔除：识别为软文 / 竞品帖</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="grid g2">
+                        <div class="card">
+                            <div class="card-h">
+                                <h3>评论内容准备</h3>
+                            </div>
+                            <div class="card-b">
+                                <label class="f">生成模式</label>
+                                <select style="margin-bottom:12px">
+                                    <option>LLM 按帖子内容生成</option>
+                                    <option>固定话术（多条轮换）</option>
+                                </select>
+                                <div class="warnbox">
+                                    ⚠ 默认所有评论进入待审池，需人工批量勾选确认。放开自动模式需二次风险确认，
+                                    且频控自动降为 4 条/小时、20 条/天，类目黑名单与违禁词仍全量校验。
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-h">
+                                <h3>频控与熔断</h3>
+                            </div>
+                            <div class="card-b">
+                                <div class="between" style="margin-bottom:6px">
+                                    <span class="muted">本小时</span><span style="font-weight:600">2 / 6</span>
+                                </div>
+                                <div class="prog" style="margin-bottom:12px"><i style="width:33%"></i></div>
+                                <div class="between" style="margin-bottom:6px">
+                                    <span class="muted">今日</span><span style="font-weight:600">8 / 30</span>
+                                </div>
+                                <div class="prog" style="margin-bottom:14px"><i style="width:27%"></i></div>
+                                <div class="kv"><span class="k">触发条件</span><span class="v">验证码 / 429·401 突增 / 失败率 &gt;
+                                        20%</span></div>
+                                <div class="kv"><span class="k">熔断动作</span><span class="v">暂停任务 · 通知 · 冷却 30 分钟</span>
+                                </div>
+                                <div class="kv"><span class="k">恢复方式</span><span class="v">人工处理验证后手动恢复</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============ 7. 待审池 ============ -->
+                <section class="view" id="view-review">
+                    <div class="card">
+                        <div class="card-h">
+                            <h3>待审池</h3>
+                            <span class="hint">AI 产出永不直接执行，必须经此确认（或走已授权的自动模式）</span>
+                            <div class="right">
+                                <button class="btn sm">全选</button>
+                                <button class="btn sm">批量淘汰</button>
+                                <button class="btn sm primary">批量采纳</button>
+                            </div>
+                        </div>
+                        <div class="tabs">
+                            <div class="tab active">笔记文案 (3)</div>
+                            <div class="tab">推广评论 (4)</div>
+                            <div class="tab">询盘话术 (0)</div>
+                        </div>
+                        <div class="card-b tight">
+                            <div class="review-item">
+                                <input type="checkbox" />
+                                <div class="ri-main">
+                                    <div class="ri-title">露营灯的续航焦虑，被这盏 40 小时的灯治好了</div>
+                                    <div class="ri-body">上周末去山里露营，带的旧灯不到三小时就灭了……</div>
+                                    <div class="ri-meta"><span>来源：发布工作流 ·
+                                            露营灯</span><span>风格：种草测评</span><span>合规：通过</span></div>
+                                </div>
+                                <div class="ri-acts"><button class="btn sm">淘汰</button><button
+                                        class="btn sm primary">采纳</button></div>
+                            </div>
+                            <div class="review-item">
+                                <input type="checkbox" />
+                                <div class="ri-main">
+                                    <div class="ri-title">百元内露营灯怎么挑？这 3 点最容易被忽略</div>
+                                    <div class="ri-body">第一看实测续航，标称和实际差距普遍在 40% 以上……</div>
+                                    <div class="ri-meta"><span>来源：发布工作流 ·
+                                            露营灯</span><span>风格：干货清单</span><span>合规：通过</span></div>
+                                </div>
+                                <div class="ri-acts"><button class="btn sm">淘汰</button><button
+                                        class="btn sm primary">采纳</button></div>
+                            </div>
+                            <div class="review-item">
+                                <input type="checkbox" />
+                                <div class="ri-main">
+                                    <div class="ri-title">帐篷灯实测 40 小时，说点真实感受</div>
+                                    <div class="ri-body">买之前最担心的就是虚标，所以特意连续测了两晚……</div>
+                                    <div class="ri-meta"><span>来源：发布工作流 · 帐篷灯</span><span>风格：真实体验</span><span
+                                            style="color:#b45309">合规：命中「最」字，已自动改写</span></div>
+                                </div>
+                                <div class="ri-acts"><button class="btn sm">淘汰</button><button
+                                        class="btn sm primary">采纳</button></div>
+                            </div>
+                            <div class="review-item">
+                                <input type="checkbox" />
+                                <div class="ri-main">
+                                    <div class="ri-title">评论 · 新手露营装备清单，预算 500 怎么配</div>
+                                    <div class="ri-body">照明这块建议单独留预算，续航虚标太普遍了，我踩过坑之后换了一盏能撑整晚的，体验差很多。</div>
+                                    <div class="ri-meta"><span>来源：推广工作流</span><span>相关性 94</span><span>合规：通过</span>
+                                    </div>
+                                </div>
+                                <div class="ri-acts"><button class="btn sm">淘汰</button><button
+                                        class="btn sm primary">采纳</button></div>
+                            </div>
+                            <div class="review-item">
+                                <input type="checkbox" />
+                                <div class="ri-main">
+                                    <div class="ri-title">评论 · 露营灯到底怎么选？看完这篇不踩坑</div>
+                                    <div class="ri-body">补充一点：一定要看防水等级，我之前那盏充电口进水就废了。</div>
+                                    <div class="ri-meta"><span>来源：推广工作流</span><span>相关性 91</span><span
+                                            style="color:#b91c1c">合规：命中导流变体，已拦截</span></div>
+                                </div>
+                                <div class="ri-acts"><button class="btn sm">改写</button><button
+                                        class="btn sm">淘汰</button></div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============ 8. 日志与审计 ============ -->
+                <section class="view" id="view-logs">
+                    <div class="card">
+                        <div class="card-h">
+                            <h3>任务时间线</h3>
+                            <span class="pill info"><span class="dot"></span>trace_id: 7f3a-9c21-4e8b</span>
+                            <div class="right">
+                                <select class="btn sm" style="padding:5px 9px">
+                                    <option>全部类型</option>
+                                    <option>用户操作</option>
+                                    <option>自动化步骤</option>
+                                    <option>LLM 调用</option>
+                                    <option>网络</option>
+                                    <option>系统错误</option>
+                                </select>
+                                <button class="btn sm">导出 JSON</button>
+                                <button class="btn sm">导出 CSV</button>
+                            </div>
+                        </div>
+                        <div class="card-b">
+                            <div class="tl">
+                                <div class="tl-item ok">
+                                    <div class="tl-t">任务启动 <span class="tl-time">20:14:02.113</span></div>
+                                    <div class="tl-d">kind=selection · 输入主题「露营灯」· 配额校验通过</div>
+                                </div>
+                                <div class="tl-item ok">
+                                    <div class="tl-t">采集步骤完成 <span class="tl-time">20:31:47.882</span></div>
+                                    <div class="tl-d">采集 68 条 · 去重后 61 条 · 平均 6.4s/条 · 无风控信号</div>
+                                    <div class="shot">截图 · 采集结果页</div>
+                                </div>
+                                <div class="tl-item ok">
+                                    <div class="tl-t">LLM 调用 <span class="tl-time">20:32:10.401</span></div>
+                                    <div class="tl-d">deepseek-chat · tokens 12,480 / 3,120 · 成本 ¥0.42 · 耗时 8.2s</div>
+                                </div>
+                                <div class="tl-item warn">
+                                    <div class="tl-t">人工闸门等待 <span class="tl-time">20:32:18.660</span></div>
+                                    <div class="tl-d">等待确认选品关键词 · 停留 2 分 14 秒后由用户确认</div>
+                                    <div class="shot">截图 · 确认弹窗</div>
+                                </div>
+                                <div class="tl-item ok">
+                                    <div class="tl-t">1688 检索完成 <span class="tl-time">20:41:03.220</span></div>
+                                    <div class="tl-d">候选 12 个 · 评分完成 · 支持一件代发 8 个</div>
+                                </div>
+                                <div class="tl-item err">
+                                    <div class="tl-t">步骤失败 · 已重试成功 <span class="tl-time">20:43:55.710</span></div>
+                                    <div class="tl-d">商品详情页选择器未命中 → 触发热更检查 → 重试 1 次成功</div>
+                                    <div class="shot">截图 · 失败现场</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-h">
+                            <h3>日志检索</h3><span class="hint">本地保留 90 天 · 网络日志仅记录域名/状态码/耗时</span>
+                        </div>
+                        <div class="card-b tight">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width:130px">时间</th>
+                                        <th style="width:110px">类型</th>
+                                        <th>内容</th>
+                                        <th style="width:140px">trace_id</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td class="mono">20:43:55.710</td>
+                                        <td><span class="tag red">系统错误</span></td>
+                                        <td>selector_miss: product_detail.title</td>
+                                        <td class="mono">7f3a-9c21</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="mono">20:41:03.220</td>
+                                        <td><span class="tag blue">自动化步骤</span></td>
+                                        <td>search_1688 完成，返回 12 条</td>
+                                        <td class="mono">7f3a-9c21</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="mono">20:32:10.401</td>
+                                        <td><span class="tag green">LLM 调用</span></td>
+                                        <td>report-agent 生成报告，成本 ¥0.42</td>
+                                        <td class="mono">7f3a-9c21</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="mono">20:32:18.660</td>
+                                        <td><span class="tag amber">用户操作</span></td>
+                                        <td>确认选品关键词 5 个</td>
+                                        <td class="mono">7f3a-9c21</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="mono">20:31:47.882</td>
+                                        <td><span class="tag blue">自动化步骤</span></td>
+                                        <td>collect_notes 完成，68 条</td>
+                                        <td class="mono">7f3a-9c21</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============ 9. 设置 ============ -->
+                <section class="view" id="view-settings">
+                    <div class="grid g2">
+                        <div class="card">
+                            <div class="card-h">
+                                <h3>LLM Key（BYOK）</h3><span class="hint">本地加密存储，永不上传</span>
+                            </div>
+                            <div class="card-b">
+                                <div class="okbox" style="margin-bottom:12px">
+                                    ✓ Key 使用 Windows DPAPI 加密落盘 · 界面对 Key 脱敏 · 仅发往你配置的服务商
+                                </div>
+                                <label class="f">服务商预设</label>
+                                <select style="margin-bottom:12px">
+                                    <option>DeepSeek</option>
+                                    <option>通义千问</option>
+                                    <option>智谱 GLM</option>
+                                    <option>OpenAI</option>
+                                    <option>硅基流动</option>
+                                    <option>自定义（OpenAI 兼容）</option>
+                                </select>
+                                <label class="f">Base URL</label>
+                                <input type="text" value="https://api.deepseek.com/v1" style="margin-bottom:12px" />
+                                <label class="f">API Key</label>
+                                <input type="password" value="sk-************************" style="margin-bottom:12px" />
+                                <label class="f">默认模型</label>
+                                <input type="text" value="deepseek-chat" style="margin-bottom:12px" />
+                                <div class="flex">
+                                    <button class="btn">验证 Key</button>
+                                    <button class="btn primary">保存</button>
+                                    <span class="muted" style="margin-left:auto">上次验证：320ms · 余额可用</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="card">
+                                <div class="card-h">
+                                    <h3>受控浏览器</h3>
+                                </div>
+                                <div class="card-b">
+                                    <div class="kv"><span class="k">接管状态</span><span class="v"
+                                            style="color:#047857">已接管</span></div>
+                                    <div class="kv"><span class="k">小红书会话</span><span class="v"
+                                            style="color:#047857">有效</span></div>
+                                    <div class="kv"><span class="k">1688 会话</span><span class="v"
+                                            style="color:#047857">有效</span></div>
+                                    <div class="kv"><span class="k">浏览器</span><span class="v">内置 Chromium 130.0</span>
+                                    </div>
+                                    <div class="kv"><span class="k">调试端口</span><span class="v mono">127.0.0.1:随机</span>
+                                    </div>
+                                    <div class="flex" style="margin-top:12px">
+                                        <button class="btn sm">打开小红书</button>
+                                        <button class="btn sm">打开 1688</button>
+                                        <button class="btn sm">断开接管</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card">
+                                <div class="card-h">
+                                    <h3>设备与会员</h3>
+                                </div>
+                                <div class="card-b">
+                                    <div class="kv"><span class="k">套餐</span><span class="v">季卡 · 团队版</span></div>
+                                    <div class="kv"><span class="k">到期时间</span><span class="v">2026-12-07（剩 58 天）</span>
+                                    </div>
+                                    <div class="kv"><span class="k">本机</span><span class="v">MacBook Pro · 已激活</span>
+                                    </div>
+                                    <div class="kv"><span class="k">设备 2</span><span class="v">Windows 台式 · 已激活</span>
+                                    </div>
+                                    <div class="kv"><span class="k">设备 3</span><span class="v"
+                                            style="color:var(--sub2)">未使用</span></div>
+                                    <div class="flex" style="margin-top:12px">
+                                        <button class="btn sm">解绑设备（30 天限 1 次）</button>
+                                        <button class="btn sm primary">续费</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card">
+                                <div class="card-h">
+                                    <h3>频控与配额</h3><span class="hint">仅可下调，不可超过硬上限</span>
+                                </div>
+                                <div class="card-b">
+                                    <div class="frow" style="margin-bottom:10px">
+                                        <div><label class="f">采集 / 日</label><input type="number" value="300"
+                                                max="300" /></div>
+                                        <div><label class="f">评论 / 日</label><input type="number" value="30" max="30" />
+                                        </div>
+                                        <div><label class="f">发布 / 日</label><input type="number" value="10" max="10" />
+                                        </div>
+                                    </div>
+                                    <div class="frow">
+                                        <div><label class="f">评论 / 小时</label><input type="number" value="6" max="6" />
+                                        </div>
+                                        <div><label class="f">禁跑时段</label><input type="text" value="02:00 – 07:00"
+                                                disabled /></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- ================= 弹窗：询盘确认 ================= -->
+    <div class="mask" id="modalInquiry">
+        <div class="modal">
+            <div class="modal-h">⚠️ <h3>确认发送询盘</h3>
+            </div>
+            <div class="modal-b">
+                <div class="warnbox" style="margin-bottom:14px">
+                    将向 <b>2 个供应商</b> 发送询盘并收藏其店铺。发送前请确认话术内容与数量无误。
+                </div>
+                <label class="f">询盘话术（可编辑）</label>
+                <textarea style="min-height:110px">你好，我们这边做小红书户外类目，对这款露营灯比较感兴趣。想咨询几个问题：
+1. 是否支持一件代发？代发价格是多少？
+2. 起订量能否再低一些？
+3. 现货库存和发货时效大概是怎样的？
+4. 能否提供主图与详情素材授权？</textarea>
+                <div class="divider"></div>
+                <div class="kv"><span class="k">目标供应商</span><span class="v">实力商家 A / 超级工厂 B</span></div>
+                <div class="kv"><span class="k">执行方式</span><span class="v">逐条拟人发送，间隔 8–20s</span></div>
+                <div class="kv"><span class="k">发送后动作</span><span class="v">收藏店铺 + 保存素材 + 归档沟通记录</span></div>
+            </div>
+            <div class="modal-f">
+                <button class="btn" onclick="closeModal('modalInquiry')">取消</button>
+                <button class="btn primary" onclick="closeModal('modalInquiry')">确认发送</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 弹窗：熔断通知 ================= -->
+    <div class="mask" id="modalFuse">
+        <div class="modal" style="width:460px">
+            <div class="modal-h">🔔 <h3>通知中心</h3>
+            </div>
+            <div class="modal-b">
+                <div class="review-item" style="padding:0 0 12px;border-bottom:1px solid var(--line2)">
+                    <div class="ri-main">
+                        <div class="ri-title" style="color:#b45309">⚠ 推广任务已熔断暂停</div>
+                        <div class="ri-body" style="font-size:11px">检测到评论失败率 23%（10 分钟窗口）。任务已暂停，冷却 30 分钟。请人工确认页面是否出现验证码。
+                        </div>
+                        <div class="ri-meta"><span>12 分钟前</span></div>
+                    </div>
+                </div>
+                <div class="review-item" style="padding:12px 0 0;border:none">
+                    <div class="ri-main">
+                        <div class="ri-title">✓ 发布任务完成</div>
+                        <div class="ri-body" style="font-size:11px">「收纳箱 · 对比避坑」已发布成功，回链已写入。用时 2 分 18 秒。</div>
+                        <div class="ri-meta"><span>1 小时前</span></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-f">
+                <button class="btn" onclick="closeModal('modalFuse')">关闭</button>
+                <button class="btn primary" onclick="closeModal('modalFuse')">去处理</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 弹窗：评分权重 ================= -->
+    <div class="mask" id="modalScore">
+        <div class="modal" style="width:440px">
+            <div class="modal-h">⚙️ <h3>评分权重调整</h3>
+            </div>
+            <div class="modal-b">
+                <div class="infobox" style="margin-bottom:14px">
+                    权重调整会立即重算候选清单。你的勾选/淘汰行为会本地学习并自动微调权重（不上传）。
+                </div>
+                <div class="kv"><span class="k">价格竞争力</span><span class="v">25%</span></div>
+                <div class="kv"><span class="k">起订量</span><span class="v">15%</span></div>
+                <div class="kv"><span class="k">销量 / 复购</span><span class="v">20%</span></div>
+                <div class="kv"><span class="k">供应商等级</span><span class="v">20%</span></div>
+                <div class="kv"><span class="k">货描 / 响应 / 回头率</span><span class="v">15%</span></div>
+                <div class="kv"><span class="k">一件代发</span><span class="v">5%</span></div>
+            </div>
+            <div class="modal-f">
+                <button class="btn" onclick="closeModal('modalScore')">取消</button>
+                <button class="btn primary" onclick="closeModal('modalScore')">保存并重算</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 弹窗：发布确认 ================= -->
+    <div class="mask" id="modalPublish">
+        <div class="modal" style="width:460px">
+            <div class="modal-h">✎ <h3>确认加入发布队列</h3>
+            </div>
+            <div class="modal-b">
+                <div class="okbox" style="margin-bottom:14px">
+                    ✓ 已通过合规三道闸 · 图片已裁为 3:4 · 文案版本 A 已选定
+                </div>
+                <div class="kv"><span class="k">商品</span><span class="v">USB 充电露营灯 三档调光</span></div>
+                <div class="kv"><span class="k">风格</span><span class="v">种草测评</span></div>
+                <div class="kv"><span class="k">计划时间</span><span class="v">今天 20:00</span></div>
+                <div class="kv"><span class="k">今日剩余配额</span><span class="v">4 条</span></div>
+                <div class="kv"><span class="k">防重机制</span><span class="v">已写入意图记录（幂等键）</span></div>
+            </div>
+            <div class="modal-f">
+                <button class="btn" onclick="closeModal('modalPublish')">取消</button>
+                <button class="btn primary" onclick="closeModal('modalPublish')">确认入队</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const titles = {
+            dashboard: ['工作台', '全链路选品 · 发布 · 推广'],
+            insight: ['市场洞察', '关键词 → 笔记采集 → 需求报告'],
+            report: ['需求报告', 'AI 分析结果 · 可一键转入选品'],
+            sourcing: ['智能选品', '1688 检索 · 多维评分 · 询盘对接'],
+            publish: ['内容发布', '文案生成 · 挑图裁剪 · 定时队列'],
+            promo: ['推广引流', '帖子筛选 · 评论待审 · 频控熔断'],
+            review: ['待审池', 'AI 产出人工确认门禁'],
+            logs: ['日志与审计', '五类日志 · trace 回放 · 导出'],
+            settings: ['设置', 'Key · 浏览器 · 设备 · 配额']
+        };
+
+        function go(view) {
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.getElementById('view-' + view).classList.add('active');
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view));
+            document.getElementById('pageTitle').textContent = titles[view][0];
+            document.getElementById('pageSub').textContent = titles[view][1];
+            document.querySelector('.content').scrollTop = 0;
+        }
+
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', () => go(item.dataset.view));
+        });
+
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const siblings = tab.parentElement.querySelectorAll('.tab');
+                siblings.forEach(s => s.classList.remove('active'));
+                tab.classList.add('active');
+            });
+        });
+
+        function openModal(id) { document.getElementById(id).classList.add('show'); }
+        function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+        document.querySelectorAll('.mask').forEach(m => {
+            m.addEventListener('click', e => { if (e.target === m) m.classList.remove('show'); });
+        });
+
+        // 演示：采集进度动画
+        let collecting = false;
+        function startCollect() {
+            if (collecting) return;
+            collecting = true;
+            let n = 68;
+            const bar = document.getElementById('collectBar');
+            const pct = document.getElementById('collectPct');
+            const timer = setInterval(() => {
+                n += 2;
+                if (n >= 200) { n = 200; clearInterval(timer); collecting = false; }
+                bar.style.width = (n / 200 * 100) + '%';
+                pct.textContent = n + ' / 200';
+            }, 220);
+        }
+    </script>
+</body>
+
+</html>

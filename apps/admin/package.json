@@ -1,0 +1,7 @@
+{
+  "name": "@xinglian/admin",
+  "private": true,
+  "scripts": {
+    "lint": "eslint --no-error-on-unmatched-pattern --no-warn-ignored ."
+  }
+}

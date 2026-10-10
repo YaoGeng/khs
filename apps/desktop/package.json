@@ -1,0 +1,13 @@
+{
+  "name": "@xinglian/desktop",
+  "private": true,
+  "scripts": {
+    "lint": "eslint .",
+    "build": "node -e \"fs.cpSync('src','out',{recursive:true})\"",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "electron": "^33",
+    "electron-builder": "^25"
+  }
+}

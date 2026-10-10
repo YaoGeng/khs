@@ -1,0 +1,11 @@
+{
+  "name": "@xinglian/server",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "lint": "eslint .",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  }
+}

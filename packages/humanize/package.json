@@ -1,0 +1,9 @@
+{
+  "name": "@xinglian/humanize",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  }
+}
