@@ -9,7 +9,7 @@
  *   当前批不重放（replay）——丢失面与 ADR-8「日志类可丢、任务类以事件流水可重建」口径一致。
  * 本模块 electron-free（transport 注入），vitest 以内存 transport + 真实 worker 内核直测。
  */
-import { STORE_ERROR_CODES, type CreateTaskInput, type LogQueryFilter, type LogRowInput, type LogRowView, type StepInput, type StepRowView, type StoreRequest, type StoreResponse, type TaskEventInput, type TaskEventRowView, type TaskRowView, type TaskStatus, type TaskStatusInput } from './protocol';
+import { STORE_ERROR_CODES, type ConsentInput, type ConsentRowView, type CreateTaskInput, type LogQueryFilter, type LogRowInput, type LogRowView, type StepInput, type StepRowView, type StoreRequest, type StoreResponse, type TaskEventInput, type TaskEventRowView, type TaskRowView, type TaskStatus, type TaskStatusInput } from './protocol';
 // eslint-disable-next-line no-restricted-imports -- todo 11：RetentionPolicy 类型源=logger 基础设施包（边界例外已记录于证据文件）
 import type { RetentionPolicy } from '@xinglian/logger';
 
@@ -74,6 +74,10 @@ export interface StoreClient {
   listTaskEvents(taskId: string): Promise<TaskEventRowView[]>;
   queryLogs(filter: LogQueryFilter): Promise<LogRowView[]>;
   pruneLogs(policy: RetentionPolicy): Promise<{ localDeleted: number; networkDeleted: number }>;
+  /** 合规留痕写（todo 9：EULA 确认/拒绝、遥测开关；durable 通道，禁止丢） */
+  putConsent(consent: ConsentInput): Promise<{ written: boolean; id: number }>;
+  /** 合规留痕现值（FR-1.9 门态 / FR-12.6 遥测现值的 store 查询入口） */
+  getLatestConsents(): Promise<{ eula: ConsentRowView | null; telemetry: ConsentRowView | null }>;
   stats(): StoreStats;
   close(): Promise<void>;
 }
@@ -308,6 +312,13 @@ export function createStoreClient(options: StoreClientOptions): StoreClient {
       return data.rows;
     },
     pruneLogs: (policy: RetentionPolicy) => unwrap(dispatch(false, (id) => ({ id, type: 'pruneLogs', policy }))),
+    putConsent: (consent: ConsentInput) => unwrap(dispatch(false, (id) => ({ id, type: 'putConsent', consent }))),
+    getLatestConsents: async () => {
+      const data = await unwrap<{ eula: ConsentRowView | null; telemetry: ConsentRowView | null }>(
+        dispatch(false, (id) => ({ id, type: 'getLatestConsents' })),
+      );
+      return data;
+    },
     stats: () => ({ ...statsState }),
     close: async () => {
       closing = true;

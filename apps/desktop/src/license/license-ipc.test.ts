@@ -10,6 +10,7 @@ import {
   LicenseStatusResultSchema,
 } from '../shared/schemas';
 import { buildIpcRegistry, invokeIpcEntry, type AppInfoDeps, type LicenseIpcDeps, type IpcInvokeResult } from '../main/ipc-core';
+import type { ConsentStateResult } from '../shared/schemas';
 
 const unlockedStatus = {
   state: 'unlocked' as const,
@@ -33,6 +34,24 @@ const logTaskStub = {
   cancelTask: async (taskId: string) => ({ taskId, status: 'cancelled' }),
 };
 
+/** todo 9：合规依赖 stub（真实逻辑在 compliance/*.test.ts 单测；license 测试只保注册表契约） */
+const acceptedState: ConsentStateResult = {
+  eulaVersion: '0.1.0-draft',
+  eulaStatus: 'accepted',
+  requiresConfirm: false,
+  confirmedVersion: '0.1.0-draft',
+  confirmedAt: '2026-10-11T00:00:00.000Z',
+  rejectedAt: null,
+  telemetryConsent: 'unasked',
+};
+const consentStub = {
+  state: async () => acceptedState,
+  acceptEula: async () => acceptedState,
+  rejectEula: async () => acceptedState,
+  setTelemetry: async () => acceptedState,
+  isViewAllowed: () => true,
+};
+
 function makeDeps(license: Partial<LicenseIpcDeps>): AppInfoDeps {
   return {
     appInfo: () => ({
@@ -46,6 +65,7 @@ function makeDeps(license: Partial<LicenseIpcDeps>): AppInfoDeps {
       status: license.status ?? (() => unlockedStatus),
     },
     logTask: logTaskStub,
+    consent: consentStub,
   };
 }
 

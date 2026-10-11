@@ -6,11 +6,30 @@
 import { describe, expect, it } from 'vitest';
 import { IPC_CHANNELS, IPC_ERRORS } from './shared/channels';
 import { buildIpcRegistry, invokeIpcEntry, type AppInfoDeps, type IpcInvokeResult } from './main/ipc-core';
+import type { ConsentStateResult } from './shared/schemas';
 
 /** todo 8：license 依赖 stub（真实逻辑在 license-manager.test.ts 单测；此处只保注册表契约） */
 const licenseStub = {
   activate: () => ({ state: 'locked' as const, reason: 'NO_LICENSE' }),
   status: () => ({ state: 'locked' as const, reason: 'NO_LICENSE' }),
+};
+
+/** todo 9：合规依赖 stub（真实逻辑在 compliance/*.test.ts 单测；此处只保注册表契约） */
+const acceptedState: ConsentStateResult = {
+  eulaVersion: '0.1.0-draft',
+  eulaStatus: 'accepted',
+  requiresConfirm: false,
+  confirmedVersion: '0.1.0-draft',
+  confirmedAt: '2026-10-11T00:00:00.000Z',
+  rejectedAt: null,
+  telemetryConsent: 'unasked',
+};
+const consentStub = {
+  state: async () => acceptedState,
+  acceptEula: async () => acceptedState,
+  rejectEula: async () => acceptedState,
+  setTelemetry: async () => acceptedState,
+  isViewAllowed: () => true,
 };
 
 /** todo 11：日志/任务依赖 stub（真实逻辑在 store/*.test.ts、tasks/*.test.ts 单测） */
@@ -31,6 +50,7 @@ const deps: AppInfoDeps = {
   }),
   license: licenseStub,
   logTask: logTaskStub,
+  consent: consentStub,
 };
 
 function expectOk(result: IpcInvokeResult): { data: unknown } {

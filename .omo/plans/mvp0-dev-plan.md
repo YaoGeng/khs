@@ -177,7 +177,7 @@ Your next move: 双审进行中——plan-consultant 缺口分析后交 plan-rev
   QA scenarios (name the exact tool + invocation): happy=e2e 全链路（headful 真实浏览器）；failure=杀浏览器进程→任务 suspended→重拉恢复到检查点（与 todo 11 联动）, Evidence .omo/evidence/mvp0-dev-plan/task-10-mvp0-dev-plan.log
   Commit: Y | feat(browser): controlled browser launch, CDP takeover, session health
   Recommended task executor category: unspecified-high（标准多文件桌面特性，真实浏览器集成）
-- [ ] 11. 日志/store+最小任务运行器（映射 T-M0-09+D7 扩展）
+- [x] 11. 日志/store+最小任务运行器（映射 T-M0-09+D7 扩展）
   What to do / Must NOT do: packages/logger+apps/desktop store：pino NDJSON 五类日志（用户操作/自动化步骤/LLM 调用/网络元数据/系统错误，01:218 FR-10.1、02:569-578 §10.1）+logs 表 SQLite 索引+trace_id/span_id 贯穿（02:579-583 §10.2）+本地 90 天/网络元数据 30 天保留（01:220 FR-10.3）；better-sqlite3+drizzle WAL+版本迁移链（02:197-215 §4.2，按 todo 6 ADR-8 结论落位）；D7 批准的最小任务运行器：tasks/task_steps/task_events 三表（02:709-710）+XState v5 任务生命周期（02:428-454 §9.1）+启动恢复 running→suspended 降级（02:453）+按 task_steps 检查点续跑（02:257-262 §6.1）；内置 kind=demo 合成任务（2-3 个带 checkpoint 的哑步骤）作为门禁④唯一演示载体（M0 无业务 DAG，禁止为演示提前实现业务步骤）。Must NOT do：不实现采集/发布 DAG 具体步骤（M1-M3）；不做日志导出 UI；不做 LLM 成本计量。
   Closes: GAP-2
   Parallelization: Wave 5 | Blocked by: 6（05:64） | Blocks: 无（M1 DAG 消费）

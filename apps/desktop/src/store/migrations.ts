@@ -109,9 +109,38 @@ function downV1(db: SqliteDatabase): void {
   `);
 }
 
-/** 迁移链：只追加不回改（发布后已应用版本不可变更，M1+ 走 0002+） */
+/**
+ * 0002 合规（todo 9 = T-M0-11；FR-1.9 / FR-12.6）：consents 表。
+ * 追加式事件留痕：每条 = 一次同意动作（EULA 接受/拒绝、遥测开/关）；
+ * 现值语义由消费方按「最新一条」解析（见 compliance/eula.ts resolveEulaGate）。
+ */
+function upV2(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE consents (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      subject           TEXT    NOT NULL,
+      action            TEXT    NOT NULL,
+      eula_version      TEXT,
+      telemetry_consent INTEGER,
+      created_at        TEXT    NOT NULL
+    );
+    CREATE INDEX idx_consents_subject ON consents (subject, id);
+    CREATE INDEX idx_consents_tele_consent ON consents (telemetry_consent, id);
+  `);
+}
+
+function downV2(db: SqliteDatabase): void {
+  db.exec(`
+    DROP INDEX IF EXISTS idx_consents_tele_consent;
+    DROP INDEX IF EXISTS idx_consents_subject;
+    DROP TABLE IF EXISTS consents;
+  `);
+}
+
+/** 迁移链：只追加不回改（发布后已应用版本不可变更，M1+ 走 0003+） */
 export const MIGRATIONS: readonly MigrationStep[] = [
   { version: 1, name: '0001-initial-m0-tables', up: upV1, down: downV1 },
+  { version: 2, name: '0002-consents-compliance', up: upV2, down: downV2 },
 ];
 
 function ensureLedger(db: SqliteDatabase): void {

@@ -7,7 +7,7 @@
  * 事务粒度（ADR-8 §7.2）：insertLogs 分片 ≤100 行/事务；其余单行写各自成事务。
  */
 import { openAndMigrate } from './db';
-import { STORE_ERROR_CODES, type StoreRequest, type StoreResponse, type CreateTaskInput, type LogQueryFilter, type StepInput, type TaskEventInput, type TaskStatusInput, type RetentionPolicy } from './protocol';
+import { STORE_ERROR_CODES, type ConsentInput, type ConsentRowView, type StoreRequest, type StoreResponse, type CreateTaskInput, type LogQueryFilter, type StepInput, type TaskEventInput, type TaskStatusInput, type RetentionPolicy } from './protocol';
 
 type SqliteDatabase = import('better-sqlite3').SqliteDatabase;
 
@@ -247,6 +247,38 @@ export function handleStoreRequest(db: SqliteDatabase, request: StoreRequest): {
         };
       }
 
+      case 'putConsent': {
+        const consent = request.consent as ConsentInput;
+        const result = db
+          .prepare(
+            `INSERT INTO consents (subject, action, eula_version, telemetry_consent, created_at)
+             VALUES (?, ?, ?, ?, ?)`,
+          )
+          .run(
+            consent.subject,
+            consent.action,
+            consent.eulaVersion ?? null,
+            consent.telemetryConsent === undefined ? null : consent.telemetryConsent ? 1 : 0,
+            consent.at ?? new Date().toISOString(),
+          );
+        return { written: true, id: Number(result.lastInsertRowid) };
+      }
+
+      case 'getLatestConsents': {
+        // eula 现值 = subject='eula' 的最新一条（accepted/rejected 均含）；
+        // 遥测现值 = telemetry_consent 非空的最新一条（eula accepted 行与 telemetry 开关行统一按 id 时序竞争）
+        const eula = db
+          .prepare("SELECT * FROM consents WHERE subject = 'eula' ORDER BY id DESC LIMIT 1")
+          .get() as Record<string, unknown> | undefined;
+        const telemetry = db
+          .prepare('SELECT * FROM consents WHERE telemetry_consent IS NOT NULL ORDER BY id DESC LIMIT 1')
+          .get() as Record<string, unknown> | undefined;
+        return {
+          eula: eula ? consentRowToView(eula) : null,
+          telemetry: telemetry ? consentRowToView(telemetry) : null,
+        };
+      }
+
       default: {
         const exhaustive: never = request;
         throw new Error(`unknown store request: ${(exhaustive as { type?: string }).type ?? '?'}`);
@@ -281,6 +313,17 @@ function stepRowToView(row: Record<string, unknown>): Record<string, unknown> {
     status: row.status,
     output: parseJsonOrNull(row.output_json as string | null),
     checkpointAt: row.checkpoint_at,
+  };
+}
+
+function consentRowToView(row: Record<string, unknown>): ConsentRowView {
+  return {
+    id: Number(row.id),
+    subject: String(row.subject),
+    action: String(row.action),
+    eulaVersion: (row.eula_version as string | null) ?? null,
+    telemetryConsent: row.telemetry_consent === null || row.telemetry_consent === undefined ? null : Number(row.telemetry_consent) === 1,
+    createdAt: String(row.created_at),
   };
 }
 

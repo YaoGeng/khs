@@ -1,5 +1,4 @@
-/* 星链桌面壳样式（M0 骨架；全部为外链样式，CSP style-src 'self' 下加载）。
-   结构参照 c端原型.html（只读参照，风格不做硬性要求）。 */
+﻿/* 鏄熼摼妗岄潰澹虫牱寮忥紙M0 楠ㄦ灦锛涘叏閮ㄤ负澶栭摼鏍峰紡锛孋SP style-src 'self' 涓嬪姞杞斤級銆?   缁撴瀯鍙傜収 c绔師鍨?html锛堝彧璇诲弬鐓э紝椋庢牸涓嶅仛纭€ц姹傦級銆?*/
 
 :root {
   --bg: #f5f6f8;
@@ -32,7 +31,7 @@ body {
   line-height: 1.5;
 }
 
-/* ---------- 启动骨架屏（C-3 招三） ---------- */
+/* ---------- 鍚姩楠ㄦ灦灞忥紙C-3 鎷涗笁锛?---------- */
 .boot-skeleton {
   position: fixed;
   inset: 0;
@@ -100,7 +99,7 @@ body {
   font-size: 12px;
 }
 
-/* ---------- 壳布局 ---------- */
+/* ---------- 澹冲竷灞€ ---------- */
 .app {
   display: flex;
   height: 100vh;
@@ -206,6 +205,8 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* EULA 弹窗 overlay 的定位容器（todo 9：覆盖内容区、不盖侧边栏） */
+  position: relative;
 }
 
 .topbar {
@@ -287,7 +288,7 @@ body {
   color: var(--sub);
 }
 
-/* ---------- 登录占位 ---------- */
+/* ---------- 鐧诲綍鍗犱綅 ---------- */
 .login-card {
   display: flex;
   flex-direction: column;
@@ -323,7 +324,7 @@ body {
   font-size: 11px;
 }
 
-/* ---------- license 状态与锁定（todo 8 = T-M0-07，FR-1.5/1.6） ---------- */
+/* ---------- license 鐘舵€佷笌閿佸畾锛坱odo 8 = T-M0-07锛孎R-1.5/1.6锛?---------- */
 .license-lock-banner {
   margin: 10px 0;
   padding: 10px 12px;
@@ -333,7 +334,7 @@ body {
   color: #e08074;
 }
 
-/* 锁定态执行入口：置灰（disabled 由 renderer 依 license 状态机设置） */
+/* 閿佸畾鎬佹墽琛屽叆鍙ｏ細缃伆锛坉isabled 鐢?renderer 渚?license 鐘舵€佹満璁剧疆锛?*/
 .workflow-entry[disabled] {
   opacity: 0.38;
   cursor: not-allowed;
@@ -345,7 +346,7 @@ body {
   font-size: 11px;
 }
 
-/* 设置页：激活卡片 */
+/* 璁剧疆椤碉細婵€娲诲崱鐗?*/
 .settings-card {
   margin-top: 14px;
   background: var(--panel);
@@ -398,7 +399,7 @@ body {
   font-size: 11px;
 }
 
-/* ===== todo 11：日志视图 + demo 任务（占位级样式） ===== */
+/* ===== todo 11锛氭棩蹇楄鍥?+ demo 浠诲姟锛堝崰浣嶇骇鏍峰紡锛?===== */
 .logs-toolbar { display: flex; gap: 12px; align-items: end; margin: 12px 0; flex-wrap: wrap; }
 .logs-filter-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #57606a; }
 .logs-filter-label select,
@@ -411,3 +412,103 @@ body {
 .settings-card h3 { margin: 0 0 8px; font-size: 14px; }
 .demo-task-status { font-size: 12px; color: #57606a; }
 .demo-task-line { font-size: 12px; color: #24292f; margin: 6px 0; }
+
+/* ===== todo 9：EULA 首启确认弹窗 + 遥测设置卡（FR-1.9/FR-12.6） ===== */
+.modal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+/* [hidden] 必须压过 .modal-overlay 的 display:flex（作者样式优先级高于 UA 的 [hidden]） */
+.modal-overlay[hidden] {
+  display: none;
+}
+
+.modal-card {
+  width: min(720px, calc(100% - 48px));
+  max-height: calc(100% - 48px);
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #d0d7de;
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.25);
+  padding: 20px 24px;
+}
+
+.modal-card h2 { margin: 0 0 4px; font-size: 18px; }
+.eula-version-line { margin: 0 0 8px; font-size: 12px; color: #57606a; }
+.eula-reconfirm-note {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fff8c5;
+  border: 1px solid #d4a72c;
+  font-size: 12px;
+  color: #4d2d00;
+}
+
+.eula-body {
+  overflow: auto;
+  max-height: 320px;
+  border: 1px solid #eaeef2;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #24292f;
+}
+
+.eula-body h3 { margin: 10px 0 4px; font-size: 13px; }
+.eula-body p { margin: 4px 0; }
+
+.eula-optin {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 12px 0 4px;
+  font-size: 12px;
+  color: #24292f;
+}
+
+.eula-optin input { margin-top: 2px; }
+
+.eula-actions { display: flex; gap: 12px; margin-top: 12px; }
+
+.eula-reject-msg {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #ffebe9;
+  border: 1px solid #cf222e;
+  font-size: 12px;
+  color: #cf222e;
+}
+
+.eula-nav-banner {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fff8c5;
+  border: 1px solid #d4a72c;
+  font-size: 12px;
+  color: #4d2d00;
+}
+
+.telemetry-toggle-line { display: flex; gap: 8px; align-items: center; font-size: 13px; color: #24292f; margin: 8px 0; }
+.telemetry-status-line { font-size: 12px; color: #57606a; }
+.telemetry-anonymization-note {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  font-size: 11px;
+  line-height: 1.7;
+  color: #57606a;
+}

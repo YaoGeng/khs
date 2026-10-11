@@ -25,4 +25,5 @@ export type { MigrationStep, MigrateOptions, MigrateReport, MigrationErrorCode }
 export { openAndMigrate, migrateBeforeWindow, applyWritePragmas, STORE_PRAGMAS } from './db';
 export { MAX_BATCH_ROWS, handleStoreRequest } from './worker';
 export { createUtilityProcessTransport } from './worker-host';
-export { tasks, taskSteps, taskEvents, logs, schemaMigrations } from './schema';
+export { tasks, taskSteps, taskEvents, logs, schemaMigrations, consents } from './schema';
+export type { ConsentInput, ConsentRowView, ConsentSubject } from './protocol';

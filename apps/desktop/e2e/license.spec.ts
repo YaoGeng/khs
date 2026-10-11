@@ -14,6 +14,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { ensureEulaAccepted } from './helpers';
 
 const pkgRoot = path.join(__dirname, '..');
 // Electron 二进制与 shell.spec.ts 同源（apps/desktop/node_modules/electron）
@@ -93,6 +94,8 @@ test.describe.serial('license 锁定状态机 e2e（FR-1.5/FR-1.6）', () => {
     });
     const page = await electronApp.firstWindow();
     await page.waitForSelector('html[data-app-mounted="1"]', { timeout: 30_000 });
+    // todo 9：EULA 首启门种子（真实 consent:acceptEula 通道；不改本文件任何旧断言）
+    await ensureEulaAccepted(page);
     return { electronApp, page };
   }
 

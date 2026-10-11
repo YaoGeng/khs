@@ -147,10 +147,45 @@ export type LicenseActivateParams = z.infer<typeof LicenseActivateParamsSchema>;
 export type LicenseStatusParams = z.infer<typeof LicenseStatusParamsSchema>;
 export type LicenseStatusResult = z.infer<typeof LicenseStatusResultSchema>;
 
+/* consent:* —— 合规同意门（todo 9 = T-M0-11：FR-1.9 EULA 首启确认 / FR-12.6 遥测 opt-in） */
+
+export const ConsentStateParamsSchema = z.strictObject({});
+export const ConsentAcceptParamsSchema = z.strictObject({
+  /** 弹窗内遥测勾选（独立于 EULA 同意；默认不勾 = opt-in） */
+  telemetryConsent: z.boolean(),
+});
+export const ConsentRejectParamsSchema = z.strictObject({});
+export const ConsentSetTelemetryParamsSchema = z.strictObject({
+  enabled: z.boolean(),
+});
+
+/**
+ * consent 门态统一出口（四个 consent 通道共用；renderer 据此渲染弹窗/路由锁/遥测开关）。
+ * eulaStatus：unconfirmed=无记录（首启）；accepted=已确认当前版；
+ * rejected=已拒绝当前版；version-changed=有记录但版本不匹配（重确认）。
+ */
+export const ConsentStateResultSchema = z.object({
+  eulaVersion: z.string().min(1),
+  eulaStatus: z.enum(['unconfirmed', 'accepted', 'rejected', 'version-changed']),
+  requiresConfirm: z.boolean(),
+  confirmedVersion: z.string().nullable(),
+  confirmedAt: z.string().nullable(),
+  rejectedAt: z.string().nullable(),
+  telemetryConsent: z.enum(['granted', 'denied', 'unasked']),
+});
+
+export type ConsentStateResult = z.infer<typeof ConsentStateResultSchema>;
+export type ConsentAcceptParams = z.infer<typeof ConsentAcceptParamsSchema>;
+export type ConsentSetTelemetryParams = z.infer<typeof ConsentSetTelemetryParamsSchema>;
+
 /** 通道 → 入参 schema。preload 与 main 侧都从这里取，保证两侧校验一致。 */
 export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'app:info': AppInfoParamsSchema,
   'app:navigate': NavigateParamsSchema,
+  'consent:state': ConsentStateParamsSchema,
+  'consent:acceptEula': ConsentAcceptParamsSchema,
+  'consent:rejectEula': ConsentRejectParamsSchema,
+  'consent:setTelemetry': ConsentSetTelemetryParamsSchema,
   'logs:ping': LogsPingParamsSchema,
   'logs:query': LogsQueryParamsSchema,
   'license:activate': LicenseActivateParamsSchema,

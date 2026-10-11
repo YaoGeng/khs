@@ -7,8 +7,10 @@
  * → 延迟加载重模块（C-3 招一；store worker 的 fork 为异步旁路，不阻塞窗口路径）。
  */
 import { app, BrowserWindow } from 'electron';
-import { CONTRACT_VERSION } from './shared/channels';
+import { EULA_LOCKED_VIEWS, CONTRACT_VERSION } from './shared/channels';
 import { registerIpcHandlers } from './main/ipc';
+import { createComplianceService, type ComplianceService } from './compliance/compliance-service';
+import { resolveEulaVersion } from './compliance/eula';
 import { createLicenseService } from './main/license-service';
 import { createDeferredBootstrap } from './main/lazy';
 import { createMainWindow } from './main/window';
@@ -42,6 +44,9 @@ if (userDirOverride) {
 // todo 11：store/日志/运行器服务（worker fork 为异步；ready 前注册的 IPC 依赖其 promise）
 let storeService: StoreService | null = null;
 
+// todo 9：合规服务（EULA 首启确认门 + 遥测 opt-in；确认记录经 store 落 consents 表）
+let complianceService: ComplianceService | null = null;
+
 // 02 §4.2 shell 行「单实例锁」：二次启动直接退出，由已有实例接管（second-instance 聚焦）
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -69,6 +74,14 @@ if (!gotLock) {
     storeService = createStoreService(paths, `${__dirname}/store-worker.js`);
     attachMigrationReport(storeService, migration);
 
+    // todo 9：合规服务（dev/test seam：XINGLIAN_EULA_VERSION 覆盖 EULA 版本模拟升级重确认）
+    complianceService = createComplianceService({
+      store: storeService.store,
+      eulaVersion: resolveEulaVersion(),
+      lockedViews: EULA_LOCKED_VIEWS,
+      onLocalRecord: (record) => storeService?.logger.userAction(record.msg, record.payload),
+    });
+
     registerIpcHandlers({
       appInfo: () => ({
         appVersion: app.getVersion(),
@@ -80,6 +93,8 @@ if (!gotLock) {
       license: createLicenseService(app.getPath('userData')),
       // todo 11：logs:query + demo 任务运行器
       logTask: storeService.ipc,
+      // todo 9：EULA 首启确认门 + 遥测 opt-in
+      consent: complianceService.ipc,
     });
 
     createMainWindow({

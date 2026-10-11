@@ -133,7 +133,7 @@ describe('client 基本链路（真实 worker 内核 + 真实 SQLite）', () => 
     const harness = makeHarness();
     const client = makeClient(harness);
     const version = await client.whenReady();
-    expect(version).toBe(1);
+    expect(version).toBe(2);
 
     const created = await client.createTask({ id: 't-1', kind: 'demo' });
     expect(created.created).toBe(true);
@@ -151,6 +151,26 @@ describe('client 基本链路（真实 worker 内核 + 真实 SQLite）', () => 
     expect(await client.listSteps('t-1')).toHaveLength(1);
     await client.writeTaskEvent({ taskId: 't-1', type: 'TASK_START', fromState: 'idle', toState: 'running' });
     expect(await client.listTaskEvents('t-1')).toHaveLength(1);
+
+    // todo 9：consent 留痕往返（写 → 现值读回；版本号/时间戳/遥测字段齐）
+    const written = await client.putConsent({
+      subject: 'eula',
+      action: 'accepted',
+      eulaVersion: '0.1.0-draft',
+      telemetryConsent: true,
+      at: '2026-10-11T00:00:00.000Z',
+    });
+    expect(written.written).toBe(true);
+    const consents = await client.getLatestConsents();
+    expect(consents.eula).toMatchObject({
+      subject: 'eula',
+      action: 'accepted',
+      eulaVersion: '0.1.0-draft',
+      telemetryConsent: true,
+      createdAt: '2026-10-11T00:00:00.000Z',
+    });
+    expect(consents.telemetry).toMatchObject({ subject: 'eula', telemetryConsent: true });
+
     await client.close();
   });
 

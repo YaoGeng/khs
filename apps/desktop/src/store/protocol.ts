@@ -106,6 +106,32 @@ export interface TaskEventRowView {
   createdAt: string;
 }
 
+/* ------------------------------ 合规留痕（todo 9：FR-1.9 EULA 确认 / FR-12.6 遥测 opt-in） ------------------------------ */
+
+export type ConsentSubject = 'eula' | 'telemetry';
+
+/** 一次同意动作（追加式留痕；确认记录含 eula_version + created_at（=confirmed_at）+ telemetry_consent） */
+export interface ConsentInput {
+  subject: ConsentSubject;
+  /** 'accepted' | 'rejected'（EULA）；'enabled' | 'disabled'（遥测开关） */
+  action: string;
+  /** EULA 动作必带；遥测动作为空 */
+  eulaVersion?: string;
+  /** 遥测选择（eula accepted / telemetry 开关行为必带；rejected 为空） */
+  telemetryConsent?: boolean;
+  /** 留痕时间（ISO；缺省取 worker 当前时间） */
+  at?: string;
+}
+
+export interface ConsentRowView {
+  id: number;
+  subject: string;
+  action: string;
+  eulaVersion: string | null;
+  telemetryConsent: boolean | null;
+  createdAt: string;
+}
+
 /* ------------------------------ 请求 ------------------------------ */
 
 interface RequestBase {
@@ -124,7 +150,9 @@ export type StoreRequest =
   | (RequestBase & { type: 'listSteps'; taskId: string })
   | (RequestBase & { type: 'listTaskEvents'; taskId: string })
   | (RequestBase & { type: 'queryLogs'; filter: LogQueryFilter })
-  | (RequestBase & { type: 'pruneLogs'; policy: RetentionPolicy });
+  | (RequestBase & { type: 'pruneLogs'; policy: RetentionPolicy })
+  | (RequestBase & { type: 'putConsent'; consent: ConsentInput })
+  | (RequestBase & { type: 'getLatestConsents' });
 
 export type StoreRequestType = StoreRequest['type'];
 

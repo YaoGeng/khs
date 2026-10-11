@@ -12,6 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { ensureEulaAccepted } from './helpers';
 
 const pkgRoot = path.join(__dirname, '..');
 const requireFromDesktop = createRequire(path.join(pkgRoot, 'noop.js'));
@@ -58,6 +59,8 @@ test.describe.serial('kill-recover（05 门禁④：真 kill → suspended → �
     });
     const page = await electronApp.firstWindow();
     await page.waitForSelector('html[data-app-mounted="1"]', { timeout: 30_000 });
+    // todo 9：EULA 首启门种子（真实 consent:acceptEula 通道；同库已确认时为 no-op，不改旧断言）
+    await ensureEulaAccepted(page);
     return { electronApp, page };
   }
 

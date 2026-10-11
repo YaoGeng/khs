@@ -24,32 +24,35 @@ function dbFile(name = 'test.db'): string {
   return path.join(dir, name);
 }
 
-describe('v0 → v1 升级', () => {
-  it('全新库：0001 建 logs/tasks/task_steps/task_events 四表并记账', () => {
+describe('v0 → v2 升级', () => {
+  it('全新库：0001 建 logs/tasks/task_steps/task_events 四表并记账，0002 建 consents 表', () => {
     const { db, migration } = openAndMigrate(dbFile());
     try {
       expect(migration?.fromVersion).toBe(0);
-      expect(migration?.toVersion).toBe(1);
-      expect(currentVersion(db)).toBe(1);
+      expect(migration?.toVersion).toBe(2);
+      expect(currentVersion(db)).toBe(2);
       const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as Array<{ name: string }>).map((r) => r.name);
-      for (const t of ['logs', 'tasks', 'task_steps', 'task_events', 'schema_migrations']) {
+      for (const t of ['logs', 'tasks', 'task_steps', 'task_events', 'consents', 'schema_migrations']) {
         expect(tables).toContain(t);
       }
       const ledger = appliedVersions(db);
-      expect(ledger).toHaveLength(1);
+      expect(ledger).toHaveLength(2);
       expect(ledger[0]?.version).toBe(1);
       expect(ledger[0]?.name).toBe('0001-initial-m0-tables');
       expect(ledger[0]?.appliedAt).toBeTruthy();
+      expect(ledger[1]?.version).toBe(2);
+      expect(ledger[1]?.name).toBe('0002-consents-compliance');
+      expect(ledger[1]?.appliedAt).toBeTruthy();
     } finally {
       db.close();
     }
   });
 
-  it('幂等：重复打开不重复执行（仍是 v1）', () => {
+  it('幂等：重复打开不重复执行（仍是 v2）', () => {
     migrateBeforeWindow(dbFile());
     const second = migrateBeforeWindow(dbFile());
-    expect(second.fromVersion).toBe(1);
-    expect(second.toVersion).toBe(1);
+    expect(second.fromVersion).toBe(2);
+    expect(second.toVersion).toBe(2);
     expect(second.applied).toHaveLength(0);
   });
 
@@ -66,18 +69,19 @@ describe('v0 → v1 升级', () => {
   });
 });
 
-describe('v1 → v0 回滚', () => {
-  it('downgrade 到 0：四表消失、记账清空', () => {
+describe('v2 → v0 回滚', () => {
+  it('downgrade 到 0：consents/logs/tasks/task_steps/task_events 全部消失、记账清空', () => {
     const { db } = openAndMigrate(dbFile());
     try {
       db.prepare("INSERT INTO logs (ts, created_at, level, level_name, category, msg) VALUES ('t','t',30,'info','user-action','m')").run();
       const report = runMigrations(db, { targetVersion: 0 });
-      expect(report.fromVersion).toBe(1);
+      expect(report.fromVersion).toBe(2);
       expect(report.toVersion).toBe(0);
       expect(report.applied[0]?.direction).toBe('down');
+      expect(report.applied).toHaveLength(2);
       expect(currentVersion(db)).toBe(0);
       const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((r) => r.name);
-      for (const t of ['logs', 'tasks', 'task_steps', 'task_events']) {
+      for (const t of ['logs', 'tasks', 'task_steps', 'task_events', 'consents']) {
         expect(tables).not.toContain(t);
       }
       // 记账表保留（基础设施），但行清空
@@ -95,9 +99,50 @@ describe('v1 → v0 回滚', () => {
     first.db.close();
     const second = openAndMigrate(file);
     try {
-      expect(currentVersion(second.db)).toBe(1);
+      expect(currentVersion(second.db)).toBe(2);
       second.db.prepare("INSERT INTO tasks (id, kind, status, created_at, updated_at) VALUES ('t1','demo','idle','now','now')").run();
       expect(second.db.prepare('SELECT COUNT(*) AS c FROM tasks').get()).toEqual({ c: 1 });
+    } finally {
+      second.db.close();
+    }
+  });
+});
+
+describe('0002 consents（todo 9 / FR-1.9：upgrade/downgrade 成对）', () => {
+  it('v2 单独降回 v1：consents 表消失、logs/tasks 保留、记账停 v1', () => {
+    const { db } = openAndMigrate(dbFile());
+    try {
+      db.prepare(
+        "INSERT INTO consents (subject, action, eula_version, created_at) VALUES ('eula','accepted','0.1.0-draft','t')",
+      ).run();
+      const report = runMigrations(db, { targetVersion: 1 });
+      expect(report.fromVersion).toBe(2);
+      expect(report.toVersion).toBe(1);
+      expect(report.applied).toHaveLength(1);
+      expect(report.applied[0]?.version).toBe(2);
+      expect(report.applied[0]?.name).toBe('0002-consents-compliance');
+      const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((r) => r.name);
+      expect(tables).not.toContain('consents');
+      expect(tables).toContain('logs');
+      expect(tables).toContain('tasks');
+      expect(currentVersion(db)).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('v1 → v2 升级：consents 结构重建可写入', () => {
+    const file = dbFile();
+    migrateBeforeWindow(file);
+    const { db } = openAndMigrate(file, { targetVersion: 1 });
+    db.close();
+    const second = openAndMigrate(file, { targetVersion: 2 });
+    try {
+      expect(currentVersion(second.db)).toBe(2);
+      second.db
+        .prepare("INSERT INTO consents (subject, action, eula_version, telemetry_consent, created_at) VALUES ('eula','accepted','0.1.0-draft',1,'t')")
+        .run();
+      expect(second.db.prepare("SELECT COUNT(*) AS c FROM consents WHERE subject='eula'").get()).toEqual({ c: 1 });
     } finally {
       second.db.close();
     }
@@ -128,12 +173,12 @@ describe('损坏 DB（failure QA：报错可读）', () => {
 });
 
 describe('升级失败回滚（停在上一版本）', () => {
-  it('v2 步骤 up 抛错 → E-DB-MIGRATION-FAILED + v1 表完好 + 记账停在 v1', () => {
+  it('v3 步骤 up 抛错 → E-DB-MIGRATION-FAILED + v2 表完好 + 记账停在 v2', () => {
     const { db } = openAndMigrate(dbFile());
     try {
-      const brokenV2: MigrationStep = {
-        version: 2,
-        name: '0002-broken-test',
+      const brokenV3: MigrationStep = {
+        version: 3,
+        name: '0003-broken-test',
         up() {
           throw new Error('模拟迁移失败（半步 DDL 后崩溃）');
         },
@@ -142,22 +187,23 @@ describe('升级失败回滚（停在上一版本）', () => {
         },
       };
       try {
-        runMigrations(db, { steps: [...MIGRATIONS, brokenV2] });
+        runMigrations(db, { steps: [...MIGRATIONS, brokenV3] });
         expect.unreachable('应抛出 MigrationError');
       } catch (error) {
         const me = error as MigrationError;
         expect(me).toBeInstanceOf(MigrationError);
         expect(me.code).toBe('E-DB-MIGRATION-FAILED');
-        expect(me.message).toContain('0002-broken-test');
+        expect(me.message).toContain('0003-broken-test');
         expect(me.message).toContain('已回滚');
-        expect(me.message).toContain('v1');
+        expect(me.message).toContain('v2');
       }
-      // v1 结构与记账完好
-      expect(currentVersion(db)).toBe(1);
+      // v2 结构与记账完好
+      expect(currentVersion(db)).toBe(2);
       const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((r) => r.name);
       expect(tables).toContain('logs');
+      expect(tables).toContain('consents');
       expect(tables).not.toContain('ghost_table');
-      expect(db.prepare('SELECT COUNT(*) AS c FROM schema_migrations').get()).toEqual({ c: 1 });
+      expect(db.prepare('SELECT COUNT(*) AS c FROM schema_migrations').get()).toEqual({ c: 2 });
     } finally {
       db.close();
     }

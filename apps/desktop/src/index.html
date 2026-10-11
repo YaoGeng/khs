@@ -84,6 +84,9 @@
           </div>
         </header>
 
+        <!-- todo 9（FR-1.9）：EULA 路由锁拒绝提示（主进程 app:navigate 拒绝时渲染层展示） -->
+        <p class="eula-nav-banner" id="eula-nav-banner" hidden>已锁定（FR-1.9）：请先在「用户协议与隐私政策」弹窗中完成确认，再使用工作流功能。</p>
+
         <div class="views">
           <section class="view active" id="view-dashboard" data-view="dashboard">
             <h2>工作台</h2>
@@ -184,6 +187,17 @@
               <p class="demo-task-status" id="demo-task-status">尚未创建演示任务。</p>
               <div id="demo-task-list"></div>
             </section>
+            <!-- todo 9（FR-12.6）：遥测 opt-in 开关 + 匿名化口径声明文案位（设置可随时开关） -->
+            <section class="settings-card" id="telemetry-card">
+              <h3>遥测与匿名化口径（FR-12.6）</h3>
+              <p class="placeholder">遥测为 opt-in：默认关闭。关闭后漏斗/熔断/埋点事件均不上传、仅本地留存。</p>
+              <label class="telemetry-toggle-line">
+                <input type="checkbox" id="telemetry-toggle" />
+                允许发送匿名遥测数据（opt-in，可随时开关）
+              </label>
+              <p class="telemetry-status-line" id="telemetry-status-line">遥测状态：检测中…</p>
+              <p class="telemetry-anonymization-note" id="telemetry-anonymization-note">【匿名化口径声明（占位文案位，FR-12.6/FR-2.7；终稿 M6 T-M6-02 定稿）】遥测仅包含功能使用事件（如漏斗步骤、熔断计数）与随机安装标识，不含笔记内容、平台账号信息、API Key 等业务数据；所有事件均经匿名化处理。</p>
+            </section>
           </section>
           <!-- 登录占位：不接后端（M0），无业务逻辑；非导航九视图之一 -->
           <section class="view" id="view-login" data-view="login">
@@ -201,6 +215,39 @@
               <p class="login-msg" id="login-msg">M0 占位：登录后端由 todo 2（auth）提供，此处不发起任何请求。</p>
             </form>
           </section>
+        </div>
+
+        <!-- ===== todo 9（FR-1.9）：EULA+隐私政策首启确认弹窗 =====
+             覆盖内容区（不盖侧边栏）：未确认态下 logs/settings 保持可达（FR-1.9），
+             六个工作流视图由主进程 app:navigate 路由锁拒绝。占位法律文本，终稿 M6 T-M6-02 定稿。 -->
+        <div id="eula-modal" class="modal-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="eula-title">
+          <div class="modal-card">
+            <h2 id="eula-title">用户协议（EULA）与隐私政策</h2>
+            <p class="eula-version-line">版本：<span id="eula-version-label">…</span></p>
+            <p class="eula-reconfirm-note" id="eula-reconfirm-note" hidden></p>
+            <div class="eula-body" id="eula-body" tabindex="0">
+              <strong>【占位法律文本 · 机制先行——EULA 与隐私政策终稿由 M6 T-M6-02 法务定稿】</strong>
+              <h3>一、平台协议风险告知</h3>
+              <p>本软件可按你的指令对第三方平台（如小红书、1688）执行自动化操作。此类操作可能被平台认定违反其用户协议，进而导致限流、内容下架或账号封禁等后果。你应自行评估并承担在平台账号侧的风险。</p>
+              <h3>二、用户承诺条款</h3>
+              <p>你承诺在合法范围内使用本软件，遵守目标平台的用户协议与相关法律法规，不利用本软件从事虚假宣传、恶意营销或其他侵权行为。</p>
+              <h3>三、内容责任归属</h3>
+              <p>你通过本软件发布的内容（含 AI 生成的草稿）由你作为责任主体审核确认后发布；软件内置的合规过滤为辅助手段，不构成对内容合法性的担保。</p>
+              <h3>四、责任边界</h3>
+              <p>对于与你的使用行为直接相关的平台处罚后果（账号限流、封禁等），本软件在法律允许范围内不承担相应责任；本条不构成概括性免责。</p>
+              <h3>隐私政策（占位）</h3>
+              <p>本软件本地留存日志与任务数据。如你开通账号或在线服务，可能收集：邮箱、密码哈希、订单信息、设备指纹哈希（仅哈希上行）、以及在你明确同意后发送的匿名遥测数据。收集清单终稿见隐私政策正式版。</p>
+            </div>
+            <label class="eula-optin">
+              <input type="checkbox" id="eula-telemetry-consent" />
+              <span>允许发送匿名遥测数据（可选：默认关闭；可随时在「设置」中更改。关闭后漏斗/熔断/埋点事件均不上传、仅本地留存——FR-12.6）</span>
+            </label>
+            <div class="eula-actions">
+              <button class="btn btn-primary" id="eula-accept-btn" type="button">同意并继续</button>
+              <button class="btn btn-ghost" id="eula-reject-btn" type="button">不同意</button>
+            </div>
+            <p class="eula-reject-msg" id="eula-reject-msg" hidden>你已选择不同意：主功能保持锁定，仅日志/设置可用。如需退出应用，请直接关闭窗口。</p>
+          </div>
         </div>
       </main>
     </div>

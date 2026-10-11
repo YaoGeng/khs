@@ -85,3 +85,23 @@ export const schemaMigrations = sqliteTable('schema_migrations', {
   name: text('name').notNull(),
   appliedAt: text('applied_at').notNull(),
 });
+
+/**
+ * 合规同意留痕（todo 9：FR-1.9 EULA 确认记录 / FR-12.6 遥测 opt-in；0002 迁移追加）。
+ * 追加式事件行；现值由消费方按「最新一条」解析（DDL 真源在 migrations.ts 0002）。
+ */
+export const consents = sqliteTable(
+  'consents',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    subject: text('subject').notNull(),
+    action: text('action').notNull(),
+    eulaVersion: text('eula_version'),
+    telemetryConsent: integer('telemetry_consent'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    index('idx_consents_subject').on(t.subject, t.id),
+    index('idx_consents_tele_consent').on(t.telemetryConsent, t.id),
+  ],
+);

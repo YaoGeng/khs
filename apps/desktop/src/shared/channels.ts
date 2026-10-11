@@ -5,13 +5,18 @@
  * 只有 C 端↔服务端跨端契约才进 packages/protocol。
  *
  * M0 范围壳层通道 + license 通道（todo 8）+ 日志/store/任务通道（todo 11：logs:query /
- * tasks:createDemo / tasks:list / tasks:resume / tasks:cancel，同一注册表模式）；
- * workflow:/browser:/review:/keys: 等业务通道归 M1+，见 02 §4.3 示例表——M0 一律不注册，
- * 渲染进程越权调用将被白名单拒绝并返回稳定错误码。
+ * tasks:createDemo / tasks:list / tasks:resume / tasks:cancel）+ 合规通道（todo 9：
+ * consent:state / consent:acceptEula / consent:rejectEula / consent:setTelemetry，
+ * 同一注册表模式）；workflow:/browser:/review:/keys: 等业务通道归 M1+，见 02 §4.3 示例表——
+ * M0 一律不注册，渲染进程越权调用将被白名单拒绝并返回稳定错误码。
  */
 export const IPC_CHANNELS = [
   'app:info',
   'app:navigate',
+  'consent:state',
+  'consent:acceptEula',
+  'consent:rejectEula',
+  'consent:setTelemetry',
   'logs:ping',
   'logs:query',
   'license:activate',
@@ -52,3 +57,13 @@ export const IPC_ERRORS = {
   /** 入参未通过 zod 校验（§4.3：入参 zod 校验） */
   INVALID_PARAMS: 'E-IPC-INVALID-PARAMS',
 } as const;
+
+/**
+ * EULA 首启确认门（todo 9 / FR-1.9）：未确认时六个工作流视图被主进程 app:navigate 拒绝，
+ * logs/settings 保持可达（settings 承载遥测开关，FR-12.6）。
+ * 视图集合与 license 锁定面（FR-1.6 工作流写入口）一致。
+ */
+export const EULA_LOCKED_VIEWS = ['dashboard', 'insight', 'sourcing', 'publish', 'promo', 'review'] as const;
+
+/** EULA 路由锁拒绝的稳定错误码（app:navigate 拒绝消息前缀；renderer/e2e 据此判定） */
+export const E_EULA_LOCKED = 'E-COMPLIANCE-EULA-LOCKED';

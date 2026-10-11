@@ -7,6 +7,7 @@
  * - app:info：挂载后拉取壳层版本信息展示。
  * - 挂载完成即移除首屏骨架（C-3 招三），并在 html 上标记 data-app-mounted 供 e2e 等待。
  */
+import { E_EULA_LOCKED } from '../shared/channels';
 import type { ViewId } from '../shared/types';
 
 const bridge = window.xinglian;
@@ -17,6 +18,7 @@ const topbarTitle = document.getElementById('topbar-title');
 const navButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.nav-item[data-view]'));
 const sections = Array.from(document.querySelectorAll<HTMLElement>('.view[data-view]'));
 const root = document.documentElement;
+const eulaNavBanner = document.getElementById('eula-nav-banner');
 
 function setHtmlFlag(key: string, value: string): void {
   root.dataset[key] = value;
@@ -61,6 +63,13 @@ for (const btn of navButtons) {
         switchView(view, btn.dataset.viewTitle ?? view);
       })
       .catch((error: unknown) => {
+        // EULA 路由锁（todo 9 / FR-1.9）：主进程拒绝工作流视图导航 → 不切换，展示锁提示
+        const message = String(error);
+        if (message.includes(E_EULA_LOCKED)) {
+          root.dataset.eulaNav = 'denied';
+          eulaNavBanner?.removeAttribute('hidden');
+          return;
+        }
         // 理论上九视图 id 都在白名单内；被拒说明契约被破坏——保守地仍切换视图但留下证据标记
         console.warn('[renderer] navigate rejected:', error);
         setHtmlFlag('lastIpc', 'rejected');
@@ -194,6 +203,138 @@ licenseActivateForm?.addEventListener('submit', (event) => {
       if (licenseActivateMsg) {
         licenseActivateMsg.textContent = `激活失败：${String(error).slice(0, 160)}（M0 本地验签拒绝；请检查 license 是否完整/未篡改）`;
       }
+    });
+});
+
+/* ============================== EULA 首启确认门 + 遥测 opt-in（todo 9 = T-M0-11） ==============================
+ * FR-1.9：首启（无确认记录）或版本变更（requiresConfirm）→ 弹 EULA+隐私政策确认弹窗；
+ * 确认/拒绝记录经主进程落 SQLite consents 表（版本号+时间戳留痕）。
+ * 路由锁在主进程 app:navigate 强制（六个工作流视图拒绝）；本层负责弹窗/横幅/断言标记渲染。
+ * FR-12.6：弹窗内独立勾选征求遥测（默认不勾=opt-in）；设置页可随时开关。
+ */
+interface ConsentStateView {
+  eulaVersion: string;
+  eulaStatus: 'unconfirmed' | 'accepted' | 'rejected' | 'version-changed';
+  requiresConfirm: boolean;
+  confirmedVersion: string | null;
+  confirmedAt: string | null;
+  rejectedAt: string | null;
+  telemetryConsent: 'granted' | 'denied' | 'unasked';
+}
+
+const eulaModal = document.getElementById('eula-modal');
+const eulaVersionLabel = document.getElementById('eula-version-label');
+const eulaReconfirmNote = document.getElementById('eula-reconfirm-note');
+const eulaTelemetryCheckbox = document.getElementById('eula-telemetry-consent') as HTMLInputElement | null;
+const eulaAcceptBtn = document.getElementById('eula-accept-btn');
+const eulaRejectBtn = document.getElementById('eula-reject-btn');
+const eulaRejectMsg = document.getElementById('eula-reject-msg');
+const telemetryToggle = document.getElementById('telemetry-toggle') as HTMLInputElement | null;
+const telemetryStatusLine = document.getElementById('telemetry-status-line');
+
+const TELEMETRY_STATUS_TEXT: Record<ConsentStateView['telemetryConsent'], string> = {
+  granted: '遥测状态：已开启——匿名使用事件将在上报通道接入后发送（M0 阶段无上报通道，仅本地记录）。',
+  denied: '遥测状态：已关闭——漏斗/熔断/埋点事件均不上传、仅本地留存（FR-12.6）。',
+  unasked: '遥测状态：尚未征求同意（首启弹窗征求；默认不开启）。',
+};
+
+function renderTelemetryStatus(state: ConsentStateView): void {
+  if (telemetryStatusLine) telemetryStatusLine.textContent = TELEMETRY_STATUS_TEXT[state.telemetryConsent];
+}
+
+/** 把 consent 门态应用到 UI：html 数据标记（e2e 断言面）+ 弹窗开合 + 遥测开关回填 */
+function applyConsentState(state: ConsentStateView): void {
+  root.dataset.consentLoaded = '1';
+  root.dataset.eulaState = state.eulaStatus;
+  root.dataset.eulaRequiresConfirm = state.requiresConfirm ? '1' : '0';
+  root.dataset.eulaReconfirm = state.eulaStatus === 'version-changed' ? '1' : '0';
+  root.dataset.telemetryConsent = state.telemetryConsent;
+
+  if (state.requiresConfirm) {
+    if (eulaVersionLabel) eulaVersionLabel.textContent = state.eulaVersion;
+    if (eulaReconfirmNote) {
+      eulaReconfirmNote.hidden = state.confirmedVersion === null;
+      eulaReconfirmNote.textContent =
+        state.confirmedVersion === null
+          ? ''
+          : `协议已更新：你此前确认的是 v${state.confirmedVersion}，需重新确认 v${state.eulaVersion} 后继续使用工作流功能。`;
+    }
+    if (eulaRejectMsg) eulaRejectMsg.hidden = state.eulaStatus !== 'rejected';
+    // 遥测勾选回填当前同意态（重确认不静默撤销既有同意；首启 unasked → 不勾选 = opt-in 默认关闭）
+    if (eulaTelemetryCheckbox) eulaTelemetryCheckbox.checked = state.telemetryConsent === 'granted';
+    eulaModal?.removeAttribute('hidden');
+    root.dataset.eulaModal = 'open';
+  } else {
+    eulaModal?.setAttribute('hidden', '');
+    root.dataset.eulaModal = 'closed';
+  }
+
+  if (telemetryToggle) telemetryToggle.checked = state.telemetryConsent === 'granted';
+  renderTelemetryStatus(state);
+}
+
+function refreshConsentState(): void {
+  if (!bridge) {
+    root.dataset.consentLoaded = 'missing-bridge';
+    return;
+  }
+  bridge
+    .invoke('consent:state')
+    .then((data) => applyConsentState(data as ConsentStateView))
+    .catch((error: unknown) => {
+      console.warn('[renderer] consent:state failed:', error);
+      root.dataset.consentLoaded = 'error';
+    });
+}
+
+eulaAcceptBtn?.addEventListener('click', () => {
+  if (!bridge) return;
+  root.dataset.eulaAccept = 'pending';
+  bridge
+    .invoke('consent:acceptEula', { telemetryConsent: eulaTelemetryCheckbox?.checked ?? false })
+    .then((data) => {
+      applyConsentState(data as ConsentStateView);
+      root.dataset.eulaAccept = 'done';
+    })
+    .catch((error: unknown) => {
+      console.warn('[renderer] consent:acceptEula failed:', error);
+      root.dataset.eulaAccept = 'failed';
+    });
+});
+
+eulaRejectBtn?.addEventListener('click', () => {
+  if (!bridge) return;
+  root.dataset.eulaReject = 'pending';
+  bridge
+    .invoke('consent:rejectEula')
+    .then((data) => {
+      applyConsentState(data as ConsentStateView);
+      root.dataset.eulaReject = 'shown';
+      // 拒绝态：弹窗保持 + 退出提示可见（应用可关；功能持续锁定）
+      eulaModal?.removeAttribute('hidden');
+      root.dataset.eulaModal = 'open';
+      if (eulaRejectMsg) eulaRejectMsg.hidden = false;
+    })
+    .catch((error: unknown) => {
+      console.warn('[renderer] consent:rejectEula failed:', error);
+      root.dataset.eulaReject = 'failed';
+    });
+});
+
+telemetryToggle?.addEventListener('change', () => {
+  if (!bridge || !telemetryToggle) return;
+  const enabled = telemetryToggle.checked;
+  root.dataset.telemetrySet = 'pending';
+  bridge
+    .invoke('consent:setTelemetry', { enabled })
+    .then((data) => {
+      applyConsentState(data as ConsentStateView);
+      root.dataset.telemetrySet = 'done';
+    })
+    .catch((error: unknown) => {
+      console.warn('[renderer] consent:setTelemetry failed:', error);
+      root.dataset.telemetrySet = 'failed';
+      telemetryToggle.checked = !enabled; // 失败回滚开关，等下次 state 同步
     });
 });
 
@@ -386,6 +527,9 @@ for (const entry of Array.from(document.querySelectorAll<HTMLButtonElement>('.wo
 
 // 初始状态：主进程锁定状态机快照（无 license → locked，路由可达性不收缩）
 refreshLicenseStatus();
+
+// todo 9：EULA 首启确认门 + 遥测 opt-in（requiresConfirm → 弹窗 + 主进程路由锁生效）
+refreshConsentState();
 
 // todo 11：日志视图 + demo 任务初始拉取（占位级；失败不阻断壳挂载）
 refreshLogs();

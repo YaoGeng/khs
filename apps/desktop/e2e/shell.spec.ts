@@ -8,6 +8,7 @@ import { test, expect, _electron, type ElectronApplication, type Page } from '@p
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { ensureEulaAccepted } from './helpers';
 
 const pkgRoot = path.join(__dirname, '..');
 const requireFromDesktop = createRequire(path.join(pkgRoot, 'noop.js'));
@@ -37,6 +38,8 @@ test.describe.serial('desktop shell（九视图 + IPC 契约 + 安全基线）',
     });
     page = await electronApp.firstWindow();
     await page.waitForSelector('html[data-app-mounted="1"]', { timeout: 30_000 });
+    // todo 9：EULA 首启门种子（真实 consent:acceptEula 通道；不改本文件任何旧断言）
+    await ensureEulaAccepted(page);
   });
 
   test.afterAll(async () => {

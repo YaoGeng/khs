@@ -17,6 +17,18 @@ const PORT = 55432;
 const DATABASE_URL = `postgresql://postgres:postgres@127.0.0.1:${PORT}/app`;
 
 export default async function globalSetup(): Promise<() => Promise<void>> {
+  // 防僵尸：被强杀的测试运行可能留下占用 55432 的旧 PG（Windows 文件锁导致其数据目录清不掉），
+  // 新实例起不来时会静默连上旧库 → 旧数据触发唯一约束冲突。启动前清理端口占用者。
+  try {
+    const netstat = execSync('netstat -ano | findstr :55432', { shell: 'cmd.exe' }).toString();
+    const pids = [...new Set(netstat.split('\n').map((l) => l.trim().split(/\s+/).pop()).filter((p) => /^\d+$/.test(p ?? '')))];
+    for (const pid of pids) {
+      if (pid && pid !== '0') execSync(`taskkill /PID ${pid} /F`, { shell: 'cmd.exe', stdio: 'ignore' });
+    }
+    if (pids.length > 0) console.warn(`[pg-setup] killed stale listener(s) on ${PORT}: ${pids.join(',')}`);
+  } catch {
+    // 端口空闲（findstr 无匹配退出码非 0）
+  }
   rmSync(DATA_DIR, { recursive: true, force: true });
   const pg = new EmbeddedPostgres({
     databaseDir: DATA_DIR,

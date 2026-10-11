@@ -82,6 +82,57 @@ describe('worker 内核（真实 DB）', () => {
   });
 });
 
+describe('consent 留痕内核（todo 9 / FR-1.9+FR-12.6）', () => {
+  it('putConsent → getLatestConsents：eula 现值=最新一行；遥测现值=telemetry_consent 非空最新一行', () => {
+    handleStoreRequest(db, {
+      id: 10,
+      type: 'putConsent',
+      consent: { subject: 'eula', action: 'accepted', eulaVersion: '0.1.0-draft', telemetryConsent: true, at: '2026-10-11T00:00:00.000Z' },
+    });
+    handleStoreRequest(db, {
+      id: 11,
+      type: 'putConsent',
+      consent: { subject: 'telemetry', action: 'disabled', telemetryConsent: false, at: '2026-10-11T01:00:00.000Z' },
+    });
+
+    const latest = handleStoreRequest(db, { id: 12, type: 'getLatestConsents' }).data as {
+      eula: { action: string; eulaVersion: string | null; createdAt: string } | null;
+      telemetry: { action: string; telemetryConsent: boolean | null } | null;
+    };
+    expect(latest.eula).toMatchObject({ action: 'accepted', eulaVersion: '0.1.0-draft', createdAt: '2026-10-11T00:00:00.000Z' });
+    expect(latest.telemetry).toMatchObject({ action: 'disabled', telemetryConsent: false });
+
+    // 最新动作覆盖：再次接受（版本升级重确认）→ eula 现值翻转，遥测开/关行不动 eula 行
+    handleStoreRequest(db, {
+      id: 13,
+      type: 'putConsent',
+      consent: { subject: 'eula', action: 'accepted', eulaVersion: '0.2.0-draft', telemetryConsent: false, at: '2026-10-11T02:00:00.000Z' },
+    });
+    const after = handleStoreRequest(db, { id: 14, type: 'getLatestConsents' }).data as {
+      eula: { eulaVersion: string | null; telemetryConsent: boolean | null } | null;
+      telemetry: { telemetryConsent: boolean | null } | null;
+    };
+    expect(after.eula?.eulaVersion).toBe('0.2.0-draft');
+    expect(after.telemetry?.telemetryConsent).toBe(false);
+
+    // 拒绝行不带遥测选择 → 遥测现值不被覆盖（保持 false）
+    handleStoreRequest(db, { id: 15, type: 'putConsent', consent: { subject: 'eula', action: 'rejected', eulaVersion: '0.2.0-draft', at: '2026-10-11T03:00:00.000Z' } });
+    const rejected = handleStoreRequest(db, { id: 16, type: 'getLatestConsents' }).data as {
+      eula: { action: string; telemetryConsent: unknown } | null;
+      telemetry: { telemetryConsent: boolean | null } | null;
+    };
+    expect(rejected.eula?.action).toBe('rejected');
+    expect(rejected.eula?.telemetryConsent).toBeNull();
+    expect(rejected.telemetry?.telemetryConsent).toBe(false);
+  });
+
+  it('空表 → getLatestConsents 双 null（首启态）', () => {
+    const latest = handleStoreRequest(db, { id: 17, type: 'getLatestConsents' }).data as { eula: unknown; telemetry: unknown };
+    expect(latest.eula).toBeNull();
+    expect(latest.telemetry).toBeNull();
+  });
+});
+
 describe('落库 sink（组装点）', () => {
   it('攒批：不满批不落库、flush 后落库、prune 走 store', async () => {
     const sent: Array<{ id: number; type: string; rows?: LogRowInput[]; policy?: unknown }> = [];

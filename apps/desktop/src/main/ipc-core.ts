@@ -3,10 +3,11 @@
  * 02 §4.3：所有 IPC 走 invoke/handle，通道即契约，入参 zod 校验。
  */
 import { z } from 'zod';
-import { IPC_CHANNELS, IPC_ERRORS, type IpcChannel } from '../shared/channels';
+import { E_EULA_LOCKED, IPC_CHANNELS, IPC_ERRORS, type IpcChannel } from '../shared/channels';
 import {
   AppInfoResultSchema,
   channelParamsSchemas,
+  ConsentStateResultSchema,
   LicenseStatusResultSchema,
   LogsQueryResultSchema,
   TasksCancelResultSchema,
@@ -14,6 +15,7 @@ import {
   TasksListResultSchema,
   TasksResumeResultSchema,
   type AppInfoResult,
+  type ConsentStateResult,
   type LicenseActivateParams,
   type LicenseStatusResult,
   type LogsQueryParams,
@@ -44,6 +46,15 @@ export interface LogTaskIpcDeps {
   readonly cancelTask: (taskId: string) => Promise<{ taskId: string; status: string }>;
 }
 
+/** 合规链路依赖注入面（todo 9；main binding 在 compliance/compliance-service.ts） */
+export interface ConsentDeps {
+  readonly state: () => Promise<ConsentStateResult>;
+  readonly acceptEula: (params: { telemetryConsent: boolean }) => Promise<ConsentStateResult>;
+  readonly rejectEula: () => Promise<ConsentStateResult>;
+  readonly setTelemetry: (params: { enabled: boolean }) => Promise<ConsentStateResult>;
+  readonly isViewAllowed: (view: string) => boolean;
+}
+
 export interface AppInfoDeps {
   /** 注入 app/appVersion 等运行时读取，保持本模块 electron-free 可单测 */
   readonly appInfo: () => AppInfoResult;
@@ -51,6 +62,8 @@ export interface AppInfoDeps {
   readonly license: LicenseIpcDeps;
   /** todo 11：store/日志查询 + demo 任务运行器依赖 */
   readonly logTask: LogTaskIpcDeps;
+  /** todo 9：EULA 首启确认门 + 遥测 opt-in 依赖 */
+  readonly consent: ConsentDeps;
 }
 
 /** 校验并执行一次 IPC 调用（主进程 handle 与单测共用同一路径） */
@@ -65,6 +78,15 @@ export function formatZodIssues(error: z.ZodError): string {
       return `${at}: ${issue.message}`;
     })
     .join('; ');
+}
+
+/** 出口契约校验（async 通道共用：主进程出口数据也必须过 zod，防契约漂移） */
+export function validateExit<T>(schema: z.ZodType<T>, data: unknown, channel: string): T {
+  const parsed = schema.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(`${IPC_ERRORS.INVALID_PARAMS}: ${channel} 出口数据不符合契约 ${formatZodIssues(parsed.error)}`);
+  }
+  return parsed.data;
 }
 
 /**
@@ -90,8 +112,56 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
       'app:navigate',
       {
         paramsSchema: channelParamsSchemas['app:navigate'],
-        // 入参 zod enum 已把 view 收敛为九视图之一，直接回显（M0 不做业务导航副作用）
-        handle: (payload: { view: string }) => ({ ok: true as const, view: payload.view }),
+        // 入参 zod enum 已把 view 收敛为九视图之一；EULA 门（FR-1.9）在主进程强制：
+        // 未确认（或版本变更重确认）时六个工作流视图直接拒绝（稳定码 E-COMPLIANCE-EULA-LOCKED）
+        handle: (payload: { view: string }) => {
+          if (!deps.consent.isViewAllowed(payload.view)) {
+            throw new Error(
+              `${E_EULA_LOCKED}: 视图 "${payload.view}" 已被 EULA 首启确认门锁定（FR-1.9）——请先完成《用户协议与隐私政策》确认`,
+            );
+          }
+          return { ok: true as const, view: payload.view };
+        },
+      },
+    ],
+    [
+      'consent:state',
+      {
+        paramsSchema: channelParamsSchemas['consent:state'],
+        handle: async () => {
+          const result = await deps.consent.state();
+          return validateExit(ConsentStateResultSchema, result, 'consent:state');
+        },
+      },
+    ],
+    [
+      'consent:acceptEula',
+      {
+        paramsSchema: channelParamsSchemas['consent:acceptEula'],
+        handle: async (payload: { telemetryConsent: boolean }) => {
+          const result = await deps.consent.acceptEula(payload);
+          return validateExit(ConsentStateResultSchema, result, 'consent:acceptEula');
+        },
+      },
+    ],
+    [
+      'consent:rejectEula',
+      {
+        paramsSchema: channelParamsSchemas['consent:rejectEula'],
+        handle: async () => {
+          const result = await deps.consent.rejectEula();
+          return validateExit(ConsentStateResultSchema, result, 'consent:rejectEula');
+        },
+      },
+    ],
+    [
+      'consent:setTelemetry',
+      {
+        paramsSchema: channelParamsSchemas['consent:setTelemetry'],
+        handle: async (payload: { enabled: boolean }) => {
+          const result = await deps.consent.setTelemetry(payload);
+          return validateExit(ConsentStateResultSchema, result, 'consent:setTelemetry');
+        },
       },
     ],
     [
