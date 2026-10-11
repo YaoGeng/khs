@@ -20,6 +20,11 @@ const envSchema = z.object({
   // FR-1.2：连续失败 5 次锁 15 分钟
   XINGLIAN_LOCK_THRESHOLD: z.coerce.number().int().positive().default(5),
   XINGLIAN_LOCK_SECONDS: z.coerce.number().int().positive().default(15 * 60),
+  // todo 8（T-M0-07）：Ed25519 license 密钥路径（相对 apps/server 根解析；测试密钥对见 scripts/license-keys.mjs）
+  XINGLIAN_LICENSE_PRIVATE_KEY_PATH: z.string().min(1).default('keys/license-private.pem'),
+  XINGLIAN_LICENSE_PUBLIC_KEY_PATH: z.string().min(1).default('keys/license-public.pem'),
+  // FR-1.5 配套语义：自助解绑每 30 天限 1 次
+  XINGLIAN_UNBIND_COOLDOWN_DAYS: z.coerce.number().int().positive().default(30),
 });
 
 export type AppConfig = Readonly<z.infer<typeof envSchema>>;

@@ -322,3 +322,78 @@ body {
   color: var(--sub2);
   font-size: 11px;
 }
+
+/* ---------- license 状态与锁定（todo 8 = T-M0-07，FR-1.5/1.6） ---------- */
+.license-lock-banner {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid #b3453a;
+  border-radius: var(--radius);
+  background: rgba(179, 69, 58, 0.12);
+  color: #e08074;
+}
+
+/* 锁定态执行入口：置灰（disabled 由 renderer 依 license 状态机设置） */
+.workflow-entry[disabled] {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.entry-msg {
+  margin-top: 8px;
+  color: var(--sub2);
+  font-size: 11px;
+}
+
+/* 设置页：激活卡片 */
+.settings-card {
+  margin-top: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  max-width: 560px;
+}
+
+.settings-card h3 {
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.license-activate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.license-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--sub);
+}
+
+.license-input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 11px;
+}
+
+.license-input:focus {
+  outline: 1px solid var(--primary);
+  outline-offset: 0;
+}
+
+.license-status-line,
+.license-device-line {
+  margin-top: 10px;
+  color: var(--sub);
+  font-size: 12px;
+}
+
+.license-device-line {
+  color: var(--sub2);
+  font-size: 11px;
+}

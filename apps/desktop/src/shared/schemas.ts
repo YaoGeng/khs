@@ -33,16 +33,44 @@ export const LogsPingResultSchema = z.object({
   at: z.string(),
 });
 
+/* license:activate —— 激活（M0 本地注入路径：main 进程离线验签 + license 文件持久化；不联网，02 §9.5 联网流归 M5） */
+export const LicenseActivateParamsSchema = z.strictObject({
+  /** 兑换签发/换发的 Ed25519 license JWT（紧凑三段式） */
+  licenseJwt: z.string().min(1).max(8000),
+});
+
+export const LicenseStatusParamsSchema = z.strictObject({});
+
+/** license 状态机出口（license:activate / license:status 共用；renderer 据此渲染锁定态，FR-1.5/1.6） */
+export const LicenseStatusResultSchema = z.object({
+  state: z.enum(['unlocked', 'locked']),
+  /** 稳定 reason 码：WITHIN_GRACE / NO_LICENSE / ALG_REJECTED / EXPIRED / GRACE_EXCEEDED ... */
+  reason: z.string().min(1),
+  plan: z.string().optional(),
+  tier: z.string().optional(),
+  deviceLimit: z.number().int().positive().optional(),
+  expiresAt: z.string().optional(),
+  lastVerifiedAt: z.string().optional(),
+  graceEndsAt: z.string().optional(),
+  deviceHash: z.string().optional(),
+  licenseDeviceHash: z.string().optional(),
+});
+
 export type AppInfoParams = z.infer<typeof AppInfoParamsSchema>;
 export type AppInfoResult = z.infer<typeof AppInfoResultSchema>;
 export type NavigateParams = z.infer<typeof NavigateParamsSchema>;
 export type NavigateResult = z.infer<typeof NavigateResultSchema>;
 export type LogsPingParams = z.infer<typeof LogsPingParamsSchema>;
 export type LogsPingResult = z.infer<typeof LogsPingResultSchema>;
+export type LicenseActivateParams = z.infer<typeof LicenseActivateParamsSchema>;
+export type LicenseStatusParams = z.infer<typeof LicenseStatusParamsSchema>;
+export type LicenseStatusResult = z.infer<typeof LicenseStatusResultSchema>;
 
 /** 通道 → 入参 schema。preload 与 main 侧都从这里取，保证两侧校验一致。 */
 export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'app:info': AppInfoParamsSchema,
   'app:navigate': NavigateParamsSchema,
   'logs:ping': LogsPingParamsSchema,
+  'license:activate': LicenseActivateParamsSchema,
+  'license:status': LicenseStatusParamsSchema,
 };

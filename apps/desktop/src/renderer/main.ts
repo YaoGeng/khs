@@ -70,8 +70,7 @@ for (const btn of navButtons) {
 }
 
 const loginButton = document.getElementById('topbar-login');
-const loginSection = document.getElementById('view-login');
-loginButton?.addEventListener('click', () => {
+const loginSection = document.getElementById('view-login');loginButton?.addEventListener('click', () => {
   const title = loginButton.dataset.viewTitle ?? '登录';
   for (const section of sections) section.classList.remove('active');
   for (const btn of navButtons) {
@@ -89,6 +88,113 @@ const loginMsg = document.getElementById('login-msg');
 loginForm?.addEventListener('submit', (event) => {
   event.preventDefault();
   if (loginMsg) loginMsg.textContent = 'M0 占位：登录后端未接入（todo 2 提供服务端），未发出任何请求。';
+});
+
+/* ============================== license 状态与锁定（todo 8 = T-M0-07） ==============================
+ * 状态机出口来自主进程 license:status / license:activate（离线验签 + 72h 宽限，FR-1.5/1.6）。
+ * 锁定语义：只锁工作流写入口（dashboard/insight/sourcing/publish/promo/review 的执行入口置灰），
+ * 路由可达性不收缩——logs/settings 保持可达，report（历史数据查看占位）亦可达。
+ */
+const WORKFLOW_WRITE_VIEWS = ['dashboard', 'insight', 'sourcing', 'publish', 'promo', 'review'] as const;
+
+interface LicenseStatusView {
+  state: 'unlocked' | 'locked';
+  reason: string;
+  plan?: string;
+  tier?: string;
+  deviceLimit?: number;
+  expiresAt?: string;
+  lastVerifiedAt?: string;
+  graceEndsAt?: string;
+  deviceHash?: string;
+  licenseDeviceHash?: string;
+}
+
+const licenseStatusLine = document.getElementById('license-status-line');
+const licenseDeviceLine = document.getElementById('license-device-line');
+const licenseActivateForm = document.getElementById('license-activate-form') as HTMLFormElement | null;
+const licenseJwtInput = document.getElementById('license-jwt-input') as HTMLInputElement | null;
+const licenseActivateMsg = document.getElementById('license-status-line');
+
+function describeStatus(status: LicenseStatusView): string {
+  if (status.state === 'unlocked') {
+    const grace = status.graceEndsAt ? `，72h 宽限至 ${new Date(status.graceEndsAt).toLocaleString()}` : '';
+    return `license 状态：已解锁（${status.plan ?? '?'}/${status.tier ?? '?'}，设备上限 ${status.deviceLimit ?? '?'}${grace}）`;
+  }
+  const reasonText: Record<string, string> = {
+    NO_LICENSE: '未激活（无 license）',
+    EXPIRED: '已到期（FR-1.6）',
+    GRACE_EXCEEDED: '离线超过 72h 宽限（FR-1.5）',
+    DEVICE_MISMATCH: 'license 绑定到其他设备',
+    ALG_REJECTED: '验签失败（算法不被接受）',
+    SIGNATURE_INVALID: '验签失败（签名不匹配）',
+    TYPE_REJECTED: '验签失败（不是 license）',
+    MALFORMED: 'license 内容损坏',
+    NO_VERIFICATION: '缺少验签时间戳',
+  };
+  return `license 状态：已锁定（${reasonText[status.reason] ?? status.reason}）——工作流执行入口不可用，历史与日志仍可访问。`;
+}
+
+/** 把状态机出口应用到 UI：html 数据标记（e2e 断言面）+ 执行入口置灰/恢复 + 锁定横幅 + 设置页状态行 */
+function applyLicenseStatus(status: LicenseStatusView): void {
+  root.dataset.licenseState = status.state;
+  root.dataset.licenseReason = status.reason;
+  root.dataset.licenseLoaded = '1';
+  const locked = status.state === 'locked';
+  for (const view of sections) {
+    const viewId = view.dataset.view ?? '';
+    if (!(WORKFLOW_WRITE_VIEWS as readonly string[]).includes(viewId)) continue;
+    view.dataset.entryLocked = String(locked);
+    const entry = view.querySelector<HTMLButtonElement>('.workflow-entry[data-write-entry]');
+    if (entry) entry.disabled = locked;
+    const banner = view.querySelector<HTMLElement>('[data-license-lock]');
+    if (banner) banner.hidden = !locked;
+  }
+  if (licenseStatusLine) licenseStatusLine.textContent = describeStatus(status);
+  if (licenseDeviceLine) {
+    if (status.deviceHash) {
+      licenseDeviceLine.hidden = false;
+      licenseDeviceLine.textContent = `本机设备指纹哈希：${status.deviceHash.slice(0, 16)}…（仅哈希上行，02 §11.4）`;
+    } else {
+      licenseDeviceLine.hidden = true;
+    }
+  }
+}
+
+function refreshLicenseStatus(): void {
+  if (!bridge) return;
+  bridge
+    .invoke('license:status')
+    .then((data) => applyLicenseStatus(data as LicenseStatusView))
+    .catch((error: unknown) => {
+      console.warn('[renderer] license:status failed:', error);
+      root.dataset.licenseLoaded = 'error';
+    });
+}
+
+licenseActivateForm?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const jwt = licenseJwtInput?.value.trim() ?? '';
+  if (!bridge || jwt.length === 0) {
+    if (licenseActivateMsg) licenseActivateMsg.textContent = 'license 状态：请粘贴 license JWT 后再激活。';
+    root.dataset.licenseActivate = 'invalid-input';
+    return;
+  }
+  root.dataset.licenseActivate = 'pending';
+  bridge
+    .invoke('license:activate', { licenseJwt: jwt })
+    .then((data) => {
+      applyLicenseStatus(data as LicenseStatusView);
+      root.dataset.licenseActivate = 'done';
+      if (licenseJwtInput) licenseJwtInput.value = '';
+    })
+    .catch((error: unknown) => {
+      console.warn('[renderer] license:activate failed:', error);
+      root.dataset.licenseActivate = 'failed';
+      if (licenseActivateMsg) {
+        licenseActivateMsg.textContent = `激活失败：${String(error).slice(0, 160)}（M0 本地验签拒绝；请检查 license 是否完整/未篡改）`;
+      }
+    });
 });
 
 function renderAppInfo(info: { appVersion: string; electronVersion: string; platform: string; contractVersion: string }): void {
@@ -114,6 +220,18 @@ if (!bridge) {
 }
 
 mount();
+
+// 工作流执行入口（占位按钮）：解锁态点击显示占位提示；锁定态已被 disabled（FR-1.6 置灰）
+for (const entry of Array.from(document.querySelectorAll<HTMLButtonElement>('.workflow-entry[data-write-entry]'))) {
+  entry.addEventListener('click', () => {
+    const section = entry.closest<HTMLElement>('.view[data-view]');
+    const msg = section?.querySelector<HTMLElement>('[data-entry-msg]');
+    if (msg) msg.hidden = false;
+  });
+}
+
+// 初始状态：主进程锁定状态机快照（无 license → locked，路由可达性不收缩）
+refreshLicenseStatus();
 
 if (bridge) {
   bridge

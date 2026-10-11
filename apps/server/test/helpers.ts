@@ -19,6 +19,7 @@ export async function createTestApp(): Promise<INestApplication> {
 /** 测试间清库清缓存（fileParallelism=false，单 PG 实例顺序消费）。 */
 export async function resetState(app: INestApplication): Promise<void> {
   const prisma = app.get(PrismaService);
+  await prisma.device.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.membership.deleteMany();
   await prisma.card.deleteMany();
@@ -46,6 +47,11 @@ export interface RegisteredUser {
   readonly email: string;
   readonly password: string;
   readonly userId: string;
+}
+
+/** todo 8（T-M0-07）：测试用设备指纹哈希——sha256(seed) hex 64 位（契约与真实客户端一致：仅哈希上行）。 */
+export function deviceHashFor(seed: string): string {
+  return sha256Hex(`device:${seed}`);
 }
 
 /** 注册流程（dev 传输：email-code 随响应返回验证码）。 */

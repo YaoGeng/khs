@@ -8,6 +8,7 @@
 import { app, BrowserWindow } from 'electron';
 import { CONTRACT_VERSION } from './shared/channels';
 import { registerIpcHandlers } from './main/ipc';
+import { createLicenseService } from './main/license-service';
 import { createDeferredBootstrap } from './main/lazy';
 import { createMainWindow } from './main/window';
 import { loadHeavyModules } from './main/heavy';
@@ -53,6 +54,8 @@ if (!gotLock) {
         platform: process.platform,
         contractVersion: CONTRACT_VERSION,
       }),
+      // todo 8：license 链路（离线验签 + 72h 宽限状态机 + license 文件持久化）
+      license: createLicenseService(app.getPath('userData')),
     });
 
     createMainWindow({

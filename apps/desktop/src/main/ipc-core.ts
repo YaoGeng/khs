@@ -4,7 +4,14 @@
  */
 import { z } from 'zod';
 import { IPC_CHANNELS, IPC_ERRORS, type IpcChannel } from '../shared/channels';
-import { AppInfoResultSchema, channelParamsSchemas, type AppInfoResult } from '../shared/schemas';
+import {
+  AppInfoResultSchema,
+  channelParamsSchemas,
+  LicenseStatusResultSchema,
+  type AppInfoResult,
+  type LicenseActivateParams,
+  type LicenseStatusResult,
+} from '../shared/schemas';
 import { isChannelAllowed } from './security';
 
 export type IpcEntry = {
@@ -14,9 +21,17 @@ export type IpcEntry = {
 
 export type IpcRegistry = ReadonlyMap<IpcChannel, IpcEntry>;
 
+/** license 链路依赖注入面（main 进程 binding 在 main/license-service.ts；纯 stub 可单测） */
+export interface LicenseIpcDeps {
+  readonly activate: (params: LicenseActivateParams) => LicenseStatusResult;
+  readonly status: () => LicenseStatusResult;
+}
+
 export interface AppInfoDeps {
   /** 注入 app/appVersion 等运行时读取，保持本模块 electron-free 可单测 */
   readonly appInfo: () => AppInfoResult;
+  /** todo 8：license 链路（离线验签/锁定状态机）依赖 */
+  readonly license: LicenseIpcDeps;
 }
 
 /** 校验并执行一次 IPC 调用（主进程 handle 与单测共用同一路径） */
@@ -68,6 +83,38 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
           pong: `pong: ${payload.message}`,
           at: new Date().toISOString(),
         }),
+      },
+    ],
+    [
+      'license:activate',
+      {
+        paramsSchema: channelParamsSchemas['license:activate'],
+        handle: (payload: LicenseActivateParams) => {
+          const result = deps.license.activate(payload);
+          const parsed = LicenseStatusResultSchema.safeParse(result);
+          if (!parsed.success) {
+            throw new Error(
+              `${IPC_ERRORS.INVALID_PARAMS}: license:activate 出口数据不符合契约 ${formatZodIssues(parsed.error)}`,
+            );
+          }
+          return parsed.data;
+        },
+      },
+    ],
+    [
+      'license:status',
+      {
+        paramsSchema: channelParamsSchemas['license:status'],
+        handle: () => {
+          const result = deps.license.status();
+          const parsed = LicenseStatusResultSchema.safeParse(result);
+          if (!parsed.success) {
+            throw new Error(
+              `${IPC_ERRORS.INVALID_PARAMS}: license:status 出口数据不符合契约 ${formatZodIssues(parsed.error)}`,
+            );
+          }
+          return parsed.data;
+        },
       },
     ],
   ]);

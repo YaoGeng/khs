@@ -5,6 +5,7 @@ import { MembershipService } from '../membership/membership.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../infrastructure/prisma.service.js';
 import { TokenService } from '../security/token.service.js';
+import { LicenseSigningService } from '../license/license-signing.service.js';
 import { Prisma } from '../generated/prisma/client.js';
 
 /** 库内只存 hash：sha256(明文码, utf8) hex；明文只在生成脚本输出时可见。 */
@@ -15,6 +16,8 @@ export function hashCardCode(code: string): string {
 export type RedeemResult = Readonly<{
   membership: AppliedMembership;
   authorizationJwt: string;
+  /** Ed25519 license JWT（device_hash='' 未绑定态）；激活（上报 device_hash）换发绑定版，02 §9.5 */
+  licenseJwt: string;
 }>;
 
 @Injectable()
@@ -24,6 +27,7 @@ export class CardsService {
     @Inject(TokenService) private readonly tokens: TokenService,
     @Inject(MembershipService) private readonly memberships: MembershipService,
     @Inject(AuditService) private readonly audit: AuditService,
+    @Inject(LicenseSigningService) private readonly licenses: LicenseSigningService,
   ) {}
 
   /**
@@ -67,12 +71,28 @@ export class CardsService {
         throw e;
       });
 
+    // todo 8（T-M0-07）：兑换成功即签发 license（02 §9.5：会员生效 → 许可证签发）。
+    // device_hash=''（未绑定态）；激活时上报 device_hash 换发绑定版（DeviceService.activate）。
+    // exp 与事务内入账的会员期一致（AppliedMembership.endsAt）。
+    const issued = this.licenses.signLicense({
+      sub: user.id,
+      plan: membership.plan,
+      tier: membership.tier,
+      deviceLimit: membership.deviceLimit,
+      deviceHash: '',
+      expiresAt: membership.endsAt,
+    });
+    // jti 仅记录不吊销（M0）：把签发事实连同 jti 写入审计（docs/adr/notes-license-m0.md §3）
+    await this.prisma.$transaction(async (tx) =>
+      this.audit.write(tx, user.id, 'license.issue', { jti: issued.jti, deviceHash: '' }),
+    );
+
     const authorizationJwt = this.tokens.signAuthorizationToken({
       sub: user.id,
       plan: membership.plan,
       tier: membership.tier,
       device_limit: membership.deviceLimit,
     });
-    return { membership, authorizationJwt };
+    return { membership, authorizationJwt, licenseJwt: issued.token };
   }
 }

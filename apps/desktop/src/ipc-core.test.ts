@@ -7,6 +7,12 @@ import { describe, expect, it } from 'vitest';
 import { IPC_CHANNELS, IPC_ERRORS } from './shared/channels';
 import { buildIpcRegistry, invokeIpcEntry, type AppInfoDeps, type IpcInvokeResult } from './main/ipc-core';
 
+/** todo 8：license 依赖 stub（真实逻辑在 license-manager.test.ts 单测；此处只保注册表契约） */
+const licenseStub = {
+  activate: () => ({ state: 'locked' as const, reason: 'NO_LICENSE' }),
+  status: () => ({ state: 'locked' as const, reason: 'NO_LICENSE' }),
+};
+
 const deps: AppInfoDeps = {
   appInfo: () => ({
     appVersion: '0.1.0',
@@ -14,6 +20,7 @@ const deps: AppInfoDeps = {
     platform: 'win32',
     contractVersion: 'm0-ipc-1',
   }),
+  license: licenseStub,
 };
 
 function expectOk(result: IpcInvokeResult): { data: unknown } {

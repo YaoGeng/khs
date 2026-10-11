@@ -4,10 +4,17 @@
  * 目录边界（docs/dev/工程规范.md）：本文件是桌面内部契约，放 apps/desktop/src/shared；
  * 只有 C 端↔服务端跨端契约才进 packages/protocol。
  *
- * M0 范围仅三个壳层通道（不接业务 API，workflow:/browser:/review:/keys:/logs:query 等业务通道归 M1+，
- * 见 02 §4.3 示例表——M0 一律不注册，渲染进程越权调用将被白名单拒绝并返回稳定错误码）。
+ * M0 范围壳层通道 + license 通道（todo 8：license:activate / license:status，走同一注册表模式；
+ * workflow:/browser:/review:/keys:/logs:query 等业务通道归 M1+，见 02 §4.3 示例表——M0 一律不注册，
+ * 渲染进程越权调用将被白名单拒绝并返回稳定错误码）。
  */
-export const IPC_CHANNELS = ['app:info', 'app:navigate', 'logs:ping'] as const;
+export const IPC_CHANNELS = [
+  'app:info',
+  'app:navigate',
+  'logs:ping',
+  'license:activate',
+  'license:status',
+] as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[number];
 

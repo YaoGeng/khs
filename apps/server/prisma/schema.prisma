@@ -22,6 +22,7 @@ model User {
   createdAt    DateTime   @default(now()) @map("created_at")
 
   memberships Membership[]
+  devices     Device[]
 
   @@map("users")
 }
@@ -60,6 +61,26 @@ model Card {
 
   @@index([status])
   @@map("activation_cards")
+}
+
+// todo 8（T-M0-07 / FR-1.4/1.5）：设备绑定表。
+// 02 §11.4：服务端只持有「设备指纹哈希」，不采原始指纹值。
+// userId+deviceHash 唯一：同用户同设备幂等重激活；解绑 = 写 revokedAt（不删行，保留审计事实）。
+// 30 天解绑限 1 次（FR-1.5 配套语义）：以该用户 devices 的 max(revokedAt) 为「上次解绑时间戳」，
+// 不另设 user 级列（M0 决策，见 docs/adr/notes-license-m0.md §4）。
+model Device {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  user        User      @relation(fields: [userId], references: [id])
+  deviceHash  String    @map("device_hash")
+  activatedAt DateTime  @map("activated_at")
+  lastSeenAt  DateTime  @map("last_seen_at")
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@unique([userId, deviceHash])
+  @@index([userId])
+  @@map("devices")
 }
 
 // M0 审计骨架（02 §14.2 audit_logs）：兑换等关键动作留痕；B 端管理审计（admin_id/target/before/after）归 M5。

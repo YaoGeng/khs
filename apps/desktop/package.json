@@ -14,10 +14,13 @@
     "cold-start": "node scripts/cold-start.mjs"
   },
   "dependencies": {
+    "better-sqlite3": "12.4.1",
+    "drizzle-orm": "^0.45.4",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
+    "drizzle-kit": "^0.31.11",
     "electron": "^33",
     "electron-builder": "^25",
     "esbuild": "^0.28.2"
