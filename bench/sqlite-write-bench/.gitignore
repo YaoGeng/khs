@@ -1,0 +1,4 @@
+results/
+rebuild.log
+install.log
+*.db

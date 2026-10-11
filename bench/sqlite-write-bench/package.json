@@ -1,0 +1,17 @@
+{
+  "name": "sqlite-write-bench",
+  "private": true,
+  "version": "0.0.0",
+  "description": "M0 Spike S3 (T-M0-04 / plan todo 6): Electron main-process SQLite sync-write blocking benchmark -> ADR-8",
+  "main": "bench-main.js",
+  "scripts": {
+    "smoke": "electron smoke.js",
+    "bench": "electron bench-main.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.4.1"
+  },
+  "devDependencies": {
+    "electron": "33.4.11"
+  }
+}
