@@ -13,6 +13,15 @@ const licenseStub = {
   status: () => ({ state: 'locked' as const, reason: 'NO_LICENSE' }),
 };
 
+/** todo 11：日志/任务依赖 stub（真实逻辑在 store/*.test.ts、tasks/*.test.ts 单测） */
+const logTaskStub = {
+  queryLogs: async () => ({ rows: [] }),
+  createDemoTask: async () => ({ taskId: 'stub-task-id' }),
+  listTasks: async () => ({ tasks: [] }),
+  resumeTask: async (taskId: string) => ({ taskId, status: 'running' }),
+  cancelTask: async (taskId: string) => ({ taskId, status: 'cancelled' }),
+};
+
 const deps: AppInfoDeps = {
   appInfo: () => ({
     appVersion: '0.1.0',
@@ -21,6 +30,7 @@ const deps: AppInfoDeps = {
     contractVersion: 'm0-ipc-1',
   }),
   license: licenseStub,
+  logTask: logTaskStub,
 };
 
 function expectOk(result: IpcInvokeResult): { data: unknown } {
@@ -91,5 +101,34 @@ describe('invokeIpcEntry（ipcMain.handle 走的同一条路径）', () => {
     for (const payload of [{ message: '' }, { message: 'x'.repeat(201) }, { message: 42 }]) {
       expectFail(invokeIpcEntry(registry, 'logs:ping', payload), IPC_ERRORS.INVALID_PARAMS);
     }
+  });
+
+  it('logs:query 注册且走注入依赖（todo 11）', async () => {
+    const registry = buildIpcRegistry(deps);
+    const entry = registry.get('logs:query');
+    expect(entry).toBeDefined();
+    const result = await entry!.handle({} as never);
+    expect(result).toEqual({ rows: [] });
+  });
+
+  it('logs:query 非法入参（category 不在五类）→ E-IPC-INVALID-PARAMS', () => {
+    const registry = buildIpcRegistry(deps);
+    expectFail(
+      invokeIpcEntry(registry, 'logs:query', { category: 'evil' }),
+      IPC_ERRORS.INVALID_PARAMS,
+    );
+  });
+
+  it('tasks:createDemo / tasks:list / tasks:resume / tasks:cancel 注册且走注入依赖（todo 11）', async () => {
+    const registry = buildIpcRegistry(deps);
+    expect((await registry.get('tasks:createDemo')!.handle({} as never))).toEqual({ taskId: 'stub-task-id' });
+    expect((await registry.get('tasks:list')!.handle({} as never))).toEqual({ tasks: [] });
+    expect((await registry.get('tasks:resume')!.handle({ taskId: 't1' } as never))).toEqual({ taskId: 't1', status: 'running' });
+    expect((await registry.get('tasks:cancel')!.handle({ taskId: 't1' } as never))).toEqual({ taskId: 't1', status: 'cancelled' });
+  });
+
+  it('tasks:resume 非法入参（空 taskId）→ E-IPC-INVALID-PARAMS', () => {
+    const registry = buildIpcRegistry(deps);
+    expectFail(invokeIpcEntry(registry, 'tasks:resume', { taskId: '' }), IPC_ERRORS.INVALID_PARAMS);
   });
 });

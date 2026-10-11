@@ -8,9 +8,17 @@ import {
   AppInfoResultSchema,
   channelParamsSchemas,
   LicenseStatusResultSchema,
+  LogsQueryResultSchema,
+  TasksCancelResultSchema,
+  TasksCreateDemoResultSchema,
+  TasksListResultSchema,
+  TasksResumeResultSchema,
   type AppInfoResult,
   type LicenseActivateParams,
   type LicenseStatusResult,
+  type LogsQueryParams,
+  type LogsQueryResult,
+  type TasksListResult,
 } from '../shared/schemas';
 import { isChannelAllowed } from './security';
 
@@ -27,11 +35,22 @@ export interface LicenseIpcDeps {
   readonly status: () => LicenseStatusResult;
 }
 
+/** 日志/任务链路依赖注入面（todo 11；main binding 在 main/store-service.ts） */
+export interface LogTaskIpcDeps {
+  readonly queryLogs: (params: LogsQueryParams) => Promise<LogsQueryResult>;
+  readonly createDemoTask: () => Promise<{ taskId: string }>;
+  readonly listTasks: () => Promise<TasksListResult>;
+  readonly resumeTask: (taskId: string) => Promise<{ taskId: string; status: string }>;
+  readonly cancelTask: (taskId: string) => Promise<{ taskId: string; status: string }>;
+}
+
 export interface AppInfoDeps {
   /** 注入 app/appVersion 等运行时读取，保持本模块 electron-free 可单测 */
   readonly appInfo: () => AppInfoResult;
   /** todo 8：license 链路（离线验签/锁定状态机）依赖 */
   readonly license: LicenseIpcDeps;
+  /** todo 11：store/日志查询 + demo 任务运行器依赖 */
+  readonly logTask: LogTaskIpcDeps;
 }
 
 /** 校验并执行一次 IPC 调用（主进程 handle 与单测共用同一路径） */
@@ -111,6 +130,86 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
           if (!parsed.success) {
             throw new Error(
               `${IPC_ERRORS.INVALID_PARAMS}: license:status 出口数据不符合契约 ${formatZodIssues(parsed.error)}`,
+            );
+          }
+          return parsed.data;
+        },
+      },
+    ],
+    [
+      'logs:query',
+      {
+        paramsSchema: channelParamsSchemas['logs:query'],
+        handle: async (payload: LogsQueryParams) => {
+          const result = await deps.logTask.queryLogs(payload);
+          const parsed = LogsQueryResultSchema.safeParse(result);
+          if (!parsed.success) {
+            throw new Error(
+              `${IPC_ERRORS.INVALID_PARAMS}: logs:query 出口数据不符合契约 ${formatZodIssues(parsed.error)}`,
+            );
+          }
+          return parsed.data;
+        },
+      },
+    ],
+    [
+      'tasks:createDemo',
+      {
+        paramsSchema: channelParamsSchemas['tasks:createDemo'],
+        handle: async () => {
+          const result = await deps.logTask.createDemoTask();
+          const parsed = TasksCreateDemoResultSchema.safeParse(result);
+          if (!parsed.success) {
+            throw new Error(
+              `${IPC_ERRORS.INVALID_PARAMS}: tasks:createDemo 出口数据不符合契约 ${formatZodIssues(parsed.error)}`,
+            );
+          }
+          return parsed.data;
+        },
+      },
+    ],
+    [
+      'tasks:list',
+      {
+        paramsSchema: channelParamsSchemas['tasks:list'],
+        handle: async () => {
+          const result = await deps.logTask.listTasks();
+          const parsed = TasksListResultSchema.safeParse(result);
+          if (!parsed.success) {
+            throw new Error(
+              `${IPC_ERRORS.INVALID_PARAMS}: tasks:list 出口数据不符合契约 ${formatZodIssues(parsed.error)}`,
+            );
+          }
+          return parsed.data;
+        },
+      },
+    ],
+    [
+      'tasks:resume',
+      {
+        paramsSchema: channelParamsSchemas['tasks:resume'],
+        handle: async (payload: { taskId: string }) => {
+          const result = await deps.logTask.resumeTask(payload.taskId);
+          const parsed = TasksResumeResultSchema.safeParse(result);
+          if (!parsed.success) {
+            throw new Error(
+              `${IPC_ERRORS.INVALID_PARAMS}: tasks:resume 出口数据不符合契约 ${formatZodIssues(parsed.error)}`,
+            );
+          }
+          return parsed.data;
+        },
+      },
+    ],
+    [
+      'tasks:cancel',
+      {
+        paramsSchema: channelParamsSchemas['tasks:cancel'],
+        handle: async (payload: { taskId: string }) => {
+          const result = await deps.logTask.cancelTask(payload.taskId);
+          const parsed = TasksCancelResultSchema.safeParse(result);
+          if (!parsed.success) {
+            throw new Error(
+              `${IPC_ERRORS.INVALID_PARAMS}: tasks:cancel 出口数据不符合契约 ${formatZodIssues(parsed.error)}`,
             );
           }
           return parsed.data;

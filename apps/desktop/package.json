@@ -8,14 +8,16 @@
     "typecheck": "tsc -p tsconfig.json",
     "build": "node scripts/build.mjs",
     "dist": "npm run build && node scripts/dist.mjs",
-    "test": "node scripts/build.mjs && vitest run && playwright test",
-    "test:unit": "vitest run",
+    "test": "node scripts/build.mjs && node scripts/run-tests.mjs && playwright test",
+    "test:unit": "node scripts/run-tests.mjs",
     "test:e2e": "playwright test",
     "cold-start": "node scripts/cold-start.mjs"
   },
   "dependencies": {
+    "@xinglian/logger": "workspace:*",
     "better-sqlite3": "12.4.1",
     "drizzle-orm": "^0.45.4",
+    "xstate": "^5.33.2",
     "zod": "^4.6.5"
   },
   "devDependencies": {

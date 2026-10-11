@@ -133,7 +133,31 @@
           </section>
           <section class="view" id="view-logs" data-view="logs">
             <h2>日志中心</h2>
-            <p class="placeholder">M0 占位视图：仅导航骨架。日志管线由 todo 11 交付。锁定态（FR-1.6）下本视图保持可达：历史查看 + 日志导出。</p>
+            <!-- todo 11（FR-10.1/10.3）：五类日志占位级查询——按类别/trace_id 筛选最近日志 -->
+            <div class="logs-toolbar" id="logs-toolbar">
+              <label class="logs-filter-label">类别
+                <select id="logs-category-filter" aria-label="日志类别筛选">
+                  <option value="">全部</option>
+                  <option value="user-action">用户操作</option>
+                  <option value="automation-step">自动化步骤</option>
+                  <option value="llm-call">LLM 调用</option>
+                  <option value="network-meta">网络元数据</option>
+                  <option value="system-error">系统错误</option>
+                </select>
+              </label>
+              <label class="logs-filter-label">trace_id
+                <input id="logs-trace-filter" type="text" placeholder="按 trace_id 串联查询" spellcheck="false" />
+              </label>
+              <button class="btn btn-ghost" type="button" id="logs-refresh">刷新</button>
+            </div>
+            <p class="logs-status" id="logs-status">加载中…</p>
+            <table class="logs-table" id="logs-table" hidden>
+              <thead>
+                <tr><th>时间</th><th>类别</th><th>级别</th><th>trace</th><th>span</th><th>消息</th></tr>
+              </thead>
+              <tbody id="logs-tbody"></tbody>
+            </table>
+            <p class="placeholder">M0 占位级：仅最近日志查询。时间线/截图缩略/导出归 M1+（FR-10.2/10.3）。锁定态（FR-1.6）下本视图保持可达。</p>
           </section>
           <section class="view" id="view-settings" data-view="settings">
             <h2>设置</h2>
@@ -151,6 +175,14 @@
               </form>
               <p class="license-status-line" id="license-status-line">license 状态：检测中…</p>
               <p class="license-device-line" id="license-device-line" hidden></p>
+            </section>
+            <!-- todo 11（D7）：demo 合成任务（门禁④唯一演示载体；非业务工作流入口，不参与 license 锁定） -->
+            <section class="settings-card" id="demo-task-card">
+              <h3>演示任务（M0 崩溃恢复门禁载体）</h3>
+              <p class="placeholder">kind=demo 合成任务：三个哑步骤 + 检查点。kill 进程重启后可从检查点续跑（05 门禁④）。非业务工作流入口（M0 无业务 DAG）。</p>
+              <button class="btn btn-primary" id="demo-task-create-btn" type="button">创建演示任务</button>
+              <p class="demo-task-status" id="demo-task-status">尚未创建演示任务。</p>
+              <div id="demo-task-list"></div>
             </section>
           </section>
           <!-- 登录占位：不接后端（M0），无业务逻辑；非导航九视图之一 -->

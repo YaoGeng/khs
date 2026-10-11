@@ -397,3 +397,17 @@ body {
   color: var(--sub2);
   font-size: 11px;
 }
+
+/* ===== todo 11：日志视图 + demo 任务（占位级样式） ===== */
+.logs-toolbar { display: flex; gap: 12px; align-items: end; margin: 12px 0; flex-wrap: wrap; }
+.logs-filter-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #57606a; }
+.logs-filter-label select,
+.logs-filter-label input { min-width: 180px; padding: 6px 8px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; }
+.logs-status { font-size: 12px; color: #57606a; }
+.logs-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 12px; }
+.logs-table th, .logs-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #eaeef2; }
+.logs-table th { color: #57606a; font-weight: 600; background: #f6f8fa; }
+.settings-card { border: 1px solid #d0d7de; border-radius: 8px; padding: 16px; margin: 12px 0; }
+.settings-card h3 { margin: 0 0 8px; font-size: 14px; }
+.demo-task-status { font-size: 12px; color: #57606a; }
+.demo-task-line { font-size: 12px; color: #24292f; margin: 6px 0; }

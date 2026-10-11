@@ -132,7 +132,7 @@ Your next move: 双审进行中——plan-consultant 缺口分析后交 plan-rev
   QA scenarios (name the exact tool + invocation): happy=有 Key（env 契约）者标[实测]并跑通（≥1 家），其余标[文档]，全部无 Key 时升级发起人申请测试 Key；failure=错误 base_url 验证探测失败分支可读, Evidence .omo/evidence/mvp0-dev-plan/task-5-mvp0-dev-plan.log
   Commit: Y | feat(llm-gateway): provider capability matrix + sqlite-vec packaging validation
   Recommended task executor category: deep-low（探测验证类，外部依赖碎片化，可自证）
-- [ ] 6. Spike S3：主进程 SQLite 写阻塞实测→ADR-8（映射 T-M0-04）
+- [x] 6. Spike S3：主进程 SQLite 写阻塞实测→ADR-8（映射 T-M0-04）
   What to do / Must NOT do: bench/sqlite-write-bench.mjs 合成写负载：对比主进程直写（better-sqlite3 同步）vs utilityProcess 托管写 vs 事务粒度约束三方案的事件循环阻塞毫秒与吞吐（04:52-58 S3）；数值化判定标准（如单次阻塞 p95 >50ms 不可接受）写入 docs/adr/ADR-8-sqlite-write.md，含选型结论+迁移约束；按 D6 fallback：同步写超标且 utilityProcess 改造代价超预算时，结论锁定为"utilityProcess 托管写"并给改造清单；不利结论无论是否落 D6 预置分支，均在评审材料包中标注并当周升级架构师确认（05 §7）。Must NOT do：不实现正式 store 层（todo 11）；不改 apps/desktop 业务代码。
   Closes: GAP-2, GAP-3
   Parallelization: Wave 3 | Blocked by: 4（05:59） | Blocks: 11（05:64）
@@ -141,7 +141,7 @@ Your next move: 双审进行中——plan-consultant 缺口分析后交 plan-rev
   QA scenarios (name the exact tool + invocation): happy=基准三次运行输出稳定（脚本打印 median/p95）；failure=人为锁库验证阻塞检测路径触发, Evidence .omo/evidence/mvp0-dev-plan/task-6-mvp0-dev-plan.log
   Commit: Y | docs(adr): ADR-8 sqlite write strategy with benchmark evidence
   Recommended task executor category: deep-low（实验测量，结论可自证）
-- [ ] 7. Spike S6：CDP 调试口方案（映射 T-M0-05）
+- [x] 7. Spike S6：CDP 调试口方案（映射 T-M0-05）
   What to do / Must NOT do: 出结论报告 docs/spike/s6-debug-port.md：(a) --remote-debugging-pipe + Playwright connectOverCDP 支持度实测；(b) 来源 PID 校验方案（DevToolsActivePort+进程树校验）；按 02:248-254 §5.3 与 02:610-617 §11.2 安全要求给出口径：pipe 可行则 pipe，否则 port=0+loopback+PID 校验（D6 fallback）；渗透级验证留 M6（04:114）；不利结论无论是否落 D6 预置分支，均在评审材料包中标注并当周升级架构师确认（05 §7）。Must NOT do：不实现 browser-service 全量（todo 10）；不做 M6 渗透项。
   Closes: GAP-2, GAP-3
   Parallelization: Wave 3 | Blocked by: 4（05:60） | Blocks: 10（05:63）
@@ -150,7 +150,7 @@ Your next move: 双审进行中——plan-consultant 缺口分析后交 plan-rev
   QA scenarios (name the exact tool + invocation): happy=选型路线本地复现成功（attach 成功且实测时延记录在案）；failure=模拟外来进程连接调试口被拒（PID 校验生效）, Evidence .omo/evidence/mvp0-dev-plan/task-7-mvp0-dev-plan.log
   Commit: Y | docs(spike): S6 CDP debug-port strategy with evidence
   Recommended task executor category: deep-low（安全实验，结论可自证）
-- [ ] 8. 授权链路：license 签发/验签/设备绑定（映射 T-M0-07）
+- [x] 8. 授权链路：license 签发/验签/设备绑定（映射 T-M0-07）
   What to do / Must NOT do: 服务端 Ed25519 私钥签发 license（claims：sub/plan/tier/device_limit/exp/device_hash/jti，02:660-665 §12.3、02:548-566 §9.5 时序）；客户端 license-manager 离线验签（公钥内置）+设备指纹仅存哈希（02:625-632 §11.4）+72h 离线宽限（01:116 FR-1.5）+到期锁定（工作流入口锁、历史查看+日志导出路由保留，01:117 FR-1.6）+个人版第 2 台设备阻断（01:115 FR-1.4）+解绑 30 天限 1 次（01:115）；与 todo 2 兑换联动：兑换→会员生效→签发全链通（05:72 门禁 1）。jti 在线吊销需配置中心（M5）——M0 仅记录不吊销，写入 ADR 注记。Must NOT do：不做支付；不做 B 端设备管理页；团队版 3 台只做校验逻辑，门禁验收以个人版第 2 台阻断为准。
   Closes: GAP-2
   Parallelization: Wave 4 | Blocked by: 2（05:62）；4（客户端侧，推断） | Blocks: 无

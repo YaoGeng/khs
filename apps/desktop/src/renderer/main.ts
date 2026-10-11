@@ -197,8 +197,162 @@ licenseActivateForm?.addEventListener('submit', (event) => {
     });
 });
 
-function renderAppInfo(info: { appVersion: string; electronVersion: string; platform: string; contractVersion: string }): void {
-  const text = `v${info.appVersion} · electron ${info.electronVersion}`;
+/* ============================== 日志视图 + demo 任务（todo 11） ============================== */
+
+interface TaskStepView {
+  stepId: string;
+  seq: number;
+  status: string;
+  output: unknown;
+  checkpointAt: string | null;
+}
+
+interface TaskView {
+  id: string;
+  kind: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  steps: TaskStepView[];
+}
+
+interface LogRowView {
+  id: number;
+  ts: string;
+  createdAt: string;
+  level: number;
+  levelName: string;
+  category: string;
+  traceId: string | null;
+  spanId: string | null;
+  msg: string;
+  payload: unknown;
+}
+
+const logsStatus = document.getElementById('logs-status');
+const logsTable = document.getElementById('logs-table');
+const logsTbody = document.getElementById('logs-tbody');
+const logsRefresh = document.getElementById('logs-refresh');
+const logsCategory = document.getElementById('logs-category-filter') as HTMLSelectElement | null;
+const logsTrace = document.getElementById('logs-trace-filter') as HTMLInputElement | null;
+
+function shortTrace(id: string | null): string {
+  return id ? id.slice(0, 8) : '';
+}
+
+function renderLogRows(rows: LogRowView[]): void {
+  if (!logsTbody || !logsTable || !logsStatus) return;
+  logsTbody.textContent = '';
+  for (const row of rows.slice(0, 50)) {
+    const tr = document.createElement('tr');
+    for (const cell of [
+      new Date(row.ts).toLocaleTimeString(),
+      row.category,
+      row.levelName,
+      shortTrace(row.traceId),
+      shortTrace(row.spanId),
+      row.msg.slice(0, 60),
+    ]) {
+      const td = document.createElement('td');
+      td.textContent = cell;
+      tr.appendChild(td);
+    }
+    logsTbody.appendChild(tr);
+  }
+  logsTable.hidden = rows.length === 0;
+  logsStatus.textContent = rows.length === 0 ? '（暂无日志）' : `最近 ${rows.length} 条（占位级视图，完整时间线归 M1+）`;
+}
+
+function refreshLogs(): void {
+  if (!bridge) return;
+  const params: Record<string, unknown> = { limit: 100, order: 'desc' };
+  if (logsCategory?.value) params.category = logsCategory.value;
+  const trace = logsTrace?.value.trim();
+  if (trace) params.traceId = trace;
+  bridge
+    .invoke('logs:query', params)
+    .then((data) => {
+      const result = data as { rows: LogRowView[] };
+      renderLogRows(result.rows);
+      root.dataset.logsLoaded = '1';
+    })
+    .catch((error: unknown) => {
+      console.warn('[renderer] logs:query failed:', error);
+      if (logsStatus) logsStatus.textContent = `日志查询失败：${String(error).slice(0, 120)}`;
+      root.dataset.logsLoaded = 'error';
+    });
+}
+
+logsRefresh?.addEventListener('click', refreshLogs);
+logsCategory?.addEventListener('change', refreshLogs);
+
+const demoCreateBtn = document.getElementById('demo-task-create-btn');
+const demoTaskStatus = document.getElementById('demo-task-status');
+const demoTaskList = document.getElementById('demo-task-list');
+
+function renderTasks(tasks: TaskView[]): void {
+  // 摘要行 + 恢复按钮（suspended 态）
+  if (!demoTaskStatus) return;
+  if (tasks.length === 0) {
+    demoTaskStatus.textContent = '尚未创建演示任务。';
+    if (demoTaskList) demoTaskList.textContent = '';
+    return;
+  }
+  demoTaskStatus.textContent = `共 ${tasks.length} 个演示任务，最新：${tasks[0]?.status ?? '-'}`;
+  if (demoTaskList) {
+    demoTaskList.textContent = '';
+    for (const task of tasks.slice(0, 5)) {
+      const line = document.createElement('p');
+      line.className = 'demo-task-line';
+      line.textContent = `${task.id.slice(0, 8)}… [${task.kind}] ${task.status} · ${task.steps.filter((s) => s.status === 'completed').length}/${task.steps.length || 3} 步完成`;
+      if (task.status === 'suspended') {
+        const resumeBtn = document.createElement('button');
+        resumeBtn.type = 'button';
+        resumeBtn.className = 'btn btn-ghost demo-task-resume';
+        resumeBtn.dataset.taskId = task.id;
+        resumeBtn.textContent = '恢复（按检查点续跑）';
+        resumeBtn.addEventListener('click', () => {
+          if (!bridge) return;
+          void bridge
+            .invoke('tasks:resume', { taskId: task.id })
+            .then(() => refreshTasks())
+            .catch((error: unknown) => console.warn('[renderer] tasks:resume failed:', error));
+        });
+        line.appendChild(resumeBtn);
+      }
+      demoTaskList.appendChild(line);
+    }
+  }
+}
+
+function refreshTasks(): void {
+  if (!bridge) return;
+  bridge
+    .invoke('tasks:list')
+    .then((data) => {
+      const result = data as { tasks: TaskView[] };
+      renderTasks(result.tasks);
+      root.dataset.tasksLoaded = '1';
+      root.dataset.tasksStatus = result.tasks[0]?.status ?? 'none';
+    })
+    .catch((error: unknown) => {
+      console.warn('[renderer] tasks:list failed:', error);
+      root.dataset.tasksLoaded = 'error';
+    });
+}
+
+demoCreateBtn?.addEventListener('click', () => {
+  if (!bridge) return;
+  bridge
+    .invoke('tasks:createDemo')
+    .then(() => refreshTasks())
+    .catch((error: unknown) => {
+      console.warn('[renderer] tasks:createDemo failed:', error);
+      if (demoTaskStatus) demoTaskStatus.textContent = `创建失败：${String(error).slice(0, 120)}`;
+    });
+});
+
+function renderAppInfo(info: { appVersion: string; electronVersion: string; platform: string; contractVersion: string }): void {  const text = `v${info.appVersion} · electron ${info.electronVersion}`;
   const brandVer = document.getElementById('brand-ver');
   const sideVer = document.getElementById('sidebar-version');
   const topVer = document.getElementById('topbar-version');
@@ -232,6 +386,10 @@ for (const entry of Array.from(document.querySelectorAll<HTMLButtonElement>('.wo
 
 // 初始状态：主进程锁定状态机快照（无 license → locked，路由可达性不收缩）
 refreshLicenseStatus();
+
+// todo 11：日志视图 + demo 任务初始拉取（占位级；失败不阻断壳挂载）
+refreshLogs();
+refreshTasks();
 
 if (bridge) {
   bridge

@@ -7,11 +7,13 @@
 import { build } from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const pkgRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const out = path.join(pkgRoot, 'out');
+const req = createRequire(path.join(pkgRoot, 'package.json'));
 
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
@@ -24,8 +26,22 @@ await build({
   platform: 'node',
   format: 'cjs',
   target: 'node20',
-  external: ['electron'],
+  // better-sqlite3 external：native 模块不进 bundle（bindings 需按包目录解析 .node 文件，
+  // electron-v130 预编译在运行时经 node_modules 链路加载——ADR-8 §3 换装产物）
+  external: ['electron', 'better-sqlite3'],
   outfile: path.join(out, 'main.js'),
+});
+
+// store 写 worker（todo 11 / ADR-8：utilityProcess 托管写，唯一写者）——
+// 独立入口；better-sqlite3 为原生模块必须 external（electron-v130 预编译在运行时解析）
+await build({
+  ...common,
+  entryPoints: [path.join(pkgRoot, 'src/store/worker.ts')],
+  platform: 'node',
+  format: 'cjs',
+  target: 'node20',
+  external: ['electron', 'better-sqlite3'],
+  outfile: path.join(out, 'store-worker.js'),
 });
 
 await build({
@@ -50,9 +66,17 @@ await build({
 fs.cpSync(path.join(pkgRoot, 'src/index.html'), path.join(out, 'index.html'));
 fs.cpSync(path.join(pkgRoot, 'src/renderer/shell.css'), path.join(out, 'renderer.css'));
 
-// 类型门禁（noEmit）：main/preload/renderer/shared 全量过 tsc；失败即构建失败。
-// @types/node 经 apps/desktop/node_modules/@types junction 解析（无 pnpm add 的等价安装态，见任务风险注记）。
-const tsc = spawnSync('tsc -p tsconfig.json', {
+// 类型门禁（noEmit）：main/preload/renderer/shared/store/tasks 全量过 tsc；失败即构建失败。
+// 依赖前提：@xinglian/logger 已构建（dist d.ts；pnpm -r build 按拓扑序先跑 logger）。
+// tsc 解析：优先 PATH（pnpm run 场景自动带 node_modules/.bin）；否则走 typescript 包内 bin。
+const tscFallback = (() => {
+  try {
+    return path.join(path.dirname(req.resolve('typescript/package.json')), 'bin', 'tsc');
+  } catch {
+    return null;
+  }
+})();
+const tsc = spawnSync(tscFallback ? `node "${tscFallback}" -p tsconfig.json` : 'tsc -p tsconfig.json', {
   cwd: pkgRoot,
   stdio: 'inherit',
   shell: true,
@@ -63,4 +87,4 @@ if (tsc.status !== 0) {
   process.exit(tsc.status ?? 1);
 }
 
-console.log('[build] ok: out/main.js out/preload.js out/renderer.js out/renderer.css out/index.html');
+console.log('[build] ok: out/main.js out/store-worker.js out/preload.js out/renderer.js out/renderer.css out/index.html');

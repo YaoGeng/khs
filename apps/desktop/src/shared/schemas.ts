@@ -23,7 +23,7 @@ export const NavigateResultSchema = z.object({
   view: z.enum(NAV_VIEWS),
 });
 
-/* logs:ping —— 白名单/zod 校验链路的往返探针（M0 无日志业务，logs:query 归 M1+） */
+/* logs:ping —— 白名单/zod 校验链路的往返探针 */
 export const LogsPingParamsSchema = z.strictObject({
   message: z.string().min(1).max(200),
 });
@@ -32,6 +32,87 @@ export const LogsPingResultSchema = z.object({
   pong: z.string(),
   at: z.string(),
 });
+
+/* logs:query —— 五类日志查询（FR-10.1：分类可查可筛；FR-10.2：按 trace_id 串联） */
+export const LOG_CATEGORIES_SCHEMA = [
+  'user-action',
+  'automation-step',
+  'llm-call',
+  'network-meta',
+  'system-error',
+] as const;
+
+export const LogsQueryParamsSchema = z.strictObject({
+  traceId: z.string().min(1).max(64).optional(),
+  spanId: z.string().min(1).max(32).optional(),
+  category: z.enum(LOG_CATEGORIES_SCHEMA).optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+  order: z.enum(['asc', 'desc']).optional(),
+});
+
+export const LogRowSchema = z.object({
+  id: z.number().int(),
+  ts: z.string(),
+  createdAt: z.string(),
+  level: z.number().int(),
+  levelName: z.string(),
+  category: z.string(),
+  traceId: z.string().nullable(),
+  spanId: z.string().nullable(),
+  msg: z.string(),
+  payload: z.unknown(),
+});
+
+export const LogsQueryResultSchema = z.object({
+  rows: z.array(LogRowSchema),
+});
+
+export type LogsQueryParams = z.infer<typeof LogsQueryParamsSchema>;
+export type LogsQueryResult = z.infer<typeof LogsQueryResultSchema>;
+export type LogRowView = z.infer<typeof LogRowSchema>;
+
+/* tasks:* —— demo 任务（D7 最小运行器；门禁④演示载体） */
+export const TASK_STATUSES_SCHEMA = [
+  'idle',
+  'running',
+  'suspended',
+  'completed',
+  'failed',
+  'cancelled',
+] as const;
+
+export const TaskStepSchema = z.object({
+  stepId: z.string(),
+  seq: z.number().int(),
+  status: z.string(),
+  output: z.unknown(),
+  checkpointAt: z.string().nullable(),
+});
+
+export const TaskViewSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  status: z.enum(TASK_STATUSES_SCHEMA),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  steps: z.array(TaskStepSchema),
+});
+
+export const TasksCreateDemoParamsSchema = z.strictObject({});
+export const TasksCreateDemoResultSchema = z.object({ taskId: z.string() });
+
+export const TasksListParamsSchema = z.strictObject({});
+export const TasksListResultSchema = z.object({ tasks: z.array(TaskViewSchema) });
+export type TasksListResult = z.infer<typeof TasksListResultSchema>;
+
+export const TasksResumeParamsSchema = z.strictObject({ taskId: z.string().min(1).max(64) });
+export const TasksResumeResultSchema = z.object({ taskId: z.string(), status: z.enum(TASK_STATUSES_SCHEMA) });
+
+export const TasksCancelParamsSchema = z.strictObject({ taskId: z.string().min(1).max(64) });
+export const TasksCancelResultSchema = z.object({ taskId: z.string(), status: z.enum(TASK_STATUSES_SCHEMA) });
+
+export type TaskView = z.infer<typeof TaskViewSchema>;
+export type TaskStepView = z.infer<typeof TaskStepSchema>;
 
 /* license:activate —— 激活（M0 本地注入路径：main 进程离线验签 + license 文件持久化；不联网，02 §9.5 联网流归 M5） */
 export const LicenseActivateParamsSchema = z.strictObject({
@@ -71,6 +152,11 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'app:info': AppInfoParamsSchema,
   'app:navigate': NavigateParamsSchema,
   'logs:ping': LogsPingParamsSchema,
+  'logs:query': LogsQueryParamsSchema,
   'license:activate': LicenseActivateParamsSchema,
   'license:status': LicenseStatusParamsSchema,
+  'tasks:createDemo': TasksCreateDemoParamsSchema,
+  'tasks:list': TasksListParamsSchema,
+  'tasks:resume': TasksResumeParamsSchema,
+  'tasks:cancel': TasksCancelParamsSchema,
 };

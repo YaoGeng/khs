@@ -3,6 +3,9 @@ productName: xinglian
 files:
   - out/**
 asar: true
+# better-sqlite3 原生模块（electron-v130 预编译，todo 11 / ADR-8）不能进 asar
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**"
 win:
   # 签名降级记录见 docs/perf/packaging-status.md（M0 无证书；签名/notarize 在 M5 T-M5-04 前补齐）
   target: nsis

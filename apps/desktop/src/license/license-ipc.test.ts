@@ -24,6 +24,15 @@ const unlockedStatus = {
   licenseDeviceHash: '',
 };
 
+/** todo 11：日志/任务依赖 stub（license 测试只保注册表契约） */
+const logTaskStub = {
+  queryLogs: async () => ({ rows: [] }),
+  createDemoTask: async () => ({ taskId: 'stub' }),
+  listTasks: async () => ({ tasks: [] }),
+  resumeTask: async (taskId: string) => ({ taskId, status: 'running' }),
+  cancelTask: async (taskId: string) => ({ taskId, status: 'cancelled' }),
+};
+
 function makeDeps(license: Partial<LicenseIpcDeps>): AppInfoDeps {
   return {
     appInfo: () => ({
@@ -36,6 +45,7 @@ function makeDeps(license: Partial<LicenseIpcDeps>): AppInfoDeps {
       activate: license.activate ?? (() => unlockedStatus),
       status: license.status ?? (() => unlockedStatus),
     },
+    logTask: logTaskStub,
   };
 }
 
