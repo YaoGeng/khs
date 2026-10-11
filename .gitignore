@@ -3,6 +3,8 @@ dist/
 out/
 *.log
 .omo/evidence/
+apps/desktop/test-results/
+apps/desktop/playwright-report/
 # Prisma 7 prisma-client 生成物（进入 migrations 基线前由 `pnpm --filter @xinglian/server generate` 重建）
 apps/server/src/generated/
 # gen-card.mjs 产出的 SQL（含 codeHash，属一次性交付物）
