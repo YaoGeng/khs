@@ -1,0 +1,14 @@
+appId: com.xinglian.bench.sqlitevec
+productName: sqlite-vec-bench
+directories:
+  output: release
+files:
+  - main.js
+  - package.json
+asar: true
+# Native modules cannot be dlopen'd from inside an asar archive: unpack them.
+# Electron's process.dlopen remaps app.asar -> app.asar.unpacked for .node/.dll paths.
+asarUnpack:
+  - node_modules/better-sqlite3/**
+  - node_modules/sqlite-vec/**
+  - node_modules/sqlite-vec-windows-x64/**

@@ -1,0 +1,20 @@
+{
+  "name": "sqlite-vec-electron-bench",
+  "version": "0.0.0",
+  "private": true,
+  "description": "S11 spike (T-M0-06/todo 5): verify better-sqlite3 + sqlite-vec load inside an electron-builder asar package on Windows. Self-contained sandbox: NOT part of the pnpm workspace (bench/* is outside pnpm-workspace.yaml globs).",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.4.1",
+    "sqlite-vec": "0.1.9"
+  },
+  "devDependencies": {
+    "asar": "^3.2.0",
+    "electron": "33.4.11",
+    "electron-builder": "^25.1.8"
+  }
+}
