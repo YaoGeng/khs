@@ -87,7 +87,7 @@ Your next move: 双审进行中——plan-consultant 缺口分析后交 plan-rev
 ## Todos
 > Implementation + Test = ONE todo. Never separate.
 <!-- APPEND TASK BATCHES BELOW THIS LINE WITH edit/apply_patch - never rewrite the headers above. -->
-- [ ] 1. Monorepo+CI+打包管线与启动性能预算（映射 T-M0-01）
+- [x] 1. Monorepo+CI+打包管线与启动性能预算（映射 T-M0-01）
   What to do / Must NOT do: 工作区根 git init 并建 pnpm workspace Monorepo（全仓 TS，02:164-166 §3.3）：apps/desktop（Electron 空壳）、apps/server（NestJS 空模块）、apps/admin（仅目录占位，M5 范围）、packages/{protocol,workflow,logger,llm-gateway,agents,humanize,adapters-xhs,adapters-1688}（包名对齐 02:197-215 §4.2 模块清单与 §6/§7/§8 各包）；根 pnpm-workspace.yaml+tsconfig base+vitest/playwright 脚手架；本地质量门脚本 lint+test+build 三关（CI-ready，pnpm ci:all；托管 CI 待 git 远端建立后接入——无远端不设假 CI）；electron-builder asar 打包空壳走通；签名/notarize 按 M0 降级默认：产出未签名安装包+docs/perf/packaging-status.md 记录"证书缺失降级"并注记 M5 T-M5-04 自动更新前必须补齐（Win 证书与 Apple Developer $99/年均为付费项且 macOS runner 当前不可得；发起人可随时改判采购升级管线，可逆）（05:56 基线含签名/notarize，02:751-766 §15.1）；产出 docs/perf/cold-start-budget.md：按 03:230 C-3 分解启动性能预算（主进程延迟加载、V8 snapshot、渲染首屏骨架），总预算对照 NFR-1 ≤3s（01:262）。既有 01~09 文档与 c端原型.html 原样首次提交入库不改内容。Must NOT do：不实现业务模块内部逻辑；不建 B 端页面；不改 01~09 文档。
   Closes: GAP-1, GAP-2
   Parallelization: Wave 1 | Blocked by: 无（T-PRE 文档基线已齐，05:44） | Blocks: 4, 5

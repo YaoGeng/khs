@@ -4,4 +4,9 @@ files:
   - out/**
 asar: true
 win:
-  target: nsis
+  # M0 降级（网络阻断 + 无证书）：
+  # - target=dir：GitHub/npmmirror 均不可达，NSIS 工具包无法下载；M0 交付免安装可运行产物（win-unpacked），NSIS 待镜像可达后切回
+  # - signAndEditExecutable=false：rcedit 所需 winCodeSign-2.6.0 无法下载；跳过 exe 图标/版本资源编辑（无证书，签名本就降级）
+  target: dir
+  signAndEditExecutable: false
+
