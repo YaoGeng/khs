@@ -96,7 +96,7 @@ Your next move: 双审进行中——plan-consultant 缺口分析后交 plan-rev
   QA scenarios (name the exact tool + invocation): happy=`pnpm -r test` 全绿且安装包产物存在（bash 校验 dist 路径）；failure=故意引入 lint 错误验证 CI 拦截（`pnpm -r lint` 非零退出）, Evidence .omo/evidence/mvp0-dev-plan/task-1-mvp0-dev-plan.log
   Commit: Y | feat(infra): init pnpm monorepo, CI gates, packaging pipeline, cold-start budget
   Recommended task executor category: unspecified-high（多包工程搭建，标准多文件特性）
-- [ ] 2. 服务端骨架：auth+最小激活码兑换（映射 T-M0-03+D9 扩展）
+- [x] 2. 服务端骨架：auth+最小激活码兑换（映射 T-M0-03+D9 扩展）
   What to do / Must NOT do: apps/server 建 NestJS 模块化单体（ORM=Prisma，02:147 §3.1 选型总表强制栈；02:635-645 §12.1，仅账户与授权模块）：POST /auth/register（邮箱+验证码：Redis 存取 5 分钟有效（02 §13 接口摘要）；M0 投递走 dev 传输——QA 直读 Redis/非生产环境随响应返回，生产 SMTP 随 T-M5 落地并记 ADR 注记，与 D9 同批在 T-PRE-04 追认）、POST /auth/login（密码 BCrypt 哈希入库；图形验证码（SVG 算术码，答案入 Redis，01:113 FR-1.2 P0）+连续失败 5 次锁 15 分钟，01:112-113 FR-1.1/1.2、02:618-624 §11.3）、POST /auth/refresh；users/memberships 表含 tier 列（T-PRE-02 已落架构 v1.1，02:719-732 §14.2）；PG+Redis docker-compose.yml（02:767-775 §15.3）；D9 批准的最小兑换：POST /cards/redeem（cards 表{code_hash,status,plan,tier,redeemed_by,redeemed_at}、单码生成脚本 scripts/gen-card.mjs、防重放=事务内 status 条件更新、兑换写审计记录），签发 JWT claims 含 sub/plan/tier/device_limit（02:660-665 §12.3）。Must NOT do：不做支付/商户号（M5，05:190）；不做 B 端页面；不做卡批次管理/导出/防爆破全量（T-M5-02 范围）；不做邮件通知（FR-12.3，P1）与生产 SMTP 集成（M0 用 dev 传输）。
   Closes: GAP-2
   Parallelization: Wave 1 | Blocked by: 无 | Blocks: 8
@@ -114,7 +114,7 @@ Your next move: 双审进行中——plan-consultant 缺口分析后交 plan-rev
   QA scenarios (name the exact tool + invocation): happy=文档三节齐全+`pnpm -r lint` 边界规则生效；failure=在 apps 间故意建 import 验证 lint 报错, Evidence .omo/evidence/mvp0-dev-plan/task-3-mvp0-dev-plan.md
   Commit: Y | docs(dev): engineering standards, S9 boundary, task-card protocol
   Recommended task executor category: writing（纯规范文档）
-- [ ] 4. Electron 壳：进程模型+IPC 契约（映射 T-M0-02）
+- [x] 4. Electron 壳：进程模型+IPC 契约（映射 T-M0-02）
   What to do / Must NOT do: apps/desktop 建 main/preload/renderer 三进程（02:188-196 §4.1）：webPreferences{contextIsolation:true,nodeIntegration:false,sandbox:true}（02:610-617 §11.2）；preload 经 contextBridge 仅暴露白名单通道，ipcMain.handle 入参 zod 校验（02:216-231 §4.3）；CSP self；单实例锁（02:204 附近 §4.2）；九视图导航骨架（dashboard/insight/report/sourcing/publish/promo/review/logs/settings，对应 c端原型.html，仅路由占位）；C-3 三招落地：主进程延迟加载、V8 snapshot、首屏骨架（03:230）。Must NOT do：不实现业务视图内容；不接业务 API（仅登录页占位）；不引入 workflow 逻辑。
   Closes: GAP-2
   Parallelization: Wave 2 | Blocked by: 1 | Blocks: 6, 7, 9, 10
@@ -123,7 +123,7 @@ Your next move: 双审进行中——plan-consultant 缺口分析后交 plan-rev
   QA scenarios (name the exact tool + invocation): happy=Playwright e2e 九视图导航可达；failure=渲染进程尝试 Node 通道被拒（断言 window.require undefined）, Evidence .omo/evidence/mvp0-dev-plan/task-4-mvp0-dev-plan.log
   Commit: Y | feat(desktop): electron shell, IPC contract, CSP, cold-start measures
   Recommended task executor category: unspecified-high（标准多文件桌面特性）
-- [ ] 5. BYOK 能力探测矩阵+sqlite-vec 打包验证（映射 T-M0-06，S4+S11）
+- [x] 5. BYOK 能力探测矩阵+sqlite-vec 打包验证（映射 T-M0-06，S4+S11）
   What to do / Must NOT do: packages/llm-gateway 探测脚本 scripts/probe-providers.mjs：对 DeepSeek/通义/智谱/OpenAI/硅基流动（01:126 FR-2.1 预设）各探 json_schema 结构化输出、tool calling、embeddings 三能力（实测+官方文档双源核对，无 Key 者标注文档源），产出 docs/adr/provider-matrix.md 矩阵（含境外可达性风险列）+能力分档预设结论（05 §7 R9 降级链），能力分档预设常量落 packages/llm-gateway/src/presets.ts（逐档标注[实测/文档]来源，与矩阵互链——IS-5 的 M0 内下游引用凭证）；better-sqlite3+sqlite-vec 原生扩展在 electron-builder asar 打包后加载验证脚本（Win 必做，macOS 有条件则补，04:94、02:699-718 §14.1）；不利结论 fallback：能力分档预设（05 §7 R9）+本地嵌入缓存表设计注记（02:69 附近 §3.1）写入矩阵。探测 Key 只来自环境变量（契约：PROBE_<PROVIDER>_API_KEY / PROBE_<PROVIDER>_BASE_URL）。Must NOT do：不实现真实 LLM 业务调用链（M1）；不上传任何真实用户 Key。
   Closes: GAP-2, GAP-3
   Parallelization: Wave 2 | Blocked by: 1 | Blocks: 无（M1 的 T-M1-05/T-M1-01 消费，05:87,91）
