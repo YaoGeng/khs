@@ -1,0 +1,105 @@
+// M0 服务端数据模型（对齐 02-系统架构设计.md §14.2 服务端表；列名 snake_case 映射）。
+// M0 决定：不建 migrations 目录，骨架期用 `prisma db push`（见 docs/adr/notes-dev-transports.md）。
+// Prisma 7：datasource 不再允许 url 属性，连接 URL 由 prisma.config.ts 提供；
+// 运行时连接经 driver adapter（@prisma/adapter-pg）注入 PrismaClient。
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// 02 §14.2 users：id, email(唯一), password_hash, phone_enc, status, created_at
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  phoneEnc     String?    @map("phone_enc")
+  status       UserStatus @default(active)
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  memberships Membership[]
+
+  @@map("users")
+}
+
+// 02 §14.2 memberships：id, user_id, plan, tier, starts_at, ends_at, source
+// T-PRE-02：tier 列（personal/team）为会员语义主轴；device_limit 由 tier 映射（02 §12.3：个人 1 / 团队 3）
+model Membership {
+  id          String           @id @default(uuid())
+  userId      String           @map("user_id")
+  user        User             @relation(fields: [userId], references: [id])
+  plan        Plan
+  tier        Tier
+  deviceLimit Int              @map("device_limit")
+  startsAt    DateTime         @map("starts_at")
+  endsAt      DateTime         @map("ends_at")
+  source      MembershipSource
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("memberships")
+}
+
+// 02 §14.2 activation_cards：id, code_hash, plan, tier, batch_no, status, redeemed_by/at
+// 明文激活码只在生成脚本输出时可见，库内仅存 sha256(code)。
+model Card {
+  id         String     @id @default(uuid())
+  codeHash   String     @unique @map("code_hash")
+  plan       Plan
+  tier       Tier
+  batchNo    String?    @map("batch_no")
+  status     CardStatus @default(unused)
+  redeemedBy String?    @map("redeemed_by")
+  redeemedAt DateTime?  @map("redeemed_at")
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  @@index([status])
+  @@map("activation_cards")
+}
+
+// M0 审计骨架（02 §14.2 audit_logs）：兑换等关键动作留痕；B 端管理审计（admin_id/target/before/after）归 M5。
+model AuditLog {
+  id          String   @id @default(uuid())
+  actor       String
+  action      String
+  payloadJson Json     @map("payload_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([action])
+  @@map("audit_logs")
+}
+
+enum UserStatus {
+  active
+  disabled
+}
+
+// M0 只用 unused/redeemed；disabled 留给 M5 卡批次作废（T-M5-02），避免后续改枚举迁数据。
+enum CardStatus {
+  unused
+  redeemed
+  disabled
+}
+
+// T-PRE-02 语义：tier 列
+enum Tier {
+  personal
+  team
+}
+
+// FR-1.3：月卡 31 天 / 季卡 93 天 / 年卡 372 天
+enum Plan {
+  month
+  quarter
+  year
+}
+
+enum MembershipSource {
+  card
+  order
+}

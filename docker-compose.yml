@@ -1,0 +1,38 @@
+# M0 服务端开发依赖（02-系统架构设计.md §15.3：Docker Compose 单机起步）。
+# 本文件仅含 pg16 + redis7 两服务（QA 环境无 docker 时用 apps/server/test 的 embedded-postgres + ioredis-mock 等价替代）。
+# nginx / app / minio 服务随 M5 部署扩展（02 §15.3 全表）。
+# 用法：docker compose up -d && pnpm --filter @xinglian/server db:push && pnpm --filter @xinglian/server start
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: app
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d app']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:

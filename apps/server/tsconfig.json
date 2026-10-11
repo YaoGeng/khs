@@ -1,9 +1,13 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "dist"
+    "outDir": "dist",
+    "rootDir": "src",
+    // NestJS 装饰器 + DI：emitDecoratorMetadata 供 tsc 产物使用；
+    // vitest/esbuild 不支持 decorator metadata，因此全部注入点都用显式 @Inject()（两条编译路径都成立）。
+    "esModuleInterop": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
   },
-  "include": [
-    "src"
-  ]
+  "include": ["src"]
 }
