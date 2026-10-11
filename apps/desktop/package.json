@@ -5,11 +5,19 @@
   "main": "out/main.js",
   "scripts": {
     "lint": "eslint .",
-    "build": "node -e \"fs.rmSync('out',{recursive:true,force:true})\" && esbuild src/main.ts --bundle --platform=node --format=cjs --external:electron --outfile=out/main.js && node -e \"fs.mkdirSync('out',{recursive:true});fs.cpSync('src/index.html','out/index.html')\"",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node scripts/build.mjs",
     "dist": "npm run build && node scripts/dist.mjs",
-    "test": "vitest run --passWithNoTests"
+    "test": "node scripts/build.mjs && vitest run && playwright test",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "cold-start": "node scripts/cold-start.mjs"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@types/node": "^20.19.43",
     "electron": "^33",
     "electron-builder": "^25",
     "esbuild": "^0.28.2"

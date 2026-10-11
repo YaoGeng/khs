@@ -1,5 +1,6 @@
 // dist 脚本：为 electron-builder 注入二进制镜像（本机 GitHub 不可达，npmmirror registry 域可达，2026-10-11 实测）。
 // @electron/get（Electron 二进制）与 electron-builder-binaries（NSIS/winCodeSign）默认走 GitHub Releases。
+/* global process */
 import { spawnSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -1,0 +1,12 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`webPreferencesBaseline（安全基线快照） > 快照：基线字段值锁定 1`] = `
+{
+  "contextIsolation": true,
+  "nodeIntegration": false,
+  "preload": "C:/app/out/preload.js",
+  "sandbox": true,
+  "spellcheck": false,
+  "webSecurity": true,
+}
+`;

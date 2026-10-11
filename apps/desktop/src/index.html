@@ -1,8 +1,146 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head><meta charset="utf-8" /><title>xinglian</title></head>
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      CSP（02 §11.2：渲染进程 default-src 'self'，禁 inline script）。
+      全部样式/脚本均为外链文件（renderer.css / renderer.js），无任何 inline script、inline style、内联事件。
+      基线在 file:// 下的兼容性已由 e2e 断言（脚本外链可加载 + CSP meta 存在），见 e2e/shell.spec.ts。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>星链 · AI 选品营销工作台</title>
+    <link rel="stylesheet" href="./renderer.css" />
+  </head>
   <body>
-    <h1>星链</h1>
-    <p>MVP0 shell</p>
+    <!-- ===== C-3 招三：首屏静态骨架屏（JS 挂载前可见，renderer.js 挂载完成后移除） ===== -->
+    <div id="boot-skeleton" class="boot-skeleton" role="status" aria-label="正在启动">
+      <div class="boot-brand">
+        <span class="boot-logo">星</span>
+        <span class="boot-name">星链工作台</span>
+      </div>
+      <div class="boot-lines">
+        <span class="boot-line boot-line--1"></span>
+        <span class="boot-line boot-line--2"></span>
+        <span class="boot-line boot-line--3"></span>
+      </div>
+      <p class="boot-note">正在启动星链工作台…</p>
+    </div>
+
+    <!-- ===== 九视图壳（对应 c端原型.html 1126-2319 的九视图结构，仅路由占位） ===== -->
+    <div id="app" class="app" hidden>
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-logo">星</span>
+          <span class="brand-name">星链工作台</span>
+          <span class="brand-ver" id="brand-ver">v0.1.0</span>
+        </div>
+        <nav class="nav" aria-label="主导航">
+          <div class="nav-group">总览</div>
+          <button class="nav-item active" type="button" data-view="dashboard" data-view-title="工作台" aria-current="page">
+            <span class="nav-ico">▣</span>工作台
+          </button>
+          <button class="nav-item" type="button" data-view="insight" data-view-title="市场洞察">
+            <span class="nav-ico">◔</span>市场洞察
+          </button>
+          <button class="nav-item" type="button" data-view="report" data-view-title="选品报告">
+            <span class="nav-ico">▤</span>选品报告
+          </button>
+          <div class="nav-group">执行</div>
+          <button class="nav-item" type="button" data-view="sourcing" data-view-title="智能选品">
+            <span class="nav-ico">◇</span>智能选品
+          </button>
+          <button class="nav-item" type="button" data-view="publish" data-view-title="内容发布">
+            <span class="nav-ico">➤</span>内容发布
+          </button>
+          <button class="nav-item" type="button" data-view="promo" data-view-title="推广助手">
+            <span class="nav-ico">⚡</span>推广助手
+          </button>
+          <div class="nav-group">治理</div>
+          <button class="nav-item" type="button" data-view="review" data-view-title="待审池">
+            <span class="nav-ico">✓</span>待审池<span class="nav-badge" id="review-badge">0</span>
+          </button>
+          <button class="nav-item" type="button" data-view="logs" data-view-title="日志中心">
+            <span class="nav-ico">≡</span>日志中心
+          </button>
+          <button class="nav-item" type="button" data-view="settings" data-view-title="设置">
+            <span class="nav-ico">⚙</span>设置
+          </button>
+        </nav>
+        <div class="sidebar-foot">
+          <span id="sidebar-version">…</span>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <h1 class="topbar-title" id="topbar-title">工作台</h1>
+          <div class="topbar-right">
+            <span class="topbar-version" id="topbar-version"></span>
+            <button class="btn btn-ghost" type="button" id="topbar-login" data-view-title="登录">登录 / 注册</button>
+          </div>
+        </header>
+
+        <div class="views">
+          <section class="view active" id="view-dashboard" data-view="dashboard">
+            <h2>工作台</h2>
+            <p class="placeholder">M0 占位视图：仅导航骨架。看板内容按里程碑（M1+）交付。</p>
+          </section>
+          <section class="view" id="view-insight" data-view="insight">
+            <h2>市场洞察</h2>
+            <p class="placeholder">M0 占位视图：仅导航骨架。采集/洞察内容 M1+ 交付。</p>
+          </section>
+          <section class="view" id="view-report" data-view="report">
+            <h2>选品报告</h2>
+            <p class="placeholder">M0 占位视图：仅导航骨架。报告生成 M2+ 交付。</p>
+          </section>
+          <section class="view" id="view-sourcing" data-view="sourcing">
+            <h2>智能选品</h2>
+            <p class="placeholder">M0 占位视图：仅导航骨架。选品 Agent M2+ 交付。</p>
+          </section>
+          <section class="view" id="view-publish" data-view="publish">
+            <h2>内容发布</h2>
+            <p class="placeholder">M0 占位视图：仅导航骨架。发布流水线 M3+ 交付。</p>
+          </section>
+          <section class="view" id="view-promo" data-view="promo">
+            <h2>推广助手</h2>
+            <p class="placeholder">M0 占位视图：仅导航骨架。推广功能 M4+ 交付。</p>
+          </section>
+          <section class="view" id="view-review" data-view="review">
+            <h2>待审池</h2>
+            <p class="placeholder">M0 占位视图：仅导航骨架。待审池 M1+ 交付。</p>
+          </section>
+          <section class="view" id="view-logs" data-view="logs">
+            <h2>日志中心</h2>
+            <p class="placeholder">M0 占位视图：仅导航骨架。日志管线由 todo 11 交付。</p>
+          </section>
+          <section class="view" id="view-settings" data-view="settings">
+            <h2>设置</h2>
+            <p class="placeholder">M0 占位视图：仅导航骨架。设置项随各里程碑逐步开放。</p>
+          </section>
+          <!-- 登录占位：不接后端（M0），无业务逻辑；非导航九视图之一 -->
+          <section class="view" id="view-login" data-view="login">
+            <h2>登录 / 注册</h2>
+            <form class="login-card" id="login-form">
+              <label class="login-label">
+                邮箱
+                <input class="login-input" type="email" name="email" placeholder="you@example.com" autocomplete="off" />
+              </label>
+              <label class="login-label">
+                密码
+                <input class="login-input" type="password" name="password" placeholder="••••••••" autocomplete="off" />
+              </label>
+              <button class="btn btn-primary" type="submit">登录（未接入后端）</button>
+              <p class="login-msg" id="login-msg">M0 占位：登录后端由 todo 2（auth）提供，此处不发起任何请求。</p>
+            </form>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script src="./renderer.js"></script>
   </body>
 </html>
