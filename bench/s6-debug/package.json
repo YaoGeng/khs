@@ -1,0 +1,10 @@
+{
+  "name": "s6-debug-spike",
+  "private": true,
+  "description": "Spike S6: CDP debug-port strategy on Windows (pipe vs port=0+loopback+PID). Isolated sandbox - not part of pnpm workspace.",
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "1.64.0",
+    "ws": "^8.18.0"
+  }
+}
