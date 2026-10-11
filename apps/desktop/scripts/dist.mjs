@@ -9,6 +9,10 @@ process.env.ELECTRON_BUILDER_BINARIES_MIRROR =
   'https://registry.npmmirror.com/-/binary/electron-builder-binaries/';
 process.env.ELECTRON_MIRROR =
   process.env.ELECTRON_MIRROR || 'https://registry.npmmirror.com/-/binary/electron/';
+// better-sqlite3 预编译包（electron ABI）走 npmmirror 镜像（prebuild-install 约定的 npm_config_* 键）
+process.env.npm_config_better_sqlite3_binary_host_mirror =
+  process.env.npm_config_better_sqlite3_binary_host_mirror ||
+  'https://registry.npmmirror.com/-/binary/better-sqlite3';
 
 const r = spawnSync('electron-builder', ['--win'], {
   stdio: 'inherit',

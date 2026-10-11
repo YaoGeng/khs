@@ -5,3 +5,10 @@ packages:
 allowBuilds:
   electron: true
   esbuild: true
+  better-sqlite3: true
+  prisma: true
+  '@prisma/engines': true
+  embedded-postgres: true
+  '@embedded-postgres/windows-x64': true
+  '@nestjs/core': true
+  workerd: true
