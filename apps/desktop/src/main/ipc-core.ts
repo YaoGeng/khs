@@ -17,6 +17,11 @@ import {
   CollectStatsParams,
   CollectStatsResultSchema,
   ConsentStateResultSchema,
+  KeysGetMaskedResultSchema,
+  KeysPrecallConfirmResultSchema,
+  KeysScanTestResultSchema,
+  KeysSetResultSchema,
+  KeysTestResultSchema,
   LicenseStatusResultSchema,
   LogsQueryResultSchema,
   TasksCancelResultSchema,
@@ -33,6 +38,15 @@ import {
   type CollectRemaindersResult,
   type CollectStatsResult,
   type ConsentStateResult,
+  type KeysGetMaskedResult,
+  type KeysPrecallConfirmParams,
+  type KeysPrecallConfirmResult,
+  type KeysScanTestParams,
+  type KeysScanTestResult,
+  type KeysSetParams,
+  type KeysSetResult,
+  type KeysTestParams,
+  type KeysTestResult,
   type LicenseActivateParams,
   type LicenseStatusResult,
   type LogsQueryParams,
@@ -90,6 +104,20 @@ export interface CollectIpcDeps {
   readonly circuitConfirmResume: () => Promise<CircuitConfirmResumeResult>;
 }
 
+/** BYOK Key 链路依赖注入面（m1 todo 10 = T-M1-08①；main binding 在 main/key-service.ts） */
+export interface KeysIpcDeps {
+  readonly setKey: (params: KeysSetParams) => Promise<KeysSetResult>;
+  readonly getMasked: () => Promise<KeysGetMaskedResult>;
+  /**
+   * keys:get-masked 出口断言输入：明文形态 Key 全值列表（仅主进程内存，永不出 IPC）。
+   * 出口 handler 对响应 JSON 深扫描该列表，任一全值出现即抛 E-KEY-MASKED-VIOLATION。
+   */
+  readonly exitAuditRawValues: () => Promise<string[]>;
+  readonly test: (params: KeysTestParams) => Promise<KeysTestResult>;
+  readonly precallConfirm: (params: KeysPrecallConfirmParams) => Promise<KeysPrecallConfirmResult>;
+  readonly scanTest: (params: KeysScanTestParams) => Promise<KeysScanTestResult>;
+}
+
 export interface AppInfoDeps {
   /** 注入 app/appVersion 等运行时读取，保持本模块 electron-free 可单测 */
   readonly appInfo: () => AppInfoResult;
@@ -103,6 +131,8 @@ export interface AppInfoDeps {
   readonly browser: BrowserIpcDeps;
   /** todo 7：采集管道 + 熔断联动（T-M1-04）依赖；未装配时 collect:/circuit: 通道显式报未就绪 */
   readonly collect?: CollectIpcDeps;
+  /** m1 todo 10：BYOK Key 链路（T-M1-08①）依赖；未装配时 keys: 通道显式报未就绪 */
+  readonly keys?: KeysIpcDeps;
 }
 
 /** 校验并执行一次 IPC 调用（主进程 handle 与单测共用同一路径） */
@@ -434,6 +464,70 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
           if (!deps.collect) throw new Error('E-IPC-DEP-MISSING: collect 链路未装配');
           const result = await deps.collect.circuitConfirmResume();
           return validateExit(CircuitConfirmResumeResultSchema, result, 'circuit:confirmResume');
+        },
+      },
+    ],
+    [
+      'keys:set',
+      {
+        paramsSchema: channelParamsSchemas['keys:set'],
+        handle: async (payload: KeysSetParams) => {
+          if (!deps.keys) throw new Error('E-IPC-DEP-MISSING: keys 链路未装配');
+          const result = await deps.keys.setKey(payload);
+          return validateExit(KeysSetResultSchema, result, 'keys:set');
+        },
+      },
+    ],
+    [
+      'keys:get-masked',
+      {
+        paramsSchema: channelParamsSchemas['keys:get-masked'],
+        // 出口断言（FR-2.7/PC-03①）：masked 响应永不含 Key 全值——对明文形态全值深扫描，
+        // 出现即抛 E-KEY-MASKED-VIOLATION（防御性：契约被破坏时快速失败而非泄漏）
+        handle: async () => {
+          if (!deps.keys) throw new Error('E-IPC-DEP-MISSING: keys 链路未装配');
+          const result = await deps.keys.getMasked();
+          const validated = validateExit(KeysGetMaskedResultSchema, result, 'keys:get-masked');
+          const json = JSON.stringify(validated);
+          for (const raw of await deps.keys.exitAuditRawValues()) {
+            if (raw && json.includes(raw)) {
+              throw new Error('E-KEY-MASKED-VIOLATION: keys:get-masked 出口泄漏完整 Key 值（出口断言触发）');
+            }
+          }
+          return validated;
+        },
+      },
+    ],
+    [
+      'keys:test',
+      {
+        paramsSchema: channelParamsSchemas['keys:test'],
+        handle: async (payload: KeysTestParams) => {
+          if (!deps.keys) throw new Error('E-IPC-DEP-MISSING: keys 链路未装配');
+          const result = await deps.keys.test(payload);
+          return validateExit(KeysTestResultSchema, result, 'keys:test');
+        },
+      },
+    ],
+    [
+      'keys:precall-confirm',
+      {
+        paramsSchema: channelParamsSchemas['keys:precall-confirm'],
+        handle: async (payload: KeysPrecallConfirmParams) => {
+          if (!deps.keys) throw new Error('E-IPC-DEP-MISSING: keys 链路未装配');
+          const result = await deps.keys.precallConfirm(payload);
+          return validateExit(KeysPrecallConfirmResultSchema, result, 'keys:precall-confirm');
+        },
+      },
+    ],
+    [
+      'keys:scan-test',
+      {
+        paramsSchema: channelParamsSchemas['keys:scan-test'],
+        handle: async (payload: KeysScanTestParams) => {
+          if (!deps.keys) throw new Error('E-IPC-DEP-MISSING: keys 链路未装配');
+          const result = await deps.keys.scanTest(payload);
+          return validateExit(KeysScanTestResultSchema, result, 'keys:scan-test');
         },
       },
     ],

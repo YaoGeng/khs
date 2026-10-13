@@ -7,6 +7,7 @@
  * → 延迟加载重模块（C-3 招一；store worker 的 fork 为异步旁路，不阻塞窗口路径）。
  */
 import { app, BrowserWindow, Notification } from 'electron';
+import { join } from 'node:path';
 import { EULA_LOCKED_VIEWS, CONTRACT_VERSION } from './shared/channels';
 import { registerIpcHandlers } from './main/ipc';
 import { createComplianceService, type ComplianceService } from './compliance/compliance-service';
@@ -17,6 +18,9 @@ import { createMainWindow } from './main/window';
 import { loadHeavyModules } from './main/heavy';
 import { attachMigrationReport, createStoreService, resolveStorePaths, runPreWindowMigration, type StoreService } from './main/store-service';
 import { createCollectBinding, type CollectBinding } from './main/collect-binding';
+import { createElectronSafeStoragePort } from './main/safe-storage-port';
+import { createKeyService, type KeyService } from './main/key-service';
+import { createWordlistService, type WordlistService } from './compliance/wordlist-service';
 import { BrowserService } from './browser/browser-service';
 import { resolveProfileRoot } from './browser/profiles';
 
@@ -55,6 +59,12 @@ let browserService: BrowserService | null = null;
 
 // todo 7：采集链路绑定（熔断器/日配额/适配包/mock-CDP seam/让位监视；T-M1-04）
 let collectBinding: CollectBinding | null = null;
+
+// m1 todo 10：词库配置包服务（seed→sha256 manifest→fs watch 热更；T-M1-08②）
+let wordlistService: WordlistService | null = null;
+
+// m1 todo 10：BYOK Key 服务（safeStorage 经注入 Port；masked 出口断言在 ipc-core；T-M1-08①）
+let keyService: KeyService | null = null;
 
 /** 桌面通知（Electron Notification；不可用环境静默降级为日志，e2e/CI 无通知中心） */
 function showDesktopNotification(title: string, body: string): void {
@@ -144,6 +154,24 @@ if (!gotLock) {
         : 1,
     });
 
+    // m1 todo 10：词库服务（配置包根 = <userData>/config/wordlist；seed 首启落盘 + fs watch 热更）
+    const storeClient = storeService.store;
+    wordlistService = createWordlistService({
+      root: join(app.getPath('userData'), 'config', 'wordlist'),
+      kvGet: (key) => storeClient.kvGet(key),
+      kvSet: (key, value) => storeClient.kvSet(key, value),
+      onAudit: (msg, payload) => storeService?.logger.userAction(msg, payload),
+    });
+    void wordlistService.whenReady;
+
+    // m1 todo 10：BYOK Key 服务（safeStorage 注入 Port；密文/降级明文双形态落 kv_config）
+    keyService = createKeyService({
+      store: storeClient,
+      safeStorage: createElectronSafeStoragePort(),
+      fetchFn: globalThis.fetch.bind(globalThis),
+      wordlist: wordlistService,
+    });
+
     // 跨日续采扫描（02 §9.1：应用启动扫描昨日未完 remainder；UI「继续采集」经 collect:remainders）
     void storeService.recoveredTaskIds.then(async () => {
       const remainders = await collectBinding?.scanRemainders() ?? [];
@@ -183,6 +211,15 @@ if (!gotLock) {
           await (collectBinding?.stats(params.runId, params.topicId) ?? Promise.reject(new Error('collect binding 未就绪'))),
         circuitStatus: () => collectBinding?.circuitStatus() ?? Promise.reject(new Error('collect binding 未就绪')),
         circuitConfirmResume: () => collectBinding?.confirmResume() ?? Promise.reject(new Error('collect binding 未就绪')),
+      },
+      // m1 todo 10：BYOK Key 链路（keys:set / keys:get-masked / keys:test / keys:precall-confirm / keys:scan-test）
+      keys: {
+        setKey: (params) => keyService?.setKey(params) ?? Promise.reject(new Error('keys service 未就绪')),
+        getMasked: () => keyService?.getMasked() ?? Promise.reject(new Error('keys service 未就绪')),
+        exitAuditRawValues: () => keyService?.exitAuditRawValues() ?? Promise.reject(new Error('keys service 未就绪')),
+        test: (params) => keyService?.test(params) ?? Promise.reject(new Error('keys service 未就绪')),
+        precallConfirm: (params) => keyService?.precallConfirm(params) ?? Promise.reject(new Error('keys service 未就绪')),
+        scanTest: (params) => keyService?.scanTest(params) ?? Promise.reject(new Error('keys service 未就绪')),
       },
     });
 
@@ -246,6 +283,7 @@ if (!gotLock) {
     void (async () => {
       try {
         collectBinding?.shutdown();
+        wordlistService?.close();
         await browserService?.shutdown();
         storeService?.logger.systemError('app-quit-browser-closed', {});
         await storeService?.shutdown();

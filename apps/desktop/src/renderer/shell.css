@@ -557,3 +557,72 @@ body {
   line-height: 1.7;
   color: #57606a;
 }
+
+/* ===== m1 todo 10（T-M1-08①）：BYOK key-config 卡与调用前确认弹窗 ===== */
+.key-scope-note {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #ddf4ff;
+  border: 1px solid #54aeff;
+  font-size: 11px;
+  line-height: 1.7;
+  color: #0a3069;
+}
+.key-storage-warning {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fff8c5;
+  border: 1px solid #d4a72c;
+  font-size: 12px;
+  color: #4d2d00;
+}
+.key-provider-table { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.key-provider-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.key-provider-name { font-weight: 600; color: #24292f; }
+.key-provider-region { padding: 1px 8px; border-radius: 999px; font-size: 11px; }
+.key-provider-region[data-region-label='境内'] { background: #dafbe1; color: #116329; }
+.key-provider-region[data-region-label='境外'] { background: #ffebe9; color: #cf222e; }
+.key-provider-region-note { color: #57606a; font-size: 11px; }
+.key-caps { display: contents; }
+.key-cap { font-size: 11px; color: #24292f; }
+.cap-note { color: #57606a; font-style: normal; }
+.cap-badge {
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  background: #fff8c5;
+  border: 1px solid #d4a72c;
+  color: #4d2d00;
+}
+.cap-badge--probed { background: #dafbe1; border-color: #4ac26b; color: #116329; }
+.key-set-form { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; max-width: 520px; }
+.key-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #24292f; }
+.key-input {
+  padding: 6px 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.key-status-line { font-size: 12px; color: #57606a; }
+.key-masked-list { margin: 6px 0; display: flex; flex-direction: column; gap: 2px; }
+.key-masked-line { margin: 0; font-size: 12px; color: #57606a; font-variant-numeric: tabular-nums; }
+.key-test-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.key-test-status { font-size: 12px; color: #57606a; }
+.scan-test-box { margin-top: 12px; padding-top: 10px; border-top: 1px dashed #d0d7de; }
+.scan-test-box h4 { margin: 0 0 6px; font-size: 12px; color: #24292f; }
+.scan-test-result { font-size: 12px; color: #57606a; line-height: 1.7; }
+.precall-body { font-size: 13px; line-height: 1.7; color: #24292f; }
+.precall-provider-line { font-size: 12px; color: #57606a; }

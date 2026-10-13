@@ -42,7 +42,15 @@ describe('通道白名单（§4.3 + §11.2 preload 白名单）', () => {
   it('业务通道越权被拒（M0 未注册，M1+ 才有）', () => {
     expect(isChannelAllowed('workflow:start')).toBe(false);
     expect(isChannelAllowed('review:list')).toBe(false);
-    expect(isChannelAllowed('keys:set')).toBe(false);
+  });
+
+  it('m1 todo 10：keys:* 五通道入白名单（T-M1-08① BYOK Key 配置 + 词库扫描验证）', () => {
+    expect(isChannelAllowed('keys:set')).toBe(true);
+    expect(isChannelAllowed('keys:get-masked')).toBe(true);
+    expect(isChannelAllowed('keys:test')).toBe(true);
+    expect(isChannelAllowed('keys:precall-confirm')).toBe(true);
+    expect(isChannelAllowed('keys:scan-test')).toBe(true);
+    expect(isChannelAllowed('keys:export-raw')).toBe(false); // 全值出口通道永不入白名单
   });
 
   it('todo 10：受控浏览器通道进入 M0 白名单（FR-3.1/3.2/3.5）', () => {

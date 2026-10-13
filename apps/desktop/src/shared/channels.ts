@@ -9,8 +9,10 @@
  * consent:state / consent:acceptEula / consent:rejectEula / consent:setTelemetry，
  * 同一注册表模式）+ 受控浏览器通道（todo 10 = T-M0-08：browser:status / browser:openPlatform /
  * browser:disconnect——FR-3.1/3.2/3.5 一键拉起接管、平台快捷入口、三态标题栏与一键断开）；
- * workflow:/review:/keys: 等业务通道仍归 M1+，见 02 §4.3 示例表——
+ * workflow:/review: 等业务通道仍归 M1+，见 02 §4.3 示例表——
  * M0 一律不注册，渲染进程越权调用将被白名单拒绝并返回稳定错误码。
+ * M1（m1 todo 10 = T-M1-08）：keys:* 五通道入白名单（keys:set/keys:get-masked/keys:test/
+ * keys:precall-confirm/keys:scan-test——BYOK Key 配置 + 词库扫描验证通道）。
  */
 export const IPC_CHANNELS = [
   'app:info',
@@ -27,6 +29,11 @@ export const IPC_CHANNELS = [
   'consent:acceptEula',
   'consent:rejectEula',
   'consent:setTelemetry',
+  'keys:get-masked',
+  'keys:precall-confirm',
+  'keys:scan-test',
+  'keys:set',
+  'keys:test',
   'logs:ping',
   'logs:query',
   'license:activate',
@@ -100,6 +107,31 @@ export const BROWSER_ERRORS = {
 export const BROWSER_PLATFORMS = ['xhs', '1688'] as const;
 
 export type BrowserPlatformId = (typeof BROWSER_PLATFORMS)[number];
+
+/**
+ * BYOK Key 服务商 id（m1 todo 10 = T-M1-08①；FR-2.1 五家预设 + custom）。
+ * 五家与 packages/llm-gateway presets.ts PROVIDER_IDS 镜像（desktop 不依赖 llm-gateway 包，
+ * 镜像面靠两侧单测互链守护）；custom = 自定义 base_url 网关（用户决策 D11：M1 真实跑 LLM
+ * 走 BYOK 自定义网关，属运行时/dev 通道——不加第六预设）。
+ */
+export const KEY_PROVIDER_IDS = ['deepseek', 'tongyi', 'zhipu', 'openai', 'siliconflow', 'custom'] as const;
+
+export type KeyProviderId = (typeof KEY_PROVIDER_IDS)[number];
+
+/**
+ * keys:* 稳定错误码（FR-2.7 / PC-03①；renderer 与 e2e 据此渲染引导而非裸错误）。
+ * 明文降级不是拒绝错误：存储成功但 encryption='plaintext-fallback' + 告警文案随结果返回。
+ */
+export const KEY_ERRORS = {
+  /** 未配置 Key 时点「测试连接」→ 阻止并指向配置入口 */
+  NOT_CONFIGURED: 'E-KEY-NOT-CONFIGURED',
+  /** masked 出口断言触发：IPC 响应中出现完整 Key 值（防御性，触发即契约被破坏） */
+  MASKED_VIOLATION: 'E-KEY-MASKED-VIOLATION',
+  /** custom 服务商未提供 base_url */
+  BASE_URL_REQUIRED: 'E-KEY-BASE-URL-REQUIRED',
+  /** 词库未就绪（active 配置包缺失/全部损坏） */
+  WORDLIST_NOT_READY: 'E-WORDLIST-NOT-READY',
+} as const;
 
 /** 平台 → 首页 URL 与 Profile 子目录名（FR-3.3：每平台独立 Profile 目录持久化登录态） */
 export const BROWSER_PLATFORM_URLS: Record<BrowserPlatformId, string> = {

@@ -3,7 +3,7 @@
  * 通道即契约，入参用 zod 校验——preload 侧与 ipcMain.handle 侧共用本文件）。
  */
 import { z } from 'zod';
-import { BROWSER_PLATFORMS, NAV_VIEWS, type IpcChannel } from './channels';
+import { BROWSER_PLATFORMS, KEY_PROVIDER_IDS, NAV_VIEWS, type IpcChannel } from './channels';
 
 /* app:info —— 壳层运行时信息（M0 唯一"数据"通道，无业务含义） */
 export const AppInfoParamsSchema = z.strictObject({});
@@ -239,6 +239,18 @@ export const LicenseStatusResultSchema = z.object({
   licenseDeviceHash: z.string().optional(),
 });
 
+export type KeysSetParams = z.infer<typeof KeysSetParamsSchema>;
+export type KeysSetResult = z.infer<typeof KeysSetResultSchema>;
+export type KeysGetMaskedResult = z.infer<typeof KeysGetMaskedResultSchema>;
+export type KeyMaskedEntry = z.infer<typeof KeyMaskedEntrySchema>;
+export type KeysTestParams = z.infer<typeof KeysTestParamsSchema>;
+export type KeysTestResult = z.infer<typeof KeysTestResultSchema>;
+export type KeysPrecallConfirmParams = z.infer<typeof KeysPrecallConfirmParamsSchema>;
+export type KeysPrecallConfirmResult = z.infer<typeof KeysPrecallConfirmResultSchema>;
+export type KeysScanTestParams = z.infer<typeof KeysScanTestParamsSchema>;
+export type KeysScanTestResult = z.infer<typeof KeysScanTestResultSchema>;
+export type KeywordHitView = z.infer<typeof KeywordHitViewSchema>;
+
 export type AppInfoParams = z.infer<typeof AppInfoParamsSchema>;
 export type AppInfoResult = z.infer<typeof AppInfoResultSchema>;
 export type NavigateParams = z.infer<typeof NavigateParamsSchema>;
@@ -333,6 +345,101 @@ export const BrowserDisconnectResultSchema = z.object({
   browserClosed: z.boolean(),
 });
 
+/* keys:* —— BYOK Key 配置（m1 todo 10 = T-M1-08①；FR-2.1/FR-2.7/PC-03①） */
+
+/** Key 存储形态（出口字段）：safeStorage=OS 级加密；plaintext-fallback=显式降级（带告警） */
+export const KEY_ENCRYPTION_MODES_SCHEMA = ['safeStorage', 'plaintext-fallback'] as const;
+
+export const KeysSetParamsSchema = z
+  .strictObject({
+    provider: z.enum(KEY_PROVIDER_IDS),
+    /** API Key 全值（仅主进程经 safeStorage 加密落 kv_config；masked 读回 sk-****+后 4 位） */
+    key: z.string().min(8).max(400),
+    /** 自定义网关 base_url（custom 必填；预设五家可覆盖官方默认） */
+    baseUrl: z.string().url().max(300).optional(),
+    /** 测试连接/后续调用用的模型名（custom 必填；预设五家有缺省表） */
+    model: z.string().min(1).max(120).optional(),
+  })
+  .superRefine((params, ctx) => {
+    if (params.provider === 'custom' && !params.baseUrl) {
+      ctx.addIssue({ code: 'custom', message: 'provider=custom 时必须提供 baseUrl（自定义网关）', path: ['baseUrl'] });
+    }
+  });
+
+export const KeysSetResultSchema = z.object({
+  provider: z.enum(KEY_PROVIDER_IDS),
+  /** 仅 masked（sk-****+后 4 位）；全值永不回渲染层 */
+  masked: z.string(),
+  encryption: z.enum(KEY_ENCRYPTION_MODES_SCHEMA),
+  /** 明文降级时非空：界面告警 toast 文案（绝不静默） */
+  warning: z.string().optional(),
+});
+
+export const KeysGetMaskedParamsSchema = z.strictObject({});
+
+/** 单服务商 masked 读回项（未配置=各字段 null）；任何字段都不含 Key 全值 */
+export const KeyMaskedEntrySchema = z.object({
+  provider: z.enum(KEY_PROVIDER_IDS),
+  masked: z.string().nullable(),
+  encryption: z.enum(KEY_ENCRYPTION_MODES_SCHEMA).nullable(),
+  baseUrl: z.string().nullable(),
+  model: z.string().nullable(),
+  setAt: z.string().nullable(),
+});
+
+export const KeysGetMaskedResultSchema = z.object({ keys: z.array(KeyMaskedEntrySchema) });
+
+export const KeysTestParamsSchema = z.strictObject({
+  provider: z.enum(KEY_PROVIDER_IDS),
+  /** 运行时覆盖（custom 未存 baseUrl 时必传） */
+  baseUrl: z.string().url().max(300).optional(),
+  model: z.string().min(1).max(120).optional(),
+});
+
+export const KeysTestResultSchema = z.object({
+  ok: z.boolean(),
+  provider: z.enum(KEY_PROVIDER_IDS),
+  model: z.string().nullable(),
+  latencyMs: z.number().int().nullable(),
+  httpStatus: z.number().int().nullable(),
+  /** 稳定摘要（不含 Key、不含请求头、不含原始响应体——防机密回显） */
+  error: z.string().nullable(),
+});
+
+export const KeysPrecallConfirmParamsSchema = z.strictObject({
+  provider: z.enum(KEY_PROVIDER_IDS),
+  /** check=查询是否需弹；confirm=用户确认（本会话该 provider 不再弹）；reset=设置页重置提示状态 */
+  action: z.enum(['check', 'confirm', 'reset']),
+});
+
+export const KeysPrecallConfirmResultSchema = z.object({ needConfirm: z.boolean() });
+
+export const KeysScanTestParamsSchema = z
+  .strictObject({
+    text: z.string().min(1).max(20000).optional(),
+    keywords: z.array(z.string().min(1).max(100)).max(50).optional(),
+    topicId: z.string().min(1).max(64).optional(),
+  })
+  .superRefine((params, ctx) => {
+    if (!params.text && !params.keywords) {
+      ctx.addIssue({ code: 'custom', message: 'text 与 keywords 至少提供其一', path: ['text'] });
+    }
+  });
+
+export const KeywordHitViewSchema = z.object({
+  term: z.string(),
+  category: z.string().nullable(),
+  kind: z.enum(['extreme', 'redirect', 'blacklist']),
+  source: z.enum(['text', 'keyword']),
+});
+
+export const KeysScanTestResultSchema = z.object({
+  wordlistVersion: z.string(),
+  hits: z.array(KeywordHitViewSchema),
+  /** 落 keyword_hits 行数（wordlist_version 随行持久化） */
+  persisted: z.number().int(),
+});
+
 /** 通道 → 入参 schema。preload 与 main 侧都从这里取，保证两侧校验一致。 */
 export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'app:info': AppInfoParamsSchema,
@@ -349,6 +456,11 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'consent:acceptEula': ConsentAcceptParamsSchema,
   'consent:rejectEula': ConsentRejectParamsSchema,
   'consent:setTelemetry': ConsentSetTelemetryParamsSchema,
+  'keys:get-masked': KeysGetMaskedParamsSchema,
+  'keys:precall-confirm': KeysPrecallConfirmParamsSchema,
+  'keys:scan-test': KeysScanTestParamsSchema,
+  'keys:set': KeysSetParamsSchema,
+  'keys:test': KeysTestParamsSchema,
   'logs:ping': LogsPingParamsSchema,
   'logs:query': LogsQueryParamsSchema,
   'license:activate': LicenseActivateParamsSchema,

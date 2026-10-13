@@ -208,6 +208,50 @@
               <p class="telemetry-status-line" id="telemetry-status-line">遥测状态：检测中…</p>
               <p class="telemetry-anonymization-note" id="telemetry-anonymization-note">【匿名化口径声明（占位文案位，FR-12.6/FR-2.7；终稿 M6 T-M6-02 定稿）】遥测仅包含功能使用事件（如漏斗步骤、熔断计数）与随机安装标识，不含笔记内容、平台账号信息、API Key 等业务数据；所有事件均经匿名化处理。</p>
             </section>
+            <!-- m1 todo 10（T-M1-08①；FR-2.1/FR-2.7）：BYOK Key 配置——三要素：发送范围固定展示 + 境内外标注 + 调用前确认 modal -->
+            <section class="settings-card" id="key-config-card">
+              <h3>LLM 服务商与 API Key（BYOK，FR-2.7）</h3>
+              <p class="key-scope-note" id="key-scope-note">【调用内容发送范围说明（FR-2.7 固定展示）】你在本应用中提交的主题、采集到的笔记内容与生成请求，将在你触发分析/报告/测试连接时，发送至你所配置的 LLM 服务商（及其所部署的数据中心）。境内服务商数据不出境；境外服务商（如 OpenAI）调用将出境且需自备可达网络。发送前应用会弹出确认提示（每个服务商每次会话提示一次）。</p>
+              <p class="key-storage-warning" id="key-storage-warning" hidden></p>
+              <div class="key-provider-table" id="key-provider-table" role="table" aria-label="服务商境内外标注与能力档"></div>
+              <form class="key-set-form" id="key-set-form">
+                <label class="key-label">服务商
+                  <select id="key-provider-select" aria-label="选择服务商">
+                    <option value="deepseek">DeepSeek（境内）</option>
+                    <option value="tongyi">通义（境内）</option>
+                    <option value="zhipu">智谱（境内）</option>
+                    <option value="siliconflow">硅基流动（境内主站）</option>
+                    <option value="openai">OpenAI（境外）</option>
+                    <option value="custom">自定义网关（base_url）</option>
+                  </select>
+                </label>
+                <label class="key-label">API Key
+                  <input class="key-input" id="key-input" type="password" placeholder="粘贴 API Key（仅本机加密存储，展示只回显掩码）" autocomplete="off" spellcheck="false" />
+                </label>
+                <label class="key-label">base_url（自定义网关必填）
+                  <input class="key-input" id="key-baseurl-input" type="text" placeholder="https://your-gateway.example.com/v1" autocomplete="off" spellcheck="false" />
+                </label>
+                <label class="key-label">模型名（可选，自定义网关必填）
+                  <input class="key-input" id="key-model-input" type="text" placeholder="如 glm-4.7-flash / deepseek-chat" autocomplete="off" spellcheck="false" />
+                </label>
+                <button class="btn btn-primary" id="key-save-btn" type="submit">保存 Key（加密落库）</button>
+              </form>
+              <p class="key-status-line" id="key-status-line">Key 状态：检测中…</p>
+              <div class="key-masked-list" id="key-masked-list"></div>
+              <div class="key-test-row">
+                <button class="btn btn-ghost" id="key-test-btn" type="button">测试连接（真实调用一次）</button>
+                <button class="btn btn-ghost" id="key-precall-reset-btn" type="button" title="清空调用前确认记录（FR-2.7③）">重置调用前提示状态</button>
+                <span class="key-test-status" id="key-test-status"></span>
+              </div>
+              <div class="scan-test-box">
+                <h4>词库扫描验证（keys:scan-test，M1 消费口=报告⑦章关键词过滤）</h4>
+                <label class="key-label">待扫描文本
+                  <textarea class="key-input" id="scan-test-input" rows="3" placeholder="粘贴一段文案或关键词（每行一个关键词）"></textarea>
+                </label>
+                <button class="btn btn-ghost" id="scan-test-btn" type="button">扫描（命中留痕 keyword_hits）</button>
+                <p class="scan-test-result" id="scan-test-result">尚未扫描。</p>
+              </div>
+            </section>
           </section>
           <!-- 登录占位：不接后端（M0），无业务逻辑；非导航九视图之一 -->
           <section class="view" id="view-login" data-view="login">
@@ -257,6 +301,19 @@
               <button class="btn btn-ghost" id="eula-reject-btn" type="button">不同意</button>
             </div>
             <p class="eula-reject-msg" id="eula-reject-msg" hidden>你已选择不同意：主功能保持锁定，仅日志/设置可用。如需退出应用，请直接关闭窗口。</p>
+          </div>
+        </div>
+
+        <!-- ===== m1 todo 10（FR-2.7③）：LLM 调用前确认弹窗（每 provider 每会话一次；设置页可重置） ===== -->
+        <div id="precall-modal" class="modal-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="precall-title">
+          <div class="modal-card">
+            <h2 id="precall-title">内容发送确认</h2>
+            <p class="precall-body" id="precall-body">内容将发送至你所配置的 LLM 服务商（FR-2.7）：本次「测试连接」会把一条最小化请求（"ping"）发送到该服务商的 API 端点，用于验证 Key 可用性。发送范围说明见下方固定展示。</p>
+            <p class="precall-provider-line" id="precall-provider-line"></p>
+            <div class="eula-actions">
+              <button class="btn btn-primary" id="precall-confirm-btn" type="button">确认发送</button>
+              <button class="btn btn-ghost" id="precall-cancel-btn" type="button">取消</button>
+            </div>
           </div>
         </div>
       </main>

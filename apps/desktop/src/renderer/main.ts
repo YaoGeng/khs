@@ -437,6 +437,400 @@ disconnectBtn?.addEventListener('click', () => {
 setInterval(refreshBrowserStatus, 1000);
 refreshBrowserStatus();
 
+/* ============================== BYOK Key 配置（m1 todo 10 = T-M1-08①） ==============================
+ * FR-2.7 三要素：①「调用内容发送范围说明」固定展示（静态文案位 #key-scope-note）；
+ * ②服务商境内外标注（数据源 = docs/adr/provider-matrix.md 风险列 + presets.ts reachability）；
+ * ③调用前确认 modal（keys:precall-confirm——每 provider 每会话一次；设置页可重置）。
+ * R9 角标口径（provider-matrix §3）：仅实测通过格解除「文档源，待实测」角标；实测失败格
+ * （zhipu json_schema）不承诺能力且不挂「文档源」角标（标注实测结论）；documented 格一律带角标。
+ */
+interface KeyCapMeta {
+  key: string;
+  label: string;
+  supported: boolean;
+  source: 'documented' | 'probed';
+  note: string;
+}
+
+interface KeyProviderMeta {
+  id: string;
+  label: string;
+  region: '境内' | '境外';
+  regionNote: string;
+  capabilities: KeyCapMeta[];
+}
+
+// 逐格数据与 presets.ts PROVIDER_CAPABILITY_PRESETS / provider-matrix §1 互链镜像（2026-10-13 实测口径）
+const KEY_PROVIDER_META: KeyProviderMeta[] = [
+  {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    region: '境内',
+    regionNote: '境内（可达性实测 ✅ 401/249ms）',
+    capabilities: [
+      { key: 'json_schema', label: 'json_schema', supported: false, source: 'documented', note: '仅 json_object（提示词引导）；原生 json_schema 仅 Beta strict 模式' },
+      { key: 'tool_calling', label: 'tool calling', supported: true, source: 'documented', note: '官方支持（思考模式自 V3.2）' },
+      { key: 'embeddings', label: 'embeddings', supported: false, source: 'documented', note: '官方 API 目录无 /embeddings 端点' },
+    ],
+  },
+  {
+    id: 'tongyi',
+    label: '通义（阿里云百炼）',
+    region: '境内',
+    regionNote: '境内（✅ 401/189ms）；注：跨境（新加坡）地域配置会出境',
+    capabilities: [
+      { key: 'json_schema', label: 'json_schema', supported: true, source: 'documented', note: 'compatible-mode 原生支持（限 Qwen3.7+ 系列）' },
+      { key: 'tool_calling', label: 'tool calling', supported: true, source: 'documented', note: 'tools/function calling 官方支持' },
+      { key: 'embeddings', label: 'embeddings', supported: true, source: 'documented', note: 'text-embedding-v3/v4 官方支持' },
+    ],
+  },
+  {
+    id: 'zhipu',
+    label: '智谱（BigModel）',
+    region: '境内',
+    regionNote: '境内（✅ 401/162ms）',
+    capabilities: [
+      { key: 'json_schema', label: 'json_schema', supported: false, source: 'probed', note: '实测 2026-10-13：请求被接受但返回空内容——原生 json_schema 不可用，走降级链' },
+      { key: 'tool_calling', label: 'tool calling', supported: true, source: 'probed', note: '实测 2026-10-13：glm-4.7-flash tool_calls 通过' },
+      { key: 'embeddings', label: 'embeddings', supported: true, source: 'documented', note: 'embedding-3 文档支持；实测因 Key 无余额未获结论' },
+    ],
+  },
+  {
+    id: 'openai',
+    label: 'OpenAI',
+    region: '境外',
+    regionNote: '境外（不可达实测 ❌ UND_ERR_CONNECT_TIMEOUT）——调用出境且境内网络不可达，需自备可达网络',
+    capabilities: [
+      { key: 'json_schema', label: 'json_schema', supported: true, source: 'documented', note: 'Structured Outputs 原生支持（gpt-4o-mini 及以后）' },
+      { key: 'tool_calling', label: 'tool calling', supported: true, source: 'documented', note: '原生支持' },
+      { key: 'embeddings', label: 'embeddings', supported: true, source: 'documented', note: 'text-embedding-3 系列原生支持' },
+    ],
+  },
+  {
+    id: 'siliconflow',
+    label: '硅基流动（SiliconFlow）',
+    region: '境内',
+    regionNote: '境内主站（✅ 401/214ms）；注：境外托管模型/国际版端点配置则调用出境',
+    capabilities: [
+      { key: 'json_schema', label: 'json_schema', supported: false, source: 'documented', note: '仅承诺 json_object，无原生 json_schema 档' },
+      { key: 'tool_calling', label: 'tool calling', supported: true, source: 'documented', note: 'function calling 官方支持（模型依存）' },
+      { key: 'embeddings', label: 'embeddings', supported: true, source: 'documented', note: 'BAAI/bge-m3 等官方支持' },
+    ],
+  },
+  {
+    id: 'custom',
+    label: '自定义网关（base_url）',
+    region: '境内',
+    regionNote: '数据去向由你配置的网关决定（D11 运行时通道；请自行确认服务商数据出境属性）',
+    capabilities: [],
+  },
+];
+
+const keyProviderTable = document.getElementById('key-provider-table');
+
+function renderKeyProviderTable(): void {
+  if (!keyProviderTable) return;
+  keyProviderTable.textContent = '';
+  for (const provider of KEY_PROVIDER_META) {
+    const row = document.createElement('div');
+    row.className = 'key-provider-row';
+    row.dataset.provider = provider.id;
+    row.dataset.region = provider.region;
+    const name = document.createElement('span');
+    name.className = 'key-provider-name';
+    name.textContent = provider.label;
+    const region = document.createElement('span');
+    region.className = 'key-provider-region';
+    region.dataset.regionLabel = provider.region;
+    region.textContent = provider.region;
+    const regionNote = document.createElement('span');
+    regionNote.className = 'key-provider-region-note';
+    regionNote.textContent = provider.regionNote;
+    row.append(name, region, regionNote);
+    for (const cap of provider.capabilities) {
+      const cell = document.createElement('span');
+      cell.className = 'key-cap';
+      cell.dataset.capProvider = provider.id;
+      cell.dataset.capKey = cap.key;
+      cell.dataset.capSource = cap.source;
+      cell.dataset.capSupported = String(cap.supported);
+      const promise = document.createElement('span');
+      // 能力承诺文案：supported=false 不承诺（❌ + 实测/文档结论）；supported=true 承诺档位
+      promise.textContent = `${cap.label} ${cap.supported ? '✅ 可用' : '❌ 不可用'}`;
+      const note = document.createElement('em');
+      note.className = 'cap-note';
+      note.textContent = `（${cap.note}）`;
+      cell.append(promise, note);
+      if (cap.source === 'documented') {
+        // R9：documented 格一律带角标（实测通过格才可解除——provider-matrix §3）
+        const badge = document.createElement('span');
+        badge.className = 'cap-badge';
+        badge.dataset.capBadge = 'documented';
+        badge.textContent = '文档源，待实测';
+        cell.appendChild(badge);
+      } else {
+        const probedMark = document.createElement('span');
+        probedMark.className = 'cap-badge cap-badge--probed';
+        probedMark.dataset.capBadge = 'probed';
+        probedMark.textContent = cap.supported ? '实测 2026-10-13 通过' : '实测 2026-10-13 不支持';
+        cell.appendChild(probedMark);
+      }
+      row.appendChild(cell);
+    }
+    keyProviderTable.appendChild(row);
+  }
+}
+renderKeyProviderTable();
+
+const keyStorageWarning = document.getElementById('key-storage-warning');
+const keyStatusLine = document.getElementById('key-status-line');
+const keyMaskedList = document.getElementById('key-masked-list');
+const keySetForm = document.getElementById('key-set-form') as HTMLFormElement | null;
+const keyProviderSelect = document.getElementById('key-provider-select') as HTMLSelectElement | null;
+const keyInput = document.getElementById('key-input') as HTMLInputElement | null;
+const keyBaseUrlInput = document.getElementById('key-baseurl-input') as HTMLInputElement | null;
+const keyModelInput = document.getElementById('key-model-input') as HTMLInputElement | null;
+const keyTestBtn = document.getElementById('key-test-btn');
+const keyTestStatus = document.getElementById('key-test-status');
+const precallResetBtn = document.getElementById('key-precall-reset-btn');
+const precallModal = document.getElementById('precall-modal');
+const precallProviderLine = document.getElementById('precall-provider-line');
+const precallConfirmBtn = document.getElementById('precall-confirm-btn');
+const precallCancelBtn = document.getElementById('precall-cancel-btn');
+const scanTestBtn = document.getElementById('scan-test-btn');
+const scanTestInput = document.getElementById('scan-test-input') as HTMLTextAreaElement | null;
+const scanTestResult = document.getElementById('scan-test-result');
+
+interface KeyMaskedEntryView {
+  provider: string;
+  masked: string | null;
+  encryption: 'safeStorage' | 'plaintext-fallback' | null;
+  baseUrl: string | null;
+  model: string | null;
+  setAt: string | null;
+}
+
+const KEY_PROVIDER_LABELS: Record<string, string> = {
+  deepseek: 'DeepSeek',
+  tongyi: '通义',
+  zhipu: '智谱',
+  openai: 'OpenAI',
+  siliconflow: '硅基流动',
+  custom: '自定义网关',
+};
+
+function applyMaskedKeys(result: { keys: KeyMaskedEntryView[] }): void {
+  if (!keyMaskedList || !keyStatusLine) return;
+  keyMaskedList.textContent = '';
+  let plaintextFallback = false;
+  let anyConfigured = false;
+  for (const entry of result.keys) {
+    if (entry.encryption === 'plaintext-fallback') plaintextFallback = true;
+    const line = document.createElement('p');
+    line.className = 'key-masked-line';
+    line.dataset.provider = entry.provider;
+    if (entry.masked) {
+      anyConfigured = true;
+      const encryptionLabel = entry.encryption === 'safeStorage' ? 'safeStorage 加密' : '明文降级（告警）';
+      line.textContent = `${KEY_PROVIDER_LABELS[entry.provider] ?? entry.provider}：${entry.masked}（${encryptionLabel}${entry.setAt ? `，${entry.setAt.slice(0, 10)}` : ''}）`;
+    } else {
+      line.textContent = `${KEY_PROVIDER_LABELS[entry.provider] ?? entry.provider}：未配置`;
+    }
+    keyMaskedList.appendChild(line);
+  }
+  keyStatusLine.textContent = anyConfigured ? 'Key 状态：已保存（只回显掩码，全值不再展示）。' : 'Key 状态：尚无已保存的 Key。';
+  // safeStorage 不可用降级 → 显式告警横幅（绝不静默，FR-2.7/PC-03①）
+  if (keyStorageWarning) {
+    keyStorageWarning.hidden = !plaintextFallback;
+    if (plaintextFallback) {
+      keyStorageWarning.textContent =
+        '⚠️ safeStorage 不可用：存在以明文本地保存的 Key（已写审计日志）。建议尽快在支持 OS 级凭据保护的环境中更换保存。';
+    }
+  }
+  root.dataset.keyMaskedLoaded = '1';
+  root.dataset.keyPlaintextWarning = plaintextFallback ? '1' : '0';
+}
+
+function refreshMaskedKeys(): void {
+  if (!bridge) return;
+  bridge
+    .invoke('keys:get-masked')
+    .then((data) => applyMaskedKeys(data as { keys: KeyMaskedEntryView[] }))
+    .catch((error: unknown) => {
+      console.warn('[renderer] keys:get-masked failed:', error);
+      root.dataset.keyMaskedLoaded = 'error';
+      if (keyStatusLine) keyStatusLine.textContent = `Key 状态：读取失败 ${String(error).slice(0, 80)}`;
+    });
+}
+
+keySetForm?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  if (!bridge || !keyProviderSelect || !keyInput) return;
+  const provider = keyProviderSelect.value;
+  const key = keyInput.value.trim();
+  const baseUrl = keyBaseUrlInput?.value.trim() || undefined;
+  const model = keyModelInput?.value.trim() || undefined;
+  if (key.length < 8) {
+    if (keyStatusLine) keyStatusLine.textContent = 'Key 状态：Key 至少 8 个字符，请检查输入。';
+    root.dataset.keySet = 'invalid-input';
+    return;
+  }
+  root.dataset.keySet = 'pending';
+  bridge
+    .invoke('keys:set', { provider, key, ...(baseUrl ? { baseUrl } : {}), ...(model ? { model } : {}) })
+    .then((data) => {
+      const result = data as { masked: string; encryption: string; warning?: string };
+      root.dataset.keySet = result.warning ? 'warn' : 'done';
+      if (keyStatusLine) {
+        keyStatusLine.textContent = result.warning
+          ? `Key 状态：已保存，但有告警——${result.warning}`
+          : `Key 状态：已保存（${result.masked}）。`;
+      }
+      keyInput.value = '';
+      refreshMaskedKeys();
+    })
+    .catch((error: unknown) => {
+      root.dataset.keySet = 'failed';
+      if (keyStatusLine) keyStatusLine.textContent = `Key 状态：保存失败——${String(error).slice(0, 140)}`;
+      console.warn('[renderer] keys:set failed:', error);
+    });
+});
+
+/* ---- 调用前确认 modal（FR-2.7③）：测试连接=真实外呼，先查 per-provider 会话内确认态 ---- */
+let precallPendingProvider: string | null = null;
+
+function closePrecallModal(confirmed: boolean): void {
+  precallModal?.setAttribute('hidden', '');
+  root.dataset.precallModal = 'closed';
+  const provider = precallPendingProvider;
+  precallPendingProvider = null;
+  if (confirmed && provider) {
+    bridge
+      ?.invoke('keys:precall-confirm', { provider, action: 'confirm' })
+      .then(() => {
+        root.dataset.precallConfirm = 'confirmed';
+        void runKeyTest(provider);
+      })
+      .catch((error: unknown) => {
+        root.dataset.precallConfirm = 'failed';
+        console.warn('[renderer] keys:precall-confirm failed:', error);
+      });
+  } else {
+    root.dataset.precallConfirm = 'cancelled';
+  }
+}
+
+async function runKeyTest(provider: string): Promise<void> {
+  if (!bridge || !keyTestStatus) return;
+  keyTestStatus.textContent = '测试中…';
+  root.dataset.keyTest = 'pending';
+  const baseUrl = keyBaseUrlInput?.value.trim();
+  const model = keyModelInput?.value.trim();
+  try {
+    const result = (await bridge.invoke('keys:test', {
+      provider,
+      ...(baseUrl ? { baseUrl } : {}),
+      ...(model ? { model } : {}),
+    })) as { ok: boolean; latencyMs: number | null; httpStatus: number | null; error: string | null };
+    root.dataset.keyTest = result.ok ? 'ok' : 'failed';
+    keyTestStatus.textContent = result.ok
+      ? `测试连接：成功（${result.latencyMs ?? '?'}ms，HTTP ${result.httpStatus ?? '?'}）`
+      : `测试连接：失败——${result.error ?? '未知错误'}`;
+  } catch (error: unknown) {
+    root.dataset.keyTest = 'blocked';
+    keyTestStatus.textContent = String(error).slice(0, 160);
+  }
+}
+
+keyTestBtn?.addEventListener('click', () => {
+  if (!bridge || !keyProviderSelect) return;
+  const provider = keyProviderSelect.value;
+  root.dataset.precallConfirm = 'pending';
+  bridge
+    .invoke('keys:precall-confirm', { provider, action: 'check' })
+    .then((data) => {
+      const { needConfirm } = data as { needConfirm: boolean };
+      if (needConfirm) {
+        precallPendingProvider = provider;
+        if (precallProviderLine) {
+          precallProviderLine.textContent = `服务商：${KEY_PROVIDER_LABELS[provider] ?? provider}`;
+        }
+        precallModal?.removeAttribute('hidden');
+        root.dataset.precallModal = 'open';
+      } else {
+        void runKeyTest(provider);
+      }
+    })
+    .catch((error: unknown) => {
+      root.dataset.precallConfirm = 'failed';
+      if (keyTestStatus) keyTestStatus.textContent = String(error).slice(0, 160);
+    });
+});
+
+precallConfirmBtn?.addEventListener('click', () => closePrecallModal(true));
+precallCancelBtn?.addEventListener('click', () => closePrecallModal(false));
+
+precallResetBtn?.addEventListener('click', () => {
+  if (!bridge || !keyProviderSelect) return;
+  const provider = keyProviderSelect.value;
+  bridge
+    .invoke('keys:precall-confirm', { provider, action: 'reset' })
+    .then((data) => {
+      const { needConfirm } = data as { needConfirm: boolean };
+      root.dataset.precallReset = needConfirm ? 'reset' : 'failed';
+      if (keyTestStatus) keyTestStatus.textContent = needConfirm ? '调用前提示状态已重置（下次调用会再次确认）。' : '';
+    })
+    .catch((error: unknown) => {
+      root.dataset.precallReset = 'failed';
+      console.warn('[renderer] keys:precall-confirm reset failed:', error);
+    });
+});
+
+/* ---- 词库扫描验证（keys:scan-test）：命中留痕 keyword_hits（wordlist_version 随行） ---- */
+scanTestBtn?.addEventListener('click', () => {
+  if (!bridge || !scanTestInput || !scanTestResult) return;
+  const raw = scanTestInput.value.trim();
+  if (!raw) {
+    scanTestResult.textContent = '请输入待扫描文本或关键词。';
+    root.dataset.scanTest = 'invalid-input';
+    return;
+  }
+  const lines = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const params =
+    lines.length > 1
+      ? { keywords: lines }
+      : { text: lines[0] ?? raw };
+  root.dataset.scanTest = 'pending';
+  bridge
+    .invoke('keys:scan-test', params)
+    .then((data) => {
+      const result = data as {
+        wordlistVersion: string;
+        hits: Array<{ term: string; category: string | null; kind: string; source: string }>;
+        persisted: number;
+      };
+      root.dataset.scanTest = 'done';
+      root.dataset.scanTestVersion = result.wordlistVersion;
+      root.dataset.scanTestHits = String(result.hits.length);
+      scanTestResult.textContent =
+        `词库 v${result.wordlistVersion}：命中 ${result.hits.length} 处（留痕 ${result.persisted} 行）——` +
+        (result.hits.length === 0
+          ? '未命中。'
+          : result.hits.map((h) => `[${h.kind}${h.category ? `/${h.category}` : ''}] ${h.term}`).join('，'));
+    })
+    .catch((error: unknown) => {
+      root.dataset.scanTest = 'failed';
+      scanTestResult.textContent = `扫描失败：${String(error).slice(0, 140)}`;
+      console.warn('[renderer] keys:scan-test failed:', error);
+    });
+});
+
+// m1 todo 10：masked Key 状态初始拉取（设置页断言面；失败不阻断壳挂载）
+refreshMaskedKeys();
+
 /* ============================== 日志视图 + demo 任务（todo 11） ============================== */
 
 interface TaskStepView {
