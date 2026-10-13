@@ -95,6 +95,37 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+// todo 9（T-M1-07 / 02 §14.2 telemetry_events）：遥测事件入库。
+// user_id = 匿名假名 hash（64hex，HMAC(安装随机 id)——02 §12.1 anon_user_hash 口径），
+// 不关联 users 表、不采原始 user_id；payload_json 仅保留事件白名单字段（02 §7.3 :354「不含内容」）。
+model TelemetryEvent {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  kind        String
+  payloadJson Json     @map("payload_json")
+  at          DateTime
+
+  @@index([kind, at])
+  @@map("telemetry_events")
+}
+
+// todo 9（T-M1-07 / 04:99 R1 硬规格）：自检失败率告警记录行。
+// triggered_at = 24h SLA 起算锚点；window_start/window_end = 触发时滚动窗口（24h，半开区间）；
+// count = 窗口内 selfcheck_fail 事件数；rate = count / 窗口内全部遥测事件数。
+// 仅落记录行 + 服务端日志，不接邮件/企微/任何通知通道（归 M5 T-M5-05）。
+model Alert {
+  id          String   @id @default(uuid())
+  kind        String
+  triggeredAt DateTime @map("triggered_at")
+  windowStart DateTime @map("window_start")
+  windowEnd   DateTime @map("window_end")
+  count       Int
+  rate        Float
+
+  @@index([kind, triggeredAt])
+  @@map("alerts")
+}
+
 enum UserStatus {
   active
   disabled

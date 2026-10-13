@@ -19,6 +19,8 @@ export async function createTestApp(): Promise<INestApplication> {
 /** 测试间清库清缓存（fileParallelism=false，单 PG 实例顺序消费）。 */
 export async function resetState(app: INestApplication): Promise<void> {
   const prisma = app.get(PrismaService);
+  await prisma.alert.deleteMany();
+  await prisma.telemetryEvent.deleteMany();
   await prisma.device.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.membership.deleteMany();

@@ -6,7 +6,7 @@
  *   确认记录持久化**只经 T11 store client**（consents 表，0002 迁移）；
  * - EULA 路由锁的同步快照 isViewAllowed（app:navigate 主进程强制点）——
  *   安全缺省为「锁」（快照未加载/查询失败时工作流视图一律拒绝，宁锁勿放）；
- * - 遥测同意快照 + sendTelemetry 唯一出口（telemetry-guard 装配；M0 无端点不上网）。
+ * - 遥测同意快照 + sendTelemetry 唯一出口（telemetry-guard 装配；M1 起经 env seam 注入上报端点）。
  *
  * 本文件不 import electron（store/eulaVersion 由 main.ts 注入），vitest 可直测。
  */
@@ -17,8 +17,20 @@ import {
   type TelemetryConsentValue,
 } from './eula';
 import { createTelemetryGuard, type TelemetryConsent, type TelemetryEvent, type TelemetryGuard, type TelemetryLocalRecord, type TelemetrySendOutcome } from './telemetry-guard';
+import { createTelemetryUploader } from './telemetry-reporter';
 import type { StoreClient } from '../store/client';
 import type { ConsentStateResult } from '../shared/schemas';
+
+/**
+ * 上报端点装配 seam（todo 9 = T-M1-07）：env XINGLIAN_TELEMETRY_ENDPOINT 注入后才存在真实上报
+ * 通道（endpoint + 上报器 fetchFn 一并注入 guard）；缺省不注入 = 路径行为与 T-M0-11 完全一致
+ * （同意态事件仅本地留存，不存在任何网络行为）。本模块为主进程代码，可读 process.env；
+ * main.ts 不感知该 seam（并行卡共用装配点不受影响）。
+ */
+function resolveTelemetryEndpoint(env: NodeJS.ProcessEnv = process.env): string | null {
+  const raw = env.XINGLIAN_TELEMETRY_ENDPOINT?.trim();
+  return raw ? raw : null;
+}
 
 /** consent 通道依赖注入面（ipc-core 注册表消费；与 LicenseIpcDeps 同风格） */
 export interface ConsentIpcDeps {
@@ -120,10 +132,18 @@ export function createComplianceService(deps: ComplianceServiceDeps): Compliance
     return loadState();
   }
 
+  // M1 T-M1-07 装配：env 注入端点时挂上报器（批量契约 + 安装 id 假名 + 失败重试 ≤1）；
+  // 未注入（缺省）保持 M0 形态：不传 endpoint，同意态事件仅本地留存，无任何上报通道。
+  const telemetryEndpoint = resolveTelemetryEndpoint();
   const guard: TelemetryGuard = createTelemetryGuard({
     getConsent: (): TelemetryConsent => (snapshot.telemetryConsent === 'granted' ? true : snapshot.telemetryConsent === 'denied' ? false : null),
     onLocalRecord: deps.onLocalRecord,
-    // M0 不传 endpoint：不存在任何真实上报通道（M1 T-M1-07 接入时在装配处注入）
+    ...(telemetryEndpoint
+      ? {
+          endpoint: telemetryEndpoint,
+          fetchFn: createTelemetryUploader({ endpoint: telemetryEndpoint, kv: deps.store }),
+        }
+      : {}),
   });
 
   return {
