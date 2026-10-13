@@ -133,7 +133,7 @@ describe('client 基本链路（真实 worker 内核 + 真实 SQLite）', () => 
     const harness = makeHarness();
     const client = makeClient(harness);
     const version = await client.whenReady();
-    expect(version).toBe(2);
+    expect(version).toBe(3);
 
     const created = await client.createTask({ id: 't-1', kind: 'demo' });
     expect(created.created).toBe(true);
@@ -321,6 +321,152 @@ describe('握手前排队', () => {
     await new Promise((r) => setTimeout(r, 10));
     harness.crash(); // 排队请求从未被 worker 处理 → 崩溃即如实拒绝
     await expect(pending).rejects.toMatchObject({ code: STORE_ERROR_CODES.WORKER_CRASH });
+    await client.close();
+  });
+});
+
+describe('store v3 五面同步 e2e（M1 todo 6：client 新方法逐个走通到 worker case）', () => {
+  it('notes（upsert+快照+主题）/reports/llm_calls/circuit_events/keyword_hits/kv/collect_run_stats 全往返', async () => {
+    const harness = makeHarness();
+    const client = makeClient(harness);
+    await client.whenReady();
+
+    // notes：首次 upsert + 主题登记
+    const first = await client.upsertNote({
+      noteId: 'n-1',
+      title: '标题',
+      content: '正文',
+      author: { nickname: 'a1', fans: 120 },
+      likes: 5,
+      collects: 2,
+      comments: 1,
+      tags: ['护肤'],
+      coverUrl: 'https://img/c.webp',
+      imageUrls: ['https://img/1.webp'],
+      publishedAt: '2026-10-01T00:00:00.000Z',
+      topicId: 'topic-a',
+    });
+    expect(first.upserted).toBe(true);
+    expect(typeof first.id).toBe('number');
+    // 重复采集：notes 行数不增、互动更新、快照追加、第二个主题登记
+    await client.upsertNote({ noteId: 'n-1', likes: 9, collects: 4, comments: 2, topicId: 'topic-b' });
+    const byA = await client.listNotes({ topicId: 'topic-a' });
+    const byB = await client.listNotes({ topicId: 'topic-b' });
+    const all = await client.listNotes({});
+    expect(byA).toHaveLength(1);
+    expect(byB).toHaveLength(1);
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ noteId: 'n-1', likes: 9, collects: 4, comments: 2 });
+    expect(all[0]?.author).toEqual({ nickname: 'a1', fans: 120 });
+    expect(all[0]?.tags).toEqual(['护肤']);
+    expect(all[0]?.collectedAt).toBeTruthy();
+
+    // reports：insert → get（JSON 保真）；不存在 → null
+    const reportId = await client.insertReport({
+      topic: '防晒霜',
+      report: { chapters: ['①场景聚类'], meta: { sampleSize: 20 } },
+      contentMd: '# 一、场景聚类',
+      model: 'glm-4.7-flash',
+      tokenCost: 1234,
+      gateState: 'pending',
+    });
+    expect(reportId.written).toBe(true);
+    const got = await client.getReport(reportId.id);
+    expect(got).toMatchObject({ topic: '防晒霜', model: 'glm-4.7-flash', tokenCost: 1234, gateState: 'pending' });
+    expect(got?.report).toEqual({ chapters: ['①场景聚类'], meta: { sampleSize: 20 } });
+    expect(await client.getReport(999_999)).toBeNull();
+
+    // llm_calls 计量
+    const call = await client.insertLlmCall({
+      traceId: 'tr-llm-1',
+      provider: 'zhipu',
+      model: 'glm-4.7-flash',
+      tokensIn: 100,
+      tokensOut: 50,
+      cost: 0.01,
+      latencyMs: 800,
+    });
+    expect(call.written).toBe(true);
+
+    // circuit_events：追加 + 过滤（kind 不符的行不混入）
+    await client.appendCircuitEvent({ kind: 'circuit_open', meta: { reason: 'captcha_feature' } });
+    await client.appendCircuitEvent({ kind: 'quota_exhausted', meta: { used: 300 } });
+    const opens = await client.listCircuitEvents({ kind: 'circuit_open' });
+    expect(opens).toHaveLength(1);
+    expect(opens[0]?.meta).toEqual({ reason: 'captcha_feature' });
+
+    // keyword_hits：写入 + 按 topic 过滤
+    await client.insertKeywordHit({ wordlistVersion: '0.1.0', term: '全网最低价', category: 'ad-law', topicId: 'topic-a' });
+    await client.insertKeywordHit({ wordlistVersion: '0.1.0', term: '别再乱买了', topicId: 'topic-b' });
+    const hitsA = await client.listKeywordHits({ topicId: 'topic-a' });
+    expect(hitsA).toHaveLength(1);
+    expect(hitsA[0]).toMatchObject({ term: '全网最低价', category: 'ad-law', wordlistVersion: '0.1.0' });
+
+    // kv：string 覆盖写、Buffer（safeStorage 密文形态）往返、del 幂等语义
+    await client.kvSet('probe:zhipu', JSON.stringify({ provider: 'zhipu', dim: 2048 }));
+    await client.kvSet('probe:zhipu', 'v2-overwrite');
+    expect(await client.kvGet('probe:zhipu')).toBe('v2-overwrite');
+    await client.kvSet('key:zhipu', Buffer.from([0x01, 0x02, 0x03]));
+    const cipher = await client.kvGet('key:zhipu');
+    expect(Buffer.isBuffer(cipher)).toBe(true);
+    expect((cipher as Buffer).equals(Buffer.from([0x01, 0x02, 0x03]))).toBe(true);
+    expect((await client.kvDel('key:zhipu')).deleted).toBe(true);
+    expect((await client.kvDel('key:zhipu')).deleted).toBe(false);
+    expect(await client.kvGet('missing-key')).toBeNull();
+
+    // collect_run_stats：增量累加语义（两次 upsert 同 run 求和）；未写列保持 0
+    await client.upsertCollectRunStats({ runId: 'r-1', completedUnique: 10, duplicate: 1 });
+    await client.upsertCollectRunStats({ runId: 'r-1', duplicate: 2, noResult: 3 });
+    const stats = await client.getCollectRunStats('r-1');
+    expect(stats).toEqual({
+      runId: 'r-1',
+      completedUnique: 10,
+      duplicate: 3,
+      noResult: 3,
+      rateLimited: 0,
+      captchaConsumed: 0,
+    });
+    expect(await client.getCollectRunStats('ghost-run')).toBeNull();
+
+    await client.close();
+  });
+
+  it('embeddings upsert（BigInt rowid）+ KNN top2 + pruneEmbeddingsCache（180 天口径）', async () => {
+    const harness = makeHarness();
+    const client = makeClient(harness);
+    await client.whenReady();
+    const vec = (v: number[]): Float32Array => {
+      const a = new Float32Array(2048);
+      a.set(v);
+      return a;
+    };
+    const sha = (c: string): string => c.repeat(64);
+
+    // 三条嵌入：rowid BigInt；重复 upsert 同一 sha → 同 rowid（缓存命中不换行）
+    const e1 = await client.upsertEmbedding({ provider: 'zhipu', model: 'embedding-3', inputSha256: sha('a'), dim: 2048, vector: vec([1, 0]) });
+    expect(typeof e1.rowid).toBe('bigint');
+    const e1again = await client.upsertEmbedding({ provider: 'zhipu', model: 'embedding-3', inputSha256: sha('a'), dim: 2048, vector: vec([1, 0]) });
+    expect(e1again.rowid).toBe(e1.rowid);
+    await client.upsertEmbedding({ provider: 'zhipu', model: 'embedding-3', inputSha256: sha('b'), dim: 2048, vector: vec([0, 1]) });
+    await client.upsertEmbedding({ provider: 'zhipu', model: 'embedding-3', inputSha256: sha('c'), dim: 2048, vector: vec([0.9, 0.1]) });
+
+    // KNN：top2 = 自身(距离0) + 次近；元数据 JOIN 保真
+    const top2 = await client.knnTopK({ vector: vec([1, 0]), k: 2 });
+    expect(top2).toHaveLength(2);
+    expect(top2[0]?.inputSha256).toBe(sha('a'));
+    expect(top2[0]?.distance).toBe(0);
+    expect(top2[0]?.provider).toBe('zhipu');
+    expect(top2[0]?.dim).toBe(2048);
+    expect(top2[1]?.inputSha256).toBe(sha('c'));
+
+    // prune：把 sha('b') 的 last_used_at 拨到 180 天以前 → 清理且 vec 行同删
+    const rawDb = db as SqliteDatabase;
+    rawDb.prepare('UPDATE embeddings_cache SET last_used_at = ? WHERE input_sha256 = ?').run('2020-01-01T00:00:00.000Z', sha('b'));
+    const pruned = await client.pruneEmbeddingsCache();
+    expect(pruned).toEqual({ cacheDeleted: 1, vecDeleted: 1 });
+    const afterPrune = await client.knnTopK({ vector: vec([1, 0]), k: 5 });
+    expect(afterPrune.map((h) => h.inputSha256).sort()).toEqual([sha('a'), sha('c')].sort());
+
     await client.close();
   });
 });

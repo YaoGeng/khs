@@ -137,10 +137,177 @@ function downV2(db: SqliteDatabase): void {
   `);
 }
 
-/** 迁移链：只追加不回改（发布后已应用版本不可变更，M1+ 走 0003+） */
+/**
+ * 0003 M1 洞察业务地基（m1-insight-plan todo 6；02 §14.1 notes/note_snapshots/reports、
+ * 02:714 llm_calls、FR-4.4 快照、FR-9.5/9.6 留痕、FR-10.3 口径、ADR-7 embeddings）。
+ *
+ * embeddings_vec 决策注记（ADR-7 §2-4，写死于此供后续迁移遵循）：
+ * - vec0 虚拟表单表单 dim，dim=2048（默认嵌入档候选 zhipu embedding-3，[文档] 源，
+ *   见 docs/adr/ADR-7-embedding-source.md §4）；
+ * - dim 变更 = embeddings_cache 全量失效 + embeddings_vec DROP 后按新 dim 重建 +
+ *   kv_config 探针记录更新（届时走 0004+ 迁移，禁回改本步）；不做多 dim 分表矩阵；
+ * - rowid 全 BigInt：better-sqlite3 把 JS number 绑成 REAL、vec0 拒收
+ *   （sqlite-vec-packaging-validation.md §3-④），embeddings_cache.id 与 vec rowid
+ *   共享同值，绑定一律经 BigInt。
+ * - 时间戳列沿用 M0 口径（TEXT ISO-8601；provider-matrix §4.2 草图的 INTEGER
+ *   不采纳——migrations.ts 是 DDL 真源，链内一致性优先）。
+ */
+function upV3(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE notes (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      note_id         TEXT    NOT NULL,
+      title           TEXT,
+      content         TEXT,
+      author_json     TEXT,
+      likes           INTEGER NOT NULL DEFAULT 0,
+      collects        INTEGER NOT NULL DEFAULT 0,
+      comments        INTEGER NOT NULL DEFAULT 0,
+      tags_json       TEXT,
+      cover_url       TEXT,
+      image_urls_json TEXT,
+      published_at    TEXT,
+      collected_at    TEXT    NOT NULL
+    );
+    CREATE UNIQUE INDEX ux_notes_note_id ON notes (note_id);
+    CREATE INDEX idx_notes_collected ON notes (collected_at);
+
+    -- 主题 × 笔记多对多登记；UNIQUE 保证重复采集不重建登记行（seen_at = 首见时间）
+    CREATE TABLE topic_notes (
+      topic_id  TEXT NOT NULL,
+      note_id   TEXT NOT NULL,
+      seen_at   TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX ux_topic_notes_topic_note ON topic_notes (topic_id, note_id);
+
+    -- FR-4.4 追加式互动快照：重复采集仅更新 notes 互动列 + 追加一行观测
+    CREATE TABLE note_snapshots (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      note_id     TEXT    NOT NULL,
+      likes       INTEGER NOT NULL DEFAULT 0,
+      collects    INTEGER NOT NULL DEFAULT 0,
+      comments    INTEGER NOT NULL DEFAULT 0,
+      captured_at TEXT    NOT NULL
+    );
+    CREATE INDEX idx_note_snapshots_note ON note_snapshots (note_id, captured_at);
+
+    -- 八章节报告落库（todo 8 消费）；gate_state = 关键词确认闸门状态（todo 11 推进）
+    CREATE TABLE reports (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      topic       TEXT    NOT NULL,
+      report_json TEXT    NOT NULL,
+      content_md  TEXT,
+      model       TEXT,
+      token_cost  INTEGER,
+      gate_state  TEXT,
+      created_at  TEXT    NOT NULL
+    );
+    CREATE INDEX idx_reports_topic ON reports (topic, created_at);
+
+    -- LLM 计量（02:714；FR-2.5 用量面板按 at 聚合，trace_id 串联调用链）
+    CREATE TABLE llm_calls (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      trace_id   TEXT,
+      provider   TEXT    NOT NULL,
+      model      TEXT    NOT NULL,
+      tokens_in  INTEGER NOT NULL DEFAULT 0,
+      tokens_out INTEGER NOT NULL DEFAULT 0,
+      cost       REAL,
+      latency_ms INTEGER,
+      at         TEXT    NOT NULL
+    );
+    CREATE INDEX idx_llm_calls_at ON llm_calls (at);
+    CREATE INDEX idx_llm_calls_trace ON llm_calls (trace_id);
+
+    -- 熔断/配额触顶/自检失败本地账本（FR-9.5 抽查与门禁①剔除口径证据源；只记事件不记笔记内容）
+    CREATE TABLE circuit_events (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind      TEXT    NOT NULL,
+      at        TEXT    NOT NULL,
+      meta_json TEXT
+    );
+    CREATE INDEX idx_circuit_events_at ON circuit_events (at);
+
+    -- FR-9.6 词库命中留痕（词库本体走配置包 JSON，不建内容表——02:763）
+    CREATE TABLE keyword_hits (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      wordlist_version TEXT    NOT NULL,
+      term             TEXT    NOT NULL,
+      category         TEXT,
+      topic_id         TEXT,
+      at               TEXT    NOT NULL
+    );
+    CREATE INDEX idx_keyword_hits_at ON keyword_hits (at);
+
+    -- 本地 KV（safeStorage 加密 Key、ADR-7 嵌入探针记录、配额与词库 active 指针）；
+    -- BLOB 亲和：字符串落 TEXT、Buffer 落 BLOB，同一列如实容纳两种形态
+    CREATE TABLE kv_config (
+      key        TEXT PRIMARY KEY,
+      value_blob BLOB NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    -- 门禁①采集分母公式数据源（no_result/rate_limited/captcha_consumed/duplicate 全计数器化）
+    CREATE TABLE collect_run_stats (
+      run_id           TEXT PRIMARY KEY,
+      completed_unique INTEGER NOT NULL DEFAULT 0,
+      duplicate        INTEGER NOT NULL DEFAULT 0,
+      no_result        INTEGER NOT NULL DEFAULT 0,
+      rate_limited     INTEGER NOT NULL DEFAULT 0,
+      captcha_consumed INTEGER NOT NULL DEFAULT 0
+    );
+
+    -- 本地嵌入缓存（provider-matrix.md §4.2 设计注记落地；不存原文，隐私友好）；
+    -- id 显式 = embeddings_vec rowid（绑定一律 BigInt，见上方注记）
+    CREATE TABLE embeddings_cache (
+      id           INTEGER PRIMARY KEY,
+      provider     TEXT    NOT NULL,
+      model        TEXT    NOT NULL,
+      input_sha256 TEXT    NOT NULL,
+      dim          INTEGER NOT NULL,
+      created_at   TEXT    NOT NULL,
+      last_used_at TEXT    NOT NULL
+    );
+    CREATE UNIQUE INDEX ux_embeddings_cache_key ON embeddings_cache (provider, model, input_sha256);
+    CREATE INDEX idx_embeddings_cache_last_used ON embeddings_cache (last_used_at);
+
+    -- vec0 虚拟表（需连接已加载 sqlite-vec 扩展，见 db.ts openAndMigrate）
+    CREATE VIRTUAL TABLE IF NOT EXISTS embeddings_vec USING vec0(embedding float[2048]);
+  `);
+}
+
+function downV3(db: SqliteDatabase): void {
+  db.exec(`
+    DROP TABLE IF EXISTS embeddings_vec;
+    DROP INDEX IF EXISTS idx_embeddings_cache_last_used;
+    DROP INDEX IF EXISTS ux_embeddings_cache_key;
+    DROP TABLE IF EXISTS embeddings_cache;
+    DROP TABLE IF EXISTS collect_run_stats;
+    DROP TABLE IF EXISTS kv_config;
+    DROP INDEX IF EXISTS idx_keyword_hits_at;
+    DROP TABLE IF EXISTS keyword_hits;
+    DROP INDEX IF EXISTS idx_circuit_events_at;
+    DROP TABLE IF EXISTS circuit_events;
+    DROP INDEX IF EXISTS idx_llm_calls_trace;
+    DROP INDEX IF EXISTS idx_llm_calls_at;
+    DROP TABLE IF EXISTS llm_calls;
+    DROP INDEX IF EXISTS idx_reports_topic;
+    DROP TABLE IF EXISTS reports;
+    DROP INDEX IF EXISTS idx_note_snapshots_note;
+    DROP TABLE IF EXISTS note_snapshots;
+    DROP INDEX IF EXISTS ux_topic_notes_topic_note;
+    DROP TABLE IF EXISTS topic_notes;
+    DROP INDEX IF EXISTS idx_notes_collected;
+    DROP INDEX IF EXISTS ux_notes_note_id;
+    DROP TABLE IF EXISTS notes;
+  `);
+}
+
+/** 迁移链：只追加不回改（发布后已应用版本不可变更，M1+ 走 0004+） */
 export const MIGRATIONS: readonly MigrationStep[] = [
   { version: 1, name: '0001-initial-m0-tables', up: upV1, down: downV1 },
   { version: 2, name: '0002-consents-compliance', up: upV2, down: downV2 },
+  { version: 3, name: '0003-insight-m1-tables', up: upV3, down: downV3 },
 ];
 
 function ensureLedger(db: SqliteDatabase): void {

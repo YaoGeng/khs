@@ -4,8 +4,11 @@ files:
   - out/**
 asar: true
 # better-sqlite3 原生模块（electron-v130 预编译，todo 11 / ADR-8）不能进 asar
+# sqlite-vec 平台包（vec0.dll）同列：pnpm 布局下被提升为 asar 内 node_modules 顶层，
+# dll 经 LoadLibrary 加载不经 dlopen 重映射，必须落 unpacked（sqlite-vec-packaging-validation §7.4）
 asarUnpack:
   - "**/node_modules/better-sqlite3/**"
+  - "**/node_modules/sqlite-vec-windows-x64/**"
 win:
   # 签名降级记录见 docs/perf/packaging-status.md（M0 无证书；签名/notarize 在 M5 T-M5-04 前补齐）
   target: nsis

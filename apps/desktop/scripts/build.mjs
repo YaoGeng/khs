@@ -28,7 +28,9 @@ await build({
   target: 'node20',
   // better-sqlite3 external：native 模块不进 bundle（bindings 需按包目录解析 .node 文件，
   // electron-v130 预编译在运行时经 node_modules 链路加载——ADR-8 §3 换装产物）
-  external: ['electron', 'better-sqlite3'],
+  // sqlite-vec external：getLoadablePath 内部是运行时 require.resolve 平台包 dll 路径，
+  // 必须留在真实 node_modules 解析（asar 提升布局，sqlite-vec-packaging-validation §7.3）
+  external: ['electron', 'better-sqlite3', 'sqlite-vec'],
   outfile: path.join(out, 'main.js'),
 });
 
@@ -40,7 +42,7 @@ await build({
   platform: 'node',
   format: 'cjs',
   target: 'node20',
-  external: ['electron', 'better-sqlite3'],
+  external: ['electron', 'better-sqlite3', 'sqlite-vec'],
   outfile: path.join(out, 'store-worker.js'),
 });
 

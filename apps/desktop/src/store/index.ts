@@ -4,12 +4,30 @@
  */
 export { createStoreClient, StoreClientError } from './client';
 export type { StoreClient, StoreClientOptions, StoreStats, StoreTransport } from './client';
-export { STORE_ERROR_CODES } from './protocol';
+export { EMBEDDINGS_RETENTION_DAYS, STORE_ERROR_CODES } from './protocol';
 export type {
+  CircuitEventFilter,
+  CircuitEventInput,
+  CircuitEventRowView,
+  CollectRunStatsInput,
+  CollectRunStatsView,
   CreateTaskInput,
+  EmbeddingUpsertInput,
+  EmbeddingUpsertResult,
+  KeywordHitFilter,
+  KeywordHitInput,
+  KeywordHitRowView,
+  KnnHit,
+  KnnQuery,
   LogQueryFilter,
   LogRowInput,
   LogRowView,
+  LlmCallInput,
+  NoteInput,
+  NoteQueryFilter,
+  NoteRowView,
+  ReportInput,
+  ReportRowView,
   StepInput,
   StepRowView,
   StoreRequest,
@@ -19,11 +37,30 @@ export type {
   TaskRowView,
   TaskStatus,
   TaskStatusInput,
+  KvValue,
 } from './protocol';
 export { MIGRATIONS, MigrationError, currentVersion, runMigrations, appliedVersions } from './migrations';
 export type { MigrationStep, MigrateOptions, MigrateReport, MigrationErrorCode } from './migrations';
 export { openAndMigrate, migrateBeforeWindow, applyWritePragmas, STORE_PRAGMAS } from './db';
 export { MAX_BATCH_ROWS, handleStoreRequest } from './worker';
 export { createUtilityProcessTransport } from './worker-host';
-export { tasks, taskSteps, taskEvents, logs, schemaMigrations, consents } from './schema';
+export { asarUnpackPath, loadSqliteVec, vecLoadablePath } from './vec';
+export {
+  tasks,
+  taskSteps,
+  taskEvents,
+  logs,
+  schemaMigrations,
+  consents,
+  notes,
+  topicNotes,
+  noteSnapshots,
+  reports,
+  llmCalls,
+  circuitEvents,
+  keywordHits,
+  kvConfig,
+  collectRunStats,
+  embeddingsCache,
+} from './schema';
 export type { ConsentInput, ConsentRowView, ConsentSubject } from './protocol';

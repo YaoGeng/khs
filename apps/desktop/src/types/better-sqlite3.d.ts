@@ -33,6 +33,8 @@ declare module 'better-sqlite3' {
     prepare(sql: string): SqliteStatement;
     transaction<Args extends unknown[]>(fn: (...args: Args) => unknown): SqliteTransaction<Args>;
     pragma(source: string, options?: { simple?: boolean }): unknown;
+    /** 加载 SQLite 扩展（M1 store v3：sqlite-vec vec0.dll，见 store/vec.ts） */
+    loadExtension(path: string, entryPoint?: string): this;
     close(): void;
   }
 

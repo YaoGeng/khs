@@ -9,7 +9,7 @@
  *   当前批不重放（replay）——丢失面与 ADR-8「日志类可丢、任务类以事件流水可重建」口径一致。
  * 本模块 electron-free（transport 注入），vitest 以内存 transport + 真实 worker 内核直测。
  */
-import { STORE_ERROR_CODES, type ConsentInput, type ConsentRowView, type CreateTaskInput, type LogQueryFilter, type LogRowInput, type LogRowView, type StepInput, type StepRowView, type StoreRequest, type StoreResponse, type TaskEventInput, type TaskEventRowView, type TaskRowView, type TaskStatus, type TaskStatusInput } from './protocol';
+import { STORE_ERROR_CODES, type CircuitEventFilter, type CircuitEventInput, type CircuitEventRowView, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type CreateTaskInput, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KeywordHitRowView, type KnnHit, type KnnQuery, type LogQueryFilter, type LogRowInput, type LogRowView, type LlmCallInput, type NoteInput, type NoteQueryFilter, type NoteRowView, type ReportInput, type ReportRowView, type StepInput, type StepRowView, type StoreRequest, type StoreResponse, type TaskEventInput, type TaskEventRowView, type TaskRowView, type TaskStatus, type TaskStatusInput, type KvValue } from './protocol';
 import type { RetentionPolicy } from '@xinglian/logger';
 
 export interface StoreTransport {
@@ -77,6 +77,29 @@ export interface StoreClient {
   putConsent(consent: ConsentInput): Promise<{ written: boolean; id: number }>;
   /** 合规留痕现值（FR-1.9 门态 / FR-12.6 遥测现值的 store 查询入口） */
   getLatestConsents(): Promise<{ eula: ConsentRowView | null; telemetry: ConsentRowView | null }>;
+  /* ---- M1 store v3（todo 6）：以下方法均走 durable 通道（任务/业务类禁止丢） ---- */
+  /** 笔记 upsert：重复采集仅更新互动 + 追加 FR-4.4 快照；topicId 提供则登记主题（首见保留） */
+  upsertNote(note: NoteInput): Promise<{ upserted: boolean; id: number }>;
+  listNotes(filter?: NoteQueryFilter): Promise<NoteRowView[]>;
+  insertReport(report: ReportInput): Promise<{ written: boolean; id: number }>;
+  /** 不存在返回 null（getTask 同款语义，不抛） */
+  getReport(reportId: number): Promise<ReportRowView | null>;
+  insertLlmCall(call: LlmCallInput): Promise<{ written: boolean; id: number }>;
+  appendCircuitEvent(event: CircuitEventInput): Promise<{ written: boolean; id: number }>;
+  listCircuitEvents(filter?: CircuitEventFilter): Promise<CircuitEventRowView[]>;
+  insertKeywordHit(hit: KeywordHitInput): Promise<{ written: boolean; id: number }>;
+  listKeywordHits(filter?: KeywordHitFilter): Promise<KeywordHitRowView[]>;
+  kvSet(key: string, value: KvValue): Promise<{ set: boolean }>;
+  kvGet(key: string): Promise<KvValue | null>;
+  kvDel(key: string): Promise<{ deleted: boolean }>;
+  /** 增量语义：worker 侧按列累加（采集 DAG 逐步上报） */
+  upsertCollectRunStats(stats: CollectRunStatsInput): Promise<{ upserted: boolean }>;
+  getCollectRunStats(runId: string): Promise<CollectRunStatsView | null>;
+  /** 嵌入缓存 upsert：rowid 由 worker 分配并与 embeddings_vec 共享（BigInt） */
+  upsertEmbedding(embedding: EmbeddingUpsertInput): Promise<EmbeddingUpsertResult>;
+  knnTopK(query: KnnQuery): Promise<KnnHit[]>;
+  /** last_used_at 超 180 天清理（FR-10.3 口径；调度挂接归既有 retention 模式） */
+  pruneEmbeddingsCache(): Promise<{ cacheDeleted: number; vecDeleted: number }>;
   stats(): StoreStats;
   close(): Promise<void>;
 }
@@ -318,6 +341,44 @@ export function createStoreClient(options: StoreClientOptions): StoreClient {
       );
       return data;
     },
+    upsertNote: (note: NoteInput) => unwrap(dispatch(false, (id) => ({ id, type: 'upsertNote', note }))),
+    listNotes: async (filter: NoteQueryFilter = {}) => {
+      const data = await unwrap<{ notes: NoteRowView[] }>(dispatch(false, (id) => ({ id, type: 'listNotes', filter })));
+      return data.notes;
+    },
+    insertReport: (report: ReportInput) => unwrap(dispatch(false, (id) => ({ id, type: 'insertReport', report }))),
+    getReport: async (reportId: number) => {
+      const data = await unwrap<{ report: ReportRowView | null }>(dispatch(false, (id) => ({ id, type: 'getReport', reportId })));
+      return data.report;
+    },
+    insertLlmCall: (call: LlmCallInput) => unwrap(dispatch(false, (id) => ({ id, type: 'insertLlmCall', call }))),
+    appendCircuitEvent: (event: CircuitEventInput) => unwrap(dispatch(false, (id) => ({ id, type: 'appendCircuitEvent', event }))),
+    listCircuitEvents: async (filter: CircuitEventFilter = {}) => {
+      const data = await unwrap<{ events: CircuitEventRowView[] }>(dispatch(false, (id) => ({ id, type: 'listCircuitEvents', filter })));
+      return data.events;
+    },
+    insertKeywordHit: (hit: KeywordHitInput) => unwrap(dispatch(false, (id) => ({ id, type: 'insertKeywordHit', hit }))),
+    listKeywordHits: async (filter: KeywordHitFilter = {}) => {
+      const data = await unwrap<{ hits: KeywordHitRowView[] }>(dispatch(false, (id) => ({ id, type: 'listKeywordHits', filter })));
+      return data.hits;
+    },
+    kvSet: (key: string, value: KvValue) => unwrap(dispatch(false, (id) => ({ id, type: 'kvSet', key, value }))),
+    kvGet: async (key: string) => {
+      const data = await unwrap<{ value: KvValue | null }>(dispatch(false, (id) => ({ id, type: 'kvGet', key })));
+      return data.value;
+    },
+    kvDel: (key: string) => unwrap(dispatch(false, (id) => ({ id, type: 'kvDel', key }))),
+    upsertCollectRunStats: (stats: CollectRunStatsInput) => unwrap(dispatch(false, (id) => ({ id, type: 'upsertCollectRunStats', stats }))),
+    getCollectRunStats: async (runId: string) => {
+      const data = await unwrap<{ stats: CollectRunStatsView | null }>(dispatch(false, (id) => ({ id, type: 'getCollectRunStats', runId })));
+      return data.stats;
+    },
+    upsertEmbedding: (embedding: EmbeddingUpsertInput) => unwrap(dispatch(false, (id) => ({ id, type: 'upsertEmbedding', embedding }))),
+    knnTopK: async (query: KnnQuery) => {
+      const data = await unwrap<{ hits: KnnHit[] }>(dispatch(false, (id) => ({ id, type: 'knnTopK', query })));
+      return data.hits;
+    },
+    pruneEmbeddingsCache: () => unwrap(dispatch(false, (id) => ({ id, type: 'pruneEmbeddingsCache' }))),
     stats: () => ({ ...statsState }),
     close: async () => {
       closing = true;

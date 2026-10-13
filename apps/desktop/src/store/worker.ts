@@ -7,7 +7,7 @@
  * 事务粒度（ADR-8 §7.2）：insertLogs 分片 ≤100 行/事务；其余单行写各自成事务。
  */
 import { openAndMigrate } from './db';
-import { STORE_ERROR_CODES, type ConsentInput, type ConsentRowView, type StoreRequest, type StoreResponse, type CreateTaskInput, type LogQueryFilter, type StepInput, type TaskEventInput, type TaskStatusInput, type RetentionPolicy } from './protocol';
+import { EMBEDDINGS_RETENTION_DAYS, STORE_ERROR_CODES, type CircuitEventFilter, type CircuitEventInput, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KnnQuery, type NoteInput, type NoteQueryFilter, type NoteRowView, type ReportInput, type ReportRowView, type StoreRequest, type StoreResponse, type CreateTaskInput, type LogQueryFilter, type LlmCallInput, type StepInput, type TaskEventInput, type TaskStatusInput, type RetentionPolicy } from './protocol';
 
 type SqliteDatabase = import('better-sqlite3').SqliteDatabase;
 
@@ -279,6 +279,329 @@ export function handleStoreRequest(db: SqliteDatabase, request: StoreRequest): {
         };
       }
 
+      case 'upsertNote': {
+        // 五面同步 v3：upsert notes（ON CONFLICT 不覆盖首采时间）+ 追加 FR-4.4 快照
+        // + 可选 topic_notes 登记（首见 DO NOTHING），三语句同事务
+        const note = request.note as NoteInput;
+        const now = new Date().toISOString();
+        const noteId = db
+          .prepare(
+            `INSERT INTO notes (note_id, title, content, author_json, likes, collects, comments, tags_json, cover_url, image_urls_json, published_at, collected_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (note_id) DO UPDATE SET
+               title = COALESCE(excluded.title, title),
+               content = COALESCE(excluded.content, content),
+               author_json = COALESCE(excluded.author_json, author_json),
+               likes = COALESCE(excluded.likes, likes),
+               collects = COALESCE(excluded.collects, collects),
+               comments = COALESCE(excluded.comments, comments),
+               tags_json = COALESCE(excluded.tags_json, tags_json),
+               cover_url = COALESCE(excluded.cover_url, cover_url),
+               image_urls_json = COALESCE(excluded.image_urls_json, image_urls_json),
+               published_at = COALESCE(excluded.published_at, published_at)`,
+          )
+          .run(
+            note.noteId,
+            note.title ?? null,
+            note.content ?? null,
+            note.author === undefined ? null : JSON.stringify(note.author),
+            note.likes ?? 0,
+            note.collects ?? 0,
+            note.comments ?? 0,
+            note.tags === undefined ? null : JSON.stringify(note.tags),
+            note.coverUrl ?? null,
+            note.imageUrls === undefined ? null : JSON.stringify(note.imageUrls),
+            note.publishedAt ?? null,
+            note.collectedAt ?? now,
+          );
+        const row = db.prepare('SELECT id FROM notes WHERE note_id = ?').get(note.noteId) as { id: number };
+        db.prepare(
+          `INSERT INTO note_snapshots (note_id, likes, collects, comments, captured_at) VALUES (?, ?, ?, ?, ?)`,
+        ).run(note.noteId, note.likes ?? 0, note.collects ?? 0, note.comments ?? 0, now);
+        if (note.topicId !== undefined) {
+          db.prepare(
+            `INSERT INTO topic_notes (topic_id, note_id, seen_at) VALUES (?, ?, ?)
+             ON CONFLICT (topic_id, note_id) DO NOTHING`,
+          ).run(note.topicId, note.noteId, now);
+        }
+        return { upserted: true, id: Number(row.id), changes: Number(noteId.changes) };
+      }
+
+      case 'listNotes': {
+        const filter = request.filter as NoteQueryFilter;
+        const limit = Math.min(Math.max(filter.limit ?? 100, 1), 500);
+        const order = filter.order === 'asc' ? 'ASC' : 'DESC';
+        const rows = (
+          filter.topicId
+            ? db
+                .prepare(
+                  `SELECT n.* FROM notes n JOIN topic_notes tn ON tn.note_id = n.note_id
+                   WHERE tn.topic_id = ? ORDER BY n.collected_at ${order}, n.id ${order} LIMIT ${limit}`,
+                )
+                .all(filter.topicId)
+            : db.prepare(`SELECT * FROM notes ORDER BY collected_at ${order}, id ${order} LIMIT ${limit}`).all()
+        ) as Array<Record<string, unknown>>;
+        return { notes: rows.map(noteRowToView) };
+      }
+
+      case 'insertReport': {
+        const report = request.report as ReportInput;
+        const result = db
+          .prepare(
+            `INSERT INTO reports (topic, report_json, content_md, model, token_cost, gate_state, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            report.topic,
+            JSON.stringify(report.report),
+            report.contentMd ?? null,
+            report.model ?? null,
+            report.tokenCost ?? null,
+            report.gateState ?? null,
+            report.createdAt ?? new Date().toISOString(),
+          );
+        return { written: true, id: Number(result.lastInsertRowid) };
+      }
+
+      case 'getReport': {
+        const row = db.prepare('SELECT * FROM reports WHERE id = ?').get(request.reportId) as
+          | Record<string, unknown>
+          | undefined;
+        return { report: row ? reportRowToView(row) : null };
+      }
+
+      case 'insertLlmCall': {
+        const call = request.call as LlmCallInput;
+        const result = db
+          .prepare(
+            `INSERT INTO llm_calls (trace_id, provider, model, tokens_in, tokens_out, cost, latency_ms, at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            call.traceId ?? null,
+            call.provider,
+            call.model,
+            call.tokensIn ?? 0,
+            call.tokensOut ?? 0,
+            call.cost ?? null,
+            call.latencyMs ?? null,
+            call.at ?? new Date().toISOString(),
+          );
+        return { written: true, id: Number(result.lastInsertRowid) };
+      }
+
+      case 'appendCircuitEvent': {
+        const event = request.event as CircuitEventInput;
+        const result = db
+          .prepare(`INSERT INTO circuit_events (kind, at, meta_json) VALUES (?, ?, ?)`)
+          .run(
+            event.kind,
+            event.at ?? new Date().toISOString(),
+            event.meta === undefined ? null : JSON.stringify(event.meta),
+          );
+        return { written: true, id: Number(result.lastInsertRowid) };
+      }
+
+      case 'listCircuitEvents': {
+        const filter = request.filter as CircuitEventFilter;
+        const limit = Math.min(Math.max(filter.limit ?? 100, 1), 500);
+        const rows = (
+          filter.kind
+            ? db.prepare(`SELECT * FROM circuit_events WHERE kind = ? ORDER BY id DESC LIMIT ${limit}`).all(filter.kind)
+            : db.prepare(`SELECT * FROM circuit_events ORDER BY id DESC LIMIT ${limit}`).all()
+        ) as Array<Record<string, unknown>>;
+        return {
+          events: rows.map((row) => ({
+            id: row.id,
+            kind: row.kind,
+            meta: parseJsonOrNull(row.meta_json as string | null),
+            at: row.at,
+          })),
+        };
+      }
+
+      case 'insertKeywordHit': {
+        const hit = request.hit as KeywordHitInput;
+        const result = db
+          .prepare(
+            `INSERT INTO keyword_hits (wordlist_version, term, category, topic_id, at) VALUES (?, ?, ?, ?, ?)`,
+          )
+          .run(
+            hit.wordlistVersion,
+            hit.term,
+            hit.category ?? null,
+            hit.topicId ?? null,
+            hit.at ?? new Date().toISOString(),
+          );
+        return { written: true, id: Number(result.lastInsertRowid) };
+      }
+
+      case 'listKeywordHits': {
+        const filter = request.filter as KeywordHitFilter;
+        const limit = Math.min(Math.max(filter.limit ?? 100, 1), 500);
+        const clauses: string[] = [];
+        const params: unknown[] = [];
+        if (filter.topicId) {
+          clauses.push('topic_id = ?');
+          params.push(filter.topicId);
+        }
+        if (filter.term) {
+          clauses.push('term = ?');
+          params.push(filter.term);
+        }
+        const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+        const rows = db
+          .prepare(`SELECT * FROM keyword_hits ${where} ORDER BY id DESC LIMIT ${limit}`)
+          .all(...params) as Array<Record<string, unknown>>;
+        return {
+          hits: rows.map((row) => ({
+            id: row.id,
+            wordlistVersion: row.wordlist_version,
+            term: row.term,
+            category: row.category,
+            topicId: row.topic_id,
+            at: row.at,
+          })),
+        };
+      }
+
+      case 'kvSet': {
+        db.prepare(
+          `INSERT INTO kv_config (key, value_blob, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT (key) DO UPDATE SET value_blob = excluded.value_blob, updated_at = excluded.updated_at`,
+        ).run(request.key, request.value, new Date().toISOString());
+        return { set: true };
+      }
+
+      case 'kvGet': {
+        const row = db.prepare('SELECT value_blob FROM kv_config WHERE key = ?').get(request.key) as
+          | { value_blob: string | Buffer }
+          | undefined;
+        return { value: row ? row.value_blob : null };
+      }
+
+      case 'kvDel': {
+        const result = db.prepare('DELETE FROM kv_config WHERE key = ?').run(request.key);
+        return { deleted: Number(result.changes) > 0 };
+      }
+
+      case 'upsertCollectRunStats': {
+        // 增量语义：ON CONFLICT 按列累加（采集 DAG 逐步上报，免去读改写竞争；
+        // 首次插入即从 0 起累加）——门禁①分母公式以 get 读全量合计
+        const stats = request.stats as CollectRunStatsInput;
+        db.prepare(
+          `INSERT INTO collect_run_stats (run_id, completed_unique, duplicate, no_result, rate_limited, captcha_consumed)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT (run_id) DO UPDATE SET
+             completed_unique = completed_unique + excluded.completed_unique,
+             duplicate = duplicate + excluded.duplicate,
+             no_result = no_result + excluded.no_result,
+             rate_limited = rate_limited + excluded.rate_limited,
+             captcha_consumed = captcha_consumed + excluded.captcha_consumed`,
+        ).run(
+          stats.runId,
+          stats.completedUnique ?? 0,
+          stats.duplicate ?? 0,
+          stats.noResult ?? 0,
+          stats.rateLimited ?? 0,
+          stats.captchaConsumed ?? 0,
+        );
+        return { upserted: true };
+      }
+
+      case 'getCollectRunStats': {
+        const row = db.prepare('SELECT * FROM collect_run_stats WHERE run_id = ?').get(request.runId) as
+          | Record<string, unknown>
+          | undefined;
+        return {
+          stats: row
+            ? ({
+                runId: String(row.run_id),
+                completedUnique: Number(row.completed_unique),
+                duplicate: Number(row.duplicate),
+                noResult: Number(row.no_result),
+                rateLimited: Number(row.rate_limited),
+                captchaConsumed: Number(row.captcha_consumed),
+              } satisfies CollectRunStatsView)
+            : null,
+        };
+      }
+
+      case 'upsertEmbedding': {
+        // rowid 全 BigInt（vec0 拒收 REAL，§3-④）；embeddings_cache.id = vec rowid。
+        // 命中：刷新 last_used_at/dim 并重写向量（自愈 vec 丢行）；未命中：插入分配 rowid。
+        const emb = request.embedding as EmbeddingUpsertInput;
+        const now = new Date().toISOString();
+        const buf = toVectorBuffer(emb.vector);
+        const upsert = (): EmbeddingUpsertResult => {
+          const existing = db
+            .prepare('SELECT id FROM embeddings_cache WHERE provider = ? AND model = ? AND input_sha256 = ?')
+            .get(emb.provider, emb.model, emb.inputSha256) as { id: number | bigint } | undefined;
+          if (existing) {
+            const rowid = BigInt(existing.id);
+            db.prepare('UPDATE embeddings_cache SET dim = ?, last_used_at = ? WHERE id = ?').run(
+              emb.dim,
+              emb.lastUsedAt ?? now,
+              rowid,
+            );
+            db.prepare('DELETE FROM embeddings_vec WHERE rowid = ?').run(rowid);
+            db.prepare('INSERT INTO embeddings_vec (rowid, embedding) VALUES (?, ?)').run(rowid, buf);
+            return { upserted: true, rowid };
+          }
+          const result = db
+            .prepare(
+              `INSERT INTO embeddings_cache (provider, model, input_sha256, dim, created_at, last_used_at)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+            )
+            .run(emb.provider, emb.model, emb.inputSha256, emb.dim, emb.createdAt ?? now, emb.lastUsedAt ?? now);
+          const rowid = BigInt(result.lastInsertRowid);
+          db.prepare('INSERT INTO embeddings_vec (rowid, embedding) VALUES (?, ?)').run(rowid, buf);
+          return { upserted: true, rowid };
+        };
+        return db.transaction(upsert)();
+      }
+
+      case 'knnTopK': {
+        // vec0 KNN 约束：MATCH + ORDER BY distance + LIMIT 必须直落虚拟表（JOIN 形态
+        // 会被 vec0 判为缺失 LIMIT 拒绝）——先纯 vec0 查 topK，再按 rowid 批量取缓存元数据
+        const query = request.query as KnnQuery;
+        const k = Math.min(Math.max(query.k ?? 5, 1), 100);
+        const knnRows = db
+          .prepare(`SELECT rowid, distance FROM embeddings_vec WHERE embedding MATCH ? ORDER BY distance LIMIT ${k}`)
+          .all(toVectorBuffer(query.vector)) as Array<{ rowid: number | bigint; distance: number }>;
+        if (knnRows.length === 0) return { hits: [] };
+        const placeholders = knnRows.map(() => '?').join(', ');
+        const metaRows = db
+          .prepare(`SELECT id, provider, model, input_sha256, dim FROM embeddings_cache WHERE id IN (${placeholders})`)
+          .all(...knnRows.map((r) => BigInt(r.rowid))) as Array<Record<string, unknown>>;
+        const metaById = new Map(metaRows.map((m) => [BigInt(m.id as number | bigint), m]));
+        return {
+          hits: knnRows.map((r) => {
+            const meta = metaById.get(BigInt(r.rowid));
+            return {
+              rowid: BigInt(r.rowid),
+              distance: r.distance,
+              provider: meta ? String(meta.provider) : '',
+              model: meta ? String(meta.model) : '',
+              inputSha256: meta ? String(meta.input_sha256) : '',
+              dim: meta ? Number(meta.dim) : 0,
+            };
+          }),
+        };
+      }
+
+      case 'pruneEmbeddingsCache': {
+        // FR-10.3 本地保留口径：last_used_at 超 EMBEDDINGS_RETENTION_DAYS 天清理
+        // （provider-matrix §4.2「N 由 M1 定」→ 180）；vec 行随 cache 行同批删除，
+        // 调度挂接归既有 retention 模式（本卡只提供方法）
+        const cutoff = addDaysIso(new Date().toISOString(), -EMBEDDINGS_RETENTION_DAYS);
+        const vecDeleted = db
+          .prepare('DELETE FROM embeddings_vec WHERE rowid IN (SELECT id FROM embeddings_cache WHERE last_used_at < ?)')
+          .run(cutoff);
+        const cacheDeleted = db.prepare('DELETE FROM embeddings_cache WHERE last_used_at < ?').run(cutoff);
+        return { cacheDeleted: Number(cacheDeleted.changes), vecDeleted: Number(vecDeleted.changes) };
+      }
+
       default: {
         const exhaustive: never = request;
         throw new Error(`unknown store request: ${(exhaustive as { type?: string }).type ?? '?'}`);
@@ -325,6 +648,45 @@ function consentRowToView(row: Record<string, unknown>): ConsentRowView {
     telemetryConsent: row.telemetry_consent === null || row.telemetry_consent === undefined ? null : Number(row.telemetry_consent) === 1,
     createdAt: String(row.created_at),
   };
+}
+
+function noteRowToView(row: Record<string, unknown>): NoteRowView {
+  return {
+    id: Number(row.id),
+    noteId: String(row.note_id),
+    title: (row.title as string | null) ?? null,
+    content: (row.content as string | null) ?? null,
+    author: parseJsonOrNull(row.author_json as string | null),
+    likes: Number(row.likes),
+    collects: Number(row.collects),
+    comments: Number(row.comments),
+    tags: parseJsonOrNull(row.tags_json as string | null),
+    coverUrl: (row.cover_url as string | null) ?? null,
+    imageUrls: parseJsonOrNull(row.image_urls_json as string | null),
+    publishedAt: (row.published_at as string | null) ?? null,
+    collectedAt: String(row.collected_at),
+  };
+}
+
+function reportRowToView(row: Record<string, unknown>): ReportRowView {
+  return {
+    id: Number(row.id),
+    topic: String(row.topic),
+    report: parseJsonOrNull(row.report_json as string | null),
+    contentMd: (row.content_md as string | null) ?? null,
+    model: (row.model as string | null) ?? null,
+    tokenCost: row.token_cost === null || row.token_cost === undefined ? null : Number(row.token_cost),
+    gateState: (row.gate_state as string | null) ?? null,
+    createdAt: String(row.created_at),
+  };
+}
+
+/** vec0 绑定统一为 float32 小端字节 Buffer（Float32Array 与 Buffer 双形态入参归一） */
+function toVectorBuffer(vector: Buffer | Float32Array): Buffer {
+  if (vector instanceof Float32Array) {
+    return Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength);
+  }
+  return vector;
 }
 
 function currentSchemaVersion(db: SqliteDatabase): number {

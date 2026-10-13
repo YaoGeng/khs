@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { MigrationError, runMigrations, type MigrateReport } from './migrations';
+import { loadSqliteVec } from './vec';
 
 export const STORE_PRAGMAS = {
   journalMode: 'WAL',
@@ -22,6 +23,8 @@ export interface OpenOptions {
 export interface OpenResult {
   db: betterSqlite3Database;
   migration?: MigrateReport;
+  /** sqlite-vec 加载失败原因（软失败：v1/v2 连接不受阻；v3 语句触到 vec0 时才显式报错） */
+  vecError?: string;
 }
 
 type betterSqlite3Database = import('better-sqlite3').SqliteDatabase;
@@ -34,8 +37,16 @@ export function openAndMigrate(dbFile: string, options: OpenOptions = {}): OpenR
     db = new Database(dbFile);
     // 损坏文件在首条语句（PRAGMA 头读）即抛 SQLITE_NOTADB——open 本身是惰性的
     applyWritePragmas(db);
+    // sqlite-vec 软加载（v3 embeddings_vec 建表与 KNN 查询共用；加载失败不记录到
+    // vecError 就会让 v3 迁移以难懂的 "no such module" 失败，故落 OpenResult 供诊断）
+    let vecError: string | undefined;
+    try {
+      loadSqliteVec(db);
+    } catch (error) {
+      vecError = (error as Error).message;
+    }
     const migration = options.skipMigration ? undefined : runMigrations(db, { targetVersion: options.targetVersion });
-    return { db, migration };
+    return { db, migration, vecError };
   } catch (error) {
     // 句柄可能已开（PRAGMA/迁移阶段失败）：先关再抛，不留锁（Windows 下未关闭=文件被锁）
     try {
