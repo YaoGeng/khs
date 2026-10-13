@@ -84,9 +84,27 @@ describe('PROVIDER_CAPABILITY_PRESETS（todo 5 / T-M0-06）', () => {
     }
   });
 
-  it('当前全无测试 Key：所有分档来源为 documented（携 Key 复跑探测脚本后应升级为 probed）', () => {
-    for (const id of PROVIDER_IDS) {
+  it('分档来源现状（2026-10-13 M1 携 Key 实测后）：zhipu=probed，其余四家维持 documented', () => {
+    expect(PROVIDER_CAPABILITY_PRESETS.zhipu.tierSource).toBe('probed');
+    for (const id of ['deepseek', 'tongyi', 'openai', 'siliconflow'] as const) {
       expect(PROVIDER_CAPABILITY_PRESETS[id].tierSource).toBe('documented');
     }
+  });
+
+  it('zhipu 实测结论与 probe-report.probed.json 逐格一致（硬编码防回归漂移，2026-10-13）', () => {
+    const zhipu = PROVIDER_CAPABILITY_PRESETS.zhipu;
+    expect(zhipu.capabilities.json_schema.supported).toBe(false);
+    expect(zhipu.capabilities.json_schema.source).toBe('probed');
+    expect(zhipu.capabilities.json_schema.note).toContain('[实测 2026-10-13]');
+    expect(zhipu.capabilities.json_schema.note).toContain('空内容');
+    expect(zhipu.capabilities.tool_calling.supported).toBe(true);
+    expect(zhipu.capabilities.tool_calling.source).toBe('probed');
+    expect(zhipu.capabilities.tool_calling.note).toContain('[实测 2026-10-13]');
+    expect(zhipu.capabilities.tool_calling.note).toContain('tool_calls');
+    // embeddings 的 probed-fail 系测试 Key 无余额（1113）所致，非能力否证——勿据此把该格改为 probed
+    expect(zhipu.capabilities.embeddings.supported).toBe(true);
+    expect(zhipu.capabilities.embeddings.source).toBe('documented');
+    expect(zhipu.capabilities.embeddings.note).toContain('1113');
+    expect(zhipu.capabilities.embeddings.note).toContain('文档源待实测');
   });
 });

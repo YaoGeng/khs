@@ -3,12 +3,14 @@
  *
  * 与 docs/adr/provider-matrix.md 互链：本文件的每个分档/每格来源都由该矩阵文档
  * 背书；矩阵的每格标注 [实测/文档/网络不可达] 与本文件 PresetSource 一一对应。
- * 探测证据：packages/llm-gateway/scripts/probe-report.json（运行时产物，不入库）、
- * 脱敏存档 .omo/evidence/mvp0-dev-plan/probe-report.no-key.json。
+ * 探测证据：packages/llm-gateway/scripts/probe-report.json（已脱敏入库）、
+ * 脱敏存档 .omo/evidence/mvp0-dev-plan/probe-report.no-key.json（M0 无 Key）与
+ * .omo/evidence/m1-insight-plan/probe-report.probed.json（M1 携 Key 实测）。
  *
  * R9（05-AI开发计划与里程碑.md §7）："M0 探测矩阵 + 降级链；预设模板只承诺探测通过的能力档"
- * ——当前无任何测试 Key，全部分档为「文档源」结论（documented），有 Key 复跑探测脚本后
- * 应将对应档位升级为 'probed'（或降级为 'network-unreachable'）。
+ * ——2026-10-13 zhipu 已携测试 Key 实测（tool calling 通过；json_schema 实测确认不可用；
+ * embeddings 因测试 Key 无余额未获能力结论，维持文档源），其余四家仍为「文档源」结论，
+ * 有 Key 复跑探测脚本后应将对应档位升级为 'probed'（或降级为 'network-unreachable'）。
  *
  * 分档判定标准（与矩阵文档一致）：
  *   A = 三项全通过（原生 json_schema / tool calling / embeddings）
@@ -122,24 +124,24 @@ export const PROVIDER_CAPABILITY_PRESETS: Record<ProviderId, ProviderCapabilityP
     label: '智谱（BigModel）',
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     tier: 'B',
-    tierSource: 'documented',
+    tierSource: 'probed',
     capabilities: {
       json_schema: {
         supported: false,
-        source: 'documented',
-        note: 'response_format 枚举仅 text/json_object；schema 需内嵌提示词+客户端校验',
+        source: 'probed',
+        note: '[实测 2026-10-13] response_format json_schema 请求被接受（HTTP 200）但模型返回空内容、断言失败——无可用原生 json_schema，维持 json_object+提示词内嵌 schema 结论（glm-4.7-flash，两个独立窗口结果一致）',
         docUrl: 'https://docs.bigmodel.cn/cn/guide/capabilities/struct-output.md',
       },
       tool_calling: {
         supported: true,
-        source: 'documented',
-        note: 'tools/function calling 官方支持（最多 128 函数，tool_choice 仅 auto）',
+        source: 'probed',
+        note: '[实测 2026-10-13] glm-4.7-flash 实测返回 tool_calls（get_current_weather），通过；官方文档：最多 128 函数，tool_choice 仅 auto',
         docUrl: 'https://docs.bigmodel.cn/cn/guide/capabilities/function-calling.md',
       },
       embeddings: {
         supported: true,
         source: 'documented',
-        note: 'embedding-3（GLM Embedding 系列）官方支持',
+        note: 'embedding-3（GLM Embedding 系列）官方支持；2026-10-13 携 Key 实测因测试 Key 无余额（HTTP 429 code 1113）未获能力结论，维持文档源待实测',
         docUrl: 'https://docs.bigmodel.cn/cn/guide/models/embedding/embedding-3.md',
       },
     },
