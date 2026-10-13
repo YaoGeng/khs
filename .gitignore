@@ -9,3 +9,6 @@ apps/desktop/playwright-report/
 apps/server/src/generated/
 # gen-card.mjs 产出的 SQL（含 codeHash，属一次性交付物）
 scripts/out/
+# 执行编排本地状态与机密（不入库）
+.omo/secrets/
+.omo/state/
