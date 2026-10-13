@@ -1,0 +1,16 @@
+{
+  "name": "@xinglian/adapter-loader",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "pnpm --filter @xinglian/protocol build && vitest run"
+  },
+  "dependencies": {
+    "@xinglian/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "linkedom": "^0.18.13"
+  }
+}
