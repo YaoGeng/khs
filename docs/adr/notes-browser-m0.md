@@ -50,3 +50,15 @@ FR-3.1 的「内置便携版 Chromium（按需下载+哈希校验）」M0 **不�
 - **锁语义**：`browser:openPlatform` 受 EULA 首启确认门约束（复用 T9 `isViewAllowed('dashboard')` 快照，拒绝码同为 `E-COMPLIANCE-EULA-LOCKED`）；`browser:status`（被动查询）与 `browser:disconnect`（安全动作）不受 EULA/license 锁约束。T8 的 license 锁定面（工作流写入口）未被触碰。
 - **调试口红线**：pipe 路线绝不传 `--remote-debugging-port*`（`assertNoPortArgs` 启动期自检 + 单测锁定）；任何排障例外须显式 opt-in 并留档。
 - 通道面变化：`browser:status / browser:openPlatform / browser:disconnect` 进入 M0 IPC 白名单（todo 10 授权范围）；`workflow:/review:/keys:` 仍归 M1+，越权拒绝 e2e 已改用这三个通道保持覆盖。
+
+## 8. 让位机制的真实输入信号形态（M1 T-M1-03 塔基：passive 监听 + automation-window）
+
+**决策**（M1 执行计划 todo 5 / T-M1-03；宿主接线归 T-M1-04）：真实输入信号采用 CDP `Page.addScriptToEvaluateOnNewDocument` 注入的 **passive 输入监听脚本**——只监听 `keydown`/`pointerdown` 两类事件、`{ passive: true }`、1s 节流写页面内全局时间戳 `window.__khs_yield__`；配合宿主侧 automation-window（每个 CDP 动作记录 start/end 时间戳，窗口内到达的输入判「自动化回声」丢弃，防自触发回环）与让位分类器（动作窗外的用户输入 → 让位；静默期满默认 3s → 恢复）。三者均为 `packages/stealth-middleware` 导出的纯常量/纯类（T-M1-03 交付），注入时机、`Runtime.evaluate` 轮询与 `whenAutomationAllowed()`（browser-service.ts 唯一入口）的对接归 todo 7——兑现本文件 §5 注记的「M1 首个工作流落地时必须接真实信号」。
+
+**红线解释（与 01 §7.5 :386「不向平台页面注入脚本」的相容性）**：01:386 禁止的是**功能注入**——改变页面行为、伪装平台功能、绕过平台机制的脚本（该句同时把本产品与社区规范 2.3.1 所列「外挂程序」划清界限，依据恰是「本产品仅驱动用户自有浏览器」）。passive 监听脚本不属于功能注入，理由逐条对齐：
+- **只读不干预**：仅登记事件监听读取用户自己的输入事件，不模拟、不拦截、不修改任何页面行为；`{ passive: true }` 在机制上排除 `preventDefault`，`capture` 只影响读取时机——对页面可观察行为为零改变；
+- **不触碰平台数据面**：不读 DOM 内容、不发网络请求、不写 storage，唯一副作用是写一个页面内时间戳全局量，供宿主轮询判定「用户是否在操作」；
+- **方向恰是红线承诺本身**：它存在的目的就是让自动化在用户亲手操作时**让位**（FR-4.5），是「仅驱动用户自有浏览器」承诺的落实件，与 M0 §5 的 `YieldFlag` 机制同一目标，本节为其补上真实信号源；
+- 同类的 `navigator.webdriver` 去标志脚本（02 §7.2 :339 指纹降噪保守项）同为声明性降噪（getter 返回 undefined）而非功能伪造，且 02:339 已划死底线：不做 Canvas/WebGL 深度伪装、保持真实 UA/视口。
+
+**边界**：不接真实采集流程（T-M1-04）；不做 Canvas/WebGL 深度伪装（02:339）；脚本内容以 `packages/stealth-middleware` 导出常量为唯一真源（含单测：节流 1s、幂等安装、passive 选项），宿主不得内联复制脚本字符串。
