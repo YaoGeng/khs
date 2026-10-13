@@ -10,6 +10,12 @@ import {
   BrowserOpenPlatformResultSchema,
   BrowserStatusResultSchema,
   channelParamsSchemas,
+  CircuitConfirmResumeResultSchema,
+  CircuitStatusResultSchema,
+  CollectRemaindersResultSchema,
+  CollectStartParams,
+  CollectStatsParams,
+  CollectStatsResultSchema,
   ConsentStateResultSchema,
   LicenseStatusResultSchema,
   LogsQueryResultSchema,
@@ -22,6 +28,10 @@ import {
   type BrowserOpenPlatformParams,
   type BrowserOpenPlatformResult,
   type BrowserStatusResult,
+  type CircuitConfirmResumeResult,
+  type CircuitStatusResult,
+  type CollectRemaindersResult,
+  type CollectStatsResult,
   type ConsentStateResult,
   type LicenseActivateParams,
   type LicenseStatusResult,
@@ -44,12 +54,14 @@ export interface LicenseIpcDeps {
   readonly status: () => LicenseStatusResult;
 }
 
-/** 日志/任务链路依赖注入面（todo 11；main binding 在 main/store-service.ts） */
+/** 日志/任务链路依赖注入面（todo 11；main binding 在 main/store-service.ts；pauseTask 归 todo 7 扩态） */
 export interface LogTaskIpcDeps {
   readonly queryLogs: (params: LogsQueryParams) => Promise<LogsQueryResult>;
   readonly createDemoTask: () => Promise<{ taskId: string }>;
   readonly listTasks: () => Promise<TasksListResult>;
   readonly resumeTask: (taskId: string) => Promise<{ taskId: string; status: string }>;
+  /** M1 扩态：running→paused（FR-4.5 用户暂停；跨日续采面） */
+  readonly pauseTask?: (taskId: string) => Promise<{ taskId: string; status: string }>;
   readonly cancelTask: (taskId: string) => Promise<{ taskId: string; status: string }>;
 }
 
@@ -69,6 +81,15 @@ export interface BrowserIpcDeps {
   readonly disconnect: () => Promise<BrowserDisconnectResult>;
 }
 
+/** 采集/熔断链路依赖注入面（todo 7 = T-M1-04；main binding 在 main/collect-binding.ts） */
+export interface CollectIpcDeps {
+  readonly start: (params: CollectStartParams) => Promise<{ taskId: string }>;
+  readonly remainders: () => Promise<CollectRemaindersResult>;
+  readonly stats: (params: CollectStatsParams) => Promise<CollectStatsResult>;
+  readonly circuitStatus: () => Promise<CircuitStatusResult>;
+  readonly circuitConfirmResume: () => Promise<CircuitConfirmResumeResult>;
+}
+
 export interface AppInfoDeps {
   /** 注入 app/appVersion 等运行时读取，保持本模块 electron-free 可单测 */
   readonly appInfo: () => AppInfoResult;
@@ -80,6 +101,8 @@ export interface AppInfoDeps {
   readonly consent: ConsentDeps;
   /** todo 10：受控浏览器接管（三态标题栏/快捷入口/一键断开）依赖 */
   readonly browser: BrowserIpcDeps;
+  /** todo 7：采集管道 + 熔断联动（T-M1-04）依赖；未装配时 collect:/circuit: 通道显式报未就绪 */
+  readonly collect?: CollectIpcDeps;
 }
 
 /** 校验并执行一次 IPC 调用（主进程 handle 与单测共用同一路径） */
@@ -334,6 +357,83 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
             );
           }
           return parsed.data;
+        },
+      },
+    ],
+    [
+      'tasks:pause',
+      {
+        paramsSchema: channelParamsSchemas['tasks:pause'],
+        handle: async (payload: { taskId: string }) => {
+          if (!deps.logTask.pauseTask) throw new Error('E-IPC-DEP-MISSING: tasks:pause 链路未装配');
+          const result = await deps.logTask.pauseTask(payload.taskId);
+          const parsed = TasksResumeResultSchema.safeParse(result);
+          if (!parsed.success) {
+            throw new Error(
+              `${IPC_ERRORS.INVALID_PARAMS}: tasks:pause 出口数据不符合契约 ${formatZodIssues(parsed.error)}`,
+            );
+          }
+          return parsed.data;
+        },
+      },
+    ],
+    [
+      'collect:start',
+      {
+        paramsSchema: channelParamsSchemas['collect:start'],
+        // 采集是业务工作流：EULA 门语义一致（FR-1.9 未确认前不开放）
+        handle: async (payload: CollectStartParams) => {
+          if (!deps.consent.isViewAllowed('insight')) {
+            throw new Error(`${E_EULA_LOCKED}: 采集已被 EULA 首启确认门锁定（FR-1.9）——请先完成协议确认`);
+          }
+          if (!deps.collect) throw new Error('E-IPC-DEP-MISSING: collect 链路未装配');
+          const result = await deps.collect.start(payload);
+          return validateExit(z.object({ taskId: z.string() }), result, 'collect:start');
+        },
+      },
+    ],
+    [
+      'collect:remainders',
+      {
+        paramsSchema: channelParamsSchemas['collect:remainders'],
+        handle: async () => {
+          if (!deps.collect) throw new Error('E-IPC-DEP-MISSING: collect 链路未装配');
+          const result = await deps.collect.remainders();
+          return validateExit(CollectRemaindersResultSchema, result, 'collect:remainders');
+        },
+      },
+    ],
+    [
+      'collect:stats',
+      {
+        paramsSchema: channelParamsSchemas['collect:stats'],
+        handle: async (payload: CollectStatsParams) => {
+          if (!deps.collect) throw new Error('E-IPC-DEP-MISSING: collect 链路未装配');
+          const result = await deps.collect.stats(payload);
+          return validateExit(CollectStatsResultSchema, result, 'collect:stats');
+        },
+      },
+    ],
+    [
+      'circuit:status',
+      {
+        paramsSchema: channelParamsSchemas['circuit:status'],
+        handle: async () => {
+          if (!deps.collect) throw new Error('E-IPC-DEP-MISSING: collect 链路未装配');
+          const result = await deps.collect.circuitStatus();
+          return validateExit(CircuitStatusResultSchema, result, 'circuit:status');
+        },
+      },
+    ],
+    [
+      'circuit:confirmResume',
+      {
+        paramsSchema: channelParamsSchemas['circuit:confirmResume'],
+        // FR-9.5 人工确认恢复（HALF_OPEN 推进）走 IPC 人工动作
+        handle: async () => {
+          if (!deps.collect) throw new Error('E-IPC-DEP-MISSING: collect 链路未装配');
+          const result = await deps.collect.circuitConfirmResume();
+          return validateExit(CircuitConfirmResumeResultSchema, result, 'circuit:confirmResume');
         },
       },
     ],

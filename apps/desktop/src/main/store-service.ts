@@ -109,6 +109,10 @@ export function createStoreService(paths: StorePaths, workerPath: string): Store
       const status = await runner.resume(taskId);
       return { taskId, status };
     },
+    async pauseTask(taskId: string) {
+      const status = await runner.pause(taskId, 'user-pause');
+      return { taskId, status: status ?? 'running' };
+    },
     async cancelTask(taskId: string) {
       const status = await runner.cancel(taskId);
       return { taskId, status };

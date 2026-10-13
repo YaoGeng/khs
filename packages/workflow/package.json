@@ -4,6 +4,9 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "pnpm --filter @xinglian/stealth-middleware build && vitest run"
+  },
+  "dependencies": {
+    "@xinglian/stealth-middleware": "workspace:*"
   }
 }

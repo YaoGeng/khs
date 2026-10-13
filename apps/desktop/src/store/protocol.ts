@@ -4,8 +4,30 @@
  */
 import type { RetentionPolicy } from '@xinglian/logger';
 
-export type TaskStatus = 'idle' | 'running' | 'suspended' | 'completed' | 'failed' | 'cancelled';
+export type TaskStatus = 'idle' | 'queued' | 'running' | 'awaiting_user' | 'yielded' | 'paused' | 'suspended' | 'completed' | 'failed' | 'cancelled';
 export type StepStatus = 'running' | 'completed' | 'failed';
+
+/**
+ * TaskStatus 值域常量（M1 扩态镜像面：tasks/machine.TASK_STATES 的 store 侧真源；
+ * state-mirror.test.ts 断言两者深相等——五面任一漏改即测试红）。
+ * worker 用它对 updateTaskStatus / task_events.from_state/to_state 做值域校验。
+ */
+export const TASK_STATUS_VALUES: readonly TaskStatus[] = [
+  'idle',
+  'queued',
+  'running',
+  'awaiting_user',
+  'yielded',
+  'paused',
+  'suspended',
+  'completed',
+  'failed',
+  'cancelled',
+];
+
+export function isTaskStatus(value: unknown): value is TaskStatus {
+  return typeof value === 'string' && (TASK_STATUS_VALUES as readonly string[]).includes(value);
+}
 
 /** 五类日志落库行（logger sink → client → worker → logs 表） */
 export interface LogRowInput {
@@ -337,6 +359,7 @@ export type StoreRequest =
   | (RequestBase & { type: 'getLatestConsents' })
   | (RequestBase & { type: 'upsertNote'; note: NoteInput })
   | (RequestBase & { type: 'listNotes'; filter: NoteQueryFilter })
+  | (RequestBase & { type: 'countNoteSnapshots'; topicId?: string })
   | (RequestBase & { type: 'insertReport'; report: ReportInput })
   | (RequestBase & { type: 'getReport'; reportId: number })
   | (RequestBase & { type: 'insertLlmCall'; call: LlmCallInput })

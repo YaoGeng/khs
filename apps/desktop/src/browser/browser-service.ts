@@ -30,6 +30,7 @@ import type {
   BrowserStatusResult,
 } from '../shared/schemas';
 import { CdpConnection } from './cdp';
+import { PASSIVE_INPUT_LISTENER_SCRIPT, WEBDRIVER_FLAG_REMOVAL_SCRIPT } from '@xinglian/stealth-middleware';
 import { assertExecutableAvailable, launchPipeBrowser, type CdpTransportMode, type LaunchedPipeBrowser } from './launcher';
 import { resolvePlatformProfileDir } from './profiles';
 import { detectBrowser } from './detect';
@@ -492,6 +493,35 @@ export class BrowserService {
   /** M1 自动化动作队列的唯一入口（让位期间挂起；M0 无调用方，仅机制预留 + 测试钩子） */
   whenAutomationAllowed(): Promise<void> {
     return this.yieldFlag.whenAutomationAllowed();
+  }
+
+  /**
+   * M1 采集自动化会话准备（todo 7⑤）：flat attach 平台标签页 → Page.enable →
+   * addScriptToEvaluateOnNewDocument 注入 webdriver 去标志（stealth 保守三项之一）与
+   * FR-4.5 passive 输入监听。返回会话句柄供 CdpAutomation 使用；
+   * 所有后续 CDP 动作仍须经 whenAutomationAllowed()（本方法只是注入点，非动作通道）。
+   */
+  async prepareAutomationTab(): Promise<{ connection: import('./cdp').CdpConnection; sessionId: string; targetId: string }> {
+    const browser = this.launched;
+    if (!browser || browser.connection.isClosed) {
+      throw new Error('E-BROWSER-CDP-ATTACH-FAILED: 无已接管浏览器可自动化');
+    }
+    await this.refreshOpenTabs(browser.connection);
+    const tabs = this.openTabs ?? [];
+    const platform = this.currentPlatform;
+    const target = platform ? tabs.find((t) => t.url.includes(this.platformHost(platform))) : undefined;
+    const targetId = target?.targetId ?? tabs[tabs.length - 1]?.targetId ?? null;
+    if (!targetId) throw new Error('E-BROWSER-CDP-ATTACH-FAILED: 无可用目标页');
+    const attached = await browser.connection.send<{ sessionId?: string }>('Target.attachToTarget', {
+      targetId,
+      flatten: true,
+    });
+    const sessionId = attached.sessionId ?? '';
+    await browser.connection.send('Page.enable', {}, sessionId);
+    await browser.connection.send('Page.addScriptToEvaluateOnNewDocument', { source: WEBDRIVER_FLAG_REMOVAL_SCRIPT }, sessionId);
+    await browser.connection.send('Page.addScriptToEvaluateOnNewDocument', { source: PASSIVE_INPUT_LISTENER_SCRIPT }, sessionId);
+    this.logger.automationStep('browser:automation-tab-prepared', { targetId, note: 'FR-4.5 passive 监听 + stealth 去标志（addScriptToEvaluateOnNewDocument）' });
+    return { connection: browser.connection, sessionId, targetId };
   }
 
   /* ------------------------------ 生命周期 ------------------------------ */

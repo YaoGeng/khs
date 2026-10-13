@@ -7,7 +7,7 @@
  * 事务粒度（ADR-8 §7.2）：insertLogs 分片 ≤100 行/事务；其余单行写各自成事务。
  */
 import { openAndMigrate } from './db';
-import { EMBEDDINGS_RETENTION_DAYS, STORE_ERROR_CODES, type CircuitEventFilter, type CircuitEventInput, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KnnQuery, type NoteInput, type NoteQueryFilter, type NoteRowView, type ReportInput, type ReportRowView, type StoreRequest, type StoreResponse, type CreateTaskInput, type LogQueryFilter, type LlmCallInput, type StepInput, type TaskEventInput, type TaskStatusInput, type RetentionPolicy } from './protocol';
+import { EMBEDDINGS_RETENTION_DAYS, STORE_ERROR_CODES, isTaskStatus, type CircuitEventFilter, type CircuitEventInput, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KnnQuery, type NoteInput, type NoteQueryFilter, type NoteRowView, type ReportInput, type ReportRowView, type StoreRequest, type StoreResponse, type CreateTaskInput, type LogQueryFilter, type LlmCallInput, type StepInput, type TaskEventInput, type TaskStatusInput, type RetentionPolicy } from './protocol';
 
 type SqliteDatabase = import('better-sqlite3').SqliteDatabase;
 
@@ -122,6 +122,10 @@ export function handleStoreRequest(db: SqliteDatabase, request: StoreRequest): {
 
       case 'updateTaskStatus': {
         const update = request.update as TaskStatusInput;
+        // M1 扩态值域校验（store 侧镜像面）：非法状态拒绝写入（E-STORE-BAD-REQUEST）
+        if (!isTaskStatus(update.status)) {
+          throw new Error(`${STORE_ERROR_CODES.BAD_REQUEST}: 非法任务状态: ${String(update.status)}`);
+        }
         const result = db
           .prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?')
           .run(update.status, update.at ?? new Date().toISOString(), update.taskId);
@@ -131,6 +135,12 @@ export function handleStoreRequest(db: SqliteDatabase, request: StoreRequest): {
 
       case 'writeTaskEvent': {
         const event = request.event as TaskEventInput;
+        // task_events 值域校验：from/to 必须落在 TASK_STATUS_VALUES（M1 扩态镜像面）
+        for (const [label, value] of [['fromState', event.fromState], ['toState', event.toState]] as const) {
+          if (value !== undefined && value !== null && !isTaskStatus(value)) {
+            throw new Error(`${STORE_ERROR_CODES.BAD_REQUEST}: task_events ${label} 非法状态值: ${String(value)}`);
+          }
+        }
         db.prepare(
           `INSERT INTO task_events (task_id, type, from_state, to_state, payload_json, created_at)
            VALUES (?, ?, ?, ?, ?, ?)`,
@@ -281,50 +291,70 @@ export function handleStoreRequest(db: SqliteDatabase, request: StoreRequest): {
 
       case 'upsertNote': {
         // 五面同步 v3：upsert notes（ON CONFLICT 不覆盖首采时间）+ 追加 FR-4.4 快照
-        // + 可选 topic_notes 登记（首见 DO NOTHING），三语句同事务
+        // + 可选 topic_notes 登记（首见 DO NOTHING）。三语句必须同事务（评审 MAJOR 修复，
+        // T-M1-04 顺手修）：中途失败整体回滚，杜绝「notes 已写而快照/登记缺失」的半行状态
+        // （事务样板同 upsertEmbedding case）。回归守卫见 store/collect-guard.test.ts。
         const note = request.note as NoteInput;
         const now = new Date().toISOString();
-        const noteId = db
-          .prepare(
-            `INSERT INTO notes (note_id, title, content, author_json, likes, collects, comments, tags_json, cover_url, image_urls_json, published_at, collected_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT (note_id) DO UPDATE SET
-               title = COALESCE(excluded.title, title),
-               content = COALESCE(excluded.content, content),
-               author_json = COALESCE(excluded.author_json, author_json),
-               likes = COALESCE(excluded.likes, likes),
-               collects = COALESCE(excluded.collects, collects),
-               comments = COALESCE(excluded.comments, comments),
-               tags_json = COALESCE(excluded.tags_json, tags_json),
-               cover_url = COALESCE(excluded.cover_url, cover_url),
-               image_urls_json = COALESCE(excluded.image_urls_json, image_urls_json),
-               published_at = COALESCE(excluded.published_at, published_at)`,
-          )
-          .run(
-            note.noteId,
-            note.title ?? null,
-            note.content ?? null,
-            note.author === undefined ? null : JSON.stringify(note.author),
-            note.likes ?? 0,
-            note.collects ?? 0,
-            note.comments ?? 0,
-            note.tags === undefined ? null : JSON.stringify(note.tags),
-            note.coverUrl ?? null,
-            note.imageUrls === undefined ? null : JSON.stringify(note.imageUrls),
-            note.publishedAt ?? null,
-            note.collectedAt ?? now,
-          );
-        const row = db.prepare('SELECT id FROM notes WHERE note_id = ?').get(note.noteId) as { id: number };
-        db.prepare(
-          `INSERT INTO note_snapshots (note_id, likes, collects, comments, captured_at) VALUES (?, ?, ?, ?, ?)`,
-        ).run(note.noteId, note.likes ?? 0, note.collects ?? 0, note.comments ?? 0, now);
-        if (note.topicId !== undefined) {
+        const upsert = (): { upserted: true; id: number; changes: number } => {
+          const noteId = db
+            .prepare(
+              `INSERT INTO notes (note_id, title, content, author_json, likes, collects, comments, tags_json, cover_url, image_urls_json, published_at, collected_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT (note_id) DO UPDATE SET
+                 title = COALESCE(excluded.title, title),
+                 content = COALESCE(excluded.content, content),
+                 author_json = COALESCE(excluded.author_json, author_json),
+                 likes = COALESCE(excluded.likes, likes),
+                 collects = COALESCE(excluded.collects, collects),
+                 comments = COALESCE(excluded.comments, comments),
+                 tags_json = COALESCE(excluded.tags_json, tags_json),
+                 cover_url = COALESCE(excluded.cover_url, cover_url),
+                 image_urls_json = COALESCE(excluded.image_urls_json, image_urls_json),
+                 published_at = COALESCE(excluded.published_at, published_at)`,
+            )
+            .run(
+              note.noteId,
+              note.title ?? null,
+              note.content ?? null,
+              note.author === undefined ? null : JSON.stringify(note.author),
+              note.likes ?? 0,
+              note.collects ?? 0,
+              note.comments ?? 0,
+              note.tags === undefined ? null : JSON.stringify(note.tags),
+              note.coverUrl ?? null,
+              note.imageUrls === undefined ? null : JSON.stringify(note.imageUrls),
+              note.publishedAt ?? null,
+              note.collectedAt ?? now,
+            );
+          const row = db.prepare('SELECT id FROM notes WHERE note_id = ?').get(note.noteId) as { id: number };
           db.prepare(
-            `INSERT INTO topic_notes (topic_id, note_id, seen_at) VALUES (?, ?, ?)
-             ON CONFLICT (topic_id, note_id) DO NOTHING`,
-          ).run(note.topicId, note.noteId, now);
-        }
-        return { upserted: true, id: Number(row.id), changes: Number(noteId.changes) };
+            `INSERT INTO note_snapshots (note_id, likes, collects, comments, captured_at) VALUES (?, ?, ?, ?, ?)`,
+          ).run(note.noteId, note.likes ?? 0, note.collects ?? 0, note.comments ?? 0, now);
+          if (note.topicId !== undefined) {
+            db.prepare(
+              `INSERT INTO topic_notes (topic_id, note_id, seen_at) VALUES (?, ?, ?)
+               ON CONFLICT (topic_id, note_id) DO NOTHING`,
+            ).run(note.topicId, note.noteId, now);
+          }
+          return { upserted: true, id: Number(row.id), changes: Number(noteId.changes) };
+        };
+        return db.transaction(upsert)();
+      }
+
+      case 'countNoteSnapshots': {
+        // FR-4.4 快照观测面（e2e/任务视图消费）：topicId 提供则按 topic_notes 范围计数
+        const topicId = request.topicId;
+        const row = (
+          topicId
+            ? db
+                .prepare(
+                  `SELECT COUNT(*) AS c FROM note_snapshots s JOIN topic_notes tn ON tn.note_id = s.note_id WHERE tn.topic_id = ?`,
+                )
+                .get(topicId)
+            : db.prepare('SELECT COUNT(*) AS c FROM note_snapshots').get()
+        ) as { c: number };
+        return { count: Number(row.c) };
       }
 
       case 'listNotes': {

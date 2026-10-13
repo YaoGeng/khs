@@ -4,7 +4,7 @@
  */
 export { createStoreClient, StoreClientError } from './client';
 export type { StoreClient, StoreClientOptions, StoreStats, StoreTransport } from './client';
-export { EMBEDDINGS_RETENTION_DAYS, STORE_ERROR_CODES } from './protocol';
+export { EMBEDDINGS_RETENTION_DAYS, STORE_ERROR_CODES, TASK_STATUS_VALUES, isTaskStatus } from './protocol';
 export type {
   CircuitEventFilter,
   CircuitEventInput,

@@ -14,7 +14,13 @@
     "cold-start": "node scripts/cold-start.mjs"
   },
   "dependencies": {
+    "@xinglian/adapter-loader": "workspace:*",
+    "@xinglian/adapters-xhs": "workspace:*",
+    "@xinglian/humanize": "workspace:*",
     "@xinglian/logger": "workspace:*",
+    "@xinglian/protocol": "workspace:*",
+    "@xinglian/stealth-middleware": "workspace:*",
+    "@xinglian/workflow": "workspace:*",
     "better-sqlite3": "12.4.1",
     "drizzle-orm": "^0.45.4",
     "sqlite-vec": "0.1.9",

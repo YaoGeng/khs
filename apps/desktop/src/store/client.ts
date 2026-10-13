@@ -81,6 +81,8 @@ export interface StoreClient {
   /** 笔记 upsert：重复采集仅更新互动 + 追加 FR-4.4 快照；topicId 提供则登记主题（首见保留） */
   upsertNote(note: NoteInput): Promise<{ upserted: boolean; id: number }>;
   listNotes(filter?: NoteQueryFilter): Promise<NoteRowView[]>;
+  /** FR-4.4 快照观测面：note_snapshots 行计数（topicId 提供则按主题范围） */
+  countNoteSnapshots(topicId?: string): Promise<number>;
   insertReport(report: ReportInput): Promise<{ written: boolean; id: number }>;
   /** 不存在返回 null（getTask 同款语义，不抛） */
   getReport(reportId: number): Promise<ReportRowView | null>;
@@ -345,6 +347,10 @@ export function createStoreClient(options: StoreClientOptions): StoreClient {
     listNotes: async (filter: NoteQueryFilter = {}) => {
       const data = await unwrap<{ notes: NoteRowView[] }>(dispatch(false, (id) => ({ id, type: 'listNotes', filter })));
       return data.notes;
+    },
+    countNoteSnapshots: async (topicId?: string) => {
+      const data = await unwrap<{ count: number }>(dispatch(false, (id) => ({ id, type: 'countNoteSnapshots', topicId })));
+      return data.count;
     },
     insertReport: (report: ReportInput) => unwrap(dispatch(false, (id) => ({ id, type: 'insertReport', report }))),
     getReport: async (reportId: number) => {

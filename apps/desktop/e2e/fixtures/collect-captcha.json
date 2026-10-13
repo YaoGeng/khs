@@ -1,0 +1,76 @@
+{
+  "notes": [
+    {
+      "noteId": "e2e0001aaaa",
+      "title": "E2E 采集笔记 1",
+      "content": "这是第 1 条 e2e fixture 笔记正文，关键词 测试 覆盖",
+      "likes": 101,
+      "collects": 11,
+      "comments": 1,
+      "tags": [
+        "e2e",
+        "fixture"
+      ],
+      "author": "e2e-author-1",
+      "publishedAt": "2026-10-02"
+    },
+    {
+      "noteId": "e2e0002aaaa",
+      "title": "E2E 采集笔记 2",
+      "content": "这是第 2 条 e2e fixture 笔记正文，关键词 测试 覆盖",
+      "likes": 102,
+      "collects": 12,
+      "comments": 2,
+      "tags": [
+        "e2e",
+        "fixture"
+      ],
+      "author": "e2e-author-2",
+      "publishedAt": "2026-10-03"
+    },
+    {
+      "noteId": "e2e0003aaaa",
+      "title": "E2E 采集笔记 3",
+      "content": "这是第 3 条 e2e fixture 笔记正文，关键词 测试 覆盖",
+      "likes": 103,
+      "collects": 13,
+      "comments": 3,
+      "tags": [
+        "e2e",
+        "fixture"
+      ],
+      "author": "e2e-author-3",
+      "publishedAt": "2026-10-04"
+    },
+    {
+      "noteId": "e2e0004aaaa",
+      "title": "E2E 采集笔记 4",
+      "content": "这是第 4 条 e2e fixture 笔记正文，关键词 测试 覆盖",
+      "likes": 104,
+      "collects": 14,
+      "comments": 4,
+      "tags": [
+        "e2e",
+        "fixture"
+      ],
+      "author": "e2e-author-4",
+      "publishedAt": "2026-10-05"
+    },
+    {
+      "noteId": "e2e0005aaaa",
+      "title": "E2E 采集笔记 5",
+      "content": "这是第 5 条 e2e fixture 笔记正文，关键词 测试 覆盖",
+      "likes": 105,
+      "collects": 15,
+      "comments": 5,
+      "tags": [
+        "e2e",
+        "fixture"
+      ],
+      "author": "e2e-author-5",
+      "publishedAt": "2026-10-06"
+    }
+  ],
+  "captcha": true,
+  "loginEntryVisible": false
+}

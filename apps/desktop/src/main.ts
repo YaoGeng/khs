@@ -6,7 +6,7 @@
  * → 开主窗口（安全基线 webPreferences）→ did-finish-load 结算冷启动样本（C-3 实测）
  * → 延迟加载重模块（C-3 招一；store worker 的 fork 为异步旁路，不阻塞窗口路径）。
  */
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Notification } from 'electron';
 import { EULA_LOCKED_VIEWS, CONTRACT_VERSION } from './shared/channels';
 import { registerIpcHandlers } from './main/ipc';
 import { createComplianceService, type ComplianceService } from './compliance/compliance-service';
@@ -16,6 +16,7 @@ import { createDeferredBootstrap } from './main/lazy';
 import { createMainWindow } from './main/window';
 import { loadHeavyModules } from './main/heavy';
 import { attachMigrationReport, createStoreService, resolveStorePaths, runPreWindowMigration, type StoreService } from './main/store-service';
+import { createCollectBinding, type CollectBinding } from './main/collect-binding';
 import { BrowserService } from './browser/browser-service';
 import { resolveProfileRoot } from './browser/profiles';
 
@@ -51,6 +52,16 @@ let complianceService: ComplianceService | null = null;
 
 // todo 10：受控浏览器接管服务（FR-3；崩溃联动挂起 running 任务，profile 随 e2e/dev seam 隔离）
 let browserService: BrowserService | null = null;
+
+// todo 7：采集链路绑定（熔断器/日配额/适配包/mock-CDP seam/让位监视；T-M1-04）
+let collectBinding: CollectBinding | null = null;
+
+/** 桌面通知（Electron Notification；不可用环境静默降级为日志，e2e/CI 无通知中心） */
+function showDesktopNotification(title: string, body: string): void {
+  if (Notification.isSupported()) {
+    new Notification({ title, body }).show();
+  }
+}
 
 // 02 §4.2 shell 行「单实例锁」：二次启动直接退出，由已有实例接管（second-instance 聚焦）
 const gotLock = app.requestSingleInstanceLock();
@@ -112,6 +123,39 @@ if (!gotLock) {
       },
     });
 
+    // todo 7：采集链路绑定（熔断/配额/适配包/让位监视；fixture seam = XINGLIAN_COLLECT_FIXTURE）
+    collectBinding = createCollectBinding({
+      store: storeService.store,
+      runner: storeService.runner,
+      logger: storeService.logger,
+      compliance: complianceService,
+      notify: showDesktopNotification,
+      userDataDir: app.getPath('userData'),
+      browser: {
+        prepareAutomationTab: () => browserService!.prepareAutomationTab(),
+        whenAutomationAllowed: () => browserService!.whenAutomationAllowed(),
+        yieldToUser: (source, reason) => browserService!.yieldToUser(source, reason),
+        resumeFromYield: (reason) => browserService!.resumeFromYield(reason),
+      },
+      // pacingScale=0 是合法值（测试/e2e 消除真实等待），不能用 ||1 兜底
+      pacingScale: Number.isFinite(Number(process.env.XINGLIAN_COLLECT_PACING_SCALE))
+        && Number(process.env.XINGLIAN_COLLECT_PACING_SCALE) >= 0
+        ? Number(process.env.XINGLIAN_COLLECT_PACING_SCALE)
+        : 1,
+    });
+
+    // 跨日续采扫描（02 §9.1：应用启动扫描昨日未完 remainder；UI「继续采集」经 collect:remainders）
+    void storeService.recoveredTaskIds.then(async () => {
+      const remainders = await collectBinding?.scanRemainders() ?? [];
+      if (remainders.length > 0) {
+        storeService?.logger.userAction('collect:remainders-scanned', {
+          count: remainders.length,
+          taskIds: remainders.map((r) => r.taskId),
+          note: '跨日续采面就绪（collect:remainders 通道 + tasks:resume 继续采集，任务不重建）',
+        });
+      }
+    });
+
     registerIpcHandlers({
       appInfo: () => ({
         appVersion: app.getVersion(),
@@ -131,6 +175,15 @@ if (!gotLock) {
         openPlatform: (params) => browserService?.openPlatform(params) ?? Promise.reject(new Error('browser service 未就绪')),
         disconnect: () => browserService?.disconnect() ?? Promise.reject(new Error('browser service 未就绪')),
       },
+      // todo 7：采集管道 + 熔断联动（collect:start / collect:remainders / collect:stats / circuit:*）
+      collect: {
+        start: (params) => collectBinding?.start(params) ?? Promise.reject(new Error('collect binding 未就绪')),
+        remainders: async () => ({ remainders: await (collectBinding?.scanRemainders() ?? Promise.reject(new Error('collect binding 未就绪'))) }),
+        stats: async (params) =>
+          await (collectBinding?.stats(params.runId, params.topicId) ?? Promise.reject(new Error('collect binding 未就绪'))),
+        circuitStatus: () => collectBinding?.circuitStatus() ?? Promise.reject(new Error('collect binding 未就绪')),
+        circuitConfirmResume: () => collectBinding?.confirmResume() ?? Promise.reject(new Error('collect binding 未就绪')),
+      },
     });
 
     // e2e/测试钩子（仅显式 env 门控；生产不暴露）：让位机制与崩溃联动的进程内驱动入口
@@ -140,6 +193,10 @@ if (!gotLock) {
           yieldToUser: (source: 'user-input' | 'manual' | 'e2e-hook', reason?: string) => browserService?.yieldToUser(source, reason),
           resumeFromYield: (reason?: string) => browserService?.resumeFromYield(reason),
           navigateTab: (url: string) => browserService?.navigateTab(url),
+        },
+        collect: {
+          // fixture 模式专用（mock CDP）：等价页面侧 passive 监听写 __khs_yield__
+          simulateUserInput: (atMs?: number) => collectBinding?.fixture?.simulateUserInput(atMs),
         },
       };
     }
@@ -188,6 +245,7 @@ if (!gotLock) {
     storeService?.logger.systemError('app-quit-phase1-start', {});
     void (async () => {
       try {
+        collectBinding?.shutdown();
         await browserService?.shutdown();
         storeService?.logger.systemError('app-quit-browser-closed', {});
         await storeService?.shutdown();

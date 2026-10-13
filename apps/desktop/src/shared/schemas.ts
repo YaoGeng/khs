@@ -71,10 +71,14 @@ export type LogsQueryParams = z.infer<typeof LogsQueryParamsSchema>;
 export type LogsQueryResult = z.infer<typeof LogsQueryResultSchema>;
 export type LogRowView = z.infer<typeof LogRowSchema>;
 
-/* tasks:* —— demo 任务（D7 最小运行器；门禁④演示载体） */
+/* tasks:* —— demo 任务（D7）+ M1 扩态（todo 7：queued/awaiting_user/yielded/paused） */
 export const TASK_STATUSES_SCHEMA = [
   'idle',
+  'queued',
   'running',
+  'awaiting_user',
+  'yielded',
+  'paused',
   'suspended',
   'completed',
   'failed',
@@ -110,6 +114,104 @@ export const TasksResumeResultSchema = z.object({ taskId: z.string(), status: z.
 
 export const TasksCancelParamsSchema = z.strictObject({ taskId: z.string().min(1).max(64) });
 export const TasksCancelResultSchema = z.object({ taskId: z.string(), status: z.enum(TASK_STATUSES_SCHEMA) });
+
+export const TasksPauseParamsSchema = z.strictObject({ taskId: z.string().min(1).max(64) });
+export const TasksPauseResultSchema = z.object({ taskId: z.string(), status: z.enum(TASK_STATUSES_SCHEMA) });
+
+/* collect:* —— 采集工作流（todo 7 = T-M1-04；FR-4.1 三种输入 / FR-4.5 跨日续采 / 门禁①计数器） */
+
+export const COLLECT_INPUT_TYPES_SCHEMA = ['keyword', 'user', 'note_url'] as const;
+
+export const CollectStartParamsSchema = z
+  .object({
+    inputType: z.enum(COLLECT_INPUT_TYPES_SCHEMA),
+    /** inputType=keyword：B-4 词项组合（1..5 词） */
+    terms: z.array(z.string().min(1).max(64)).min(1).max(5).optional(),
+    operator: z.enum(['and', 'or']).optional(),
+    /** inputType=keyword 单词便捷形态（与 terms 二选一） */
+    keyword: z.string().min(1).max(64).optional(),
+    /** inputType=user：竞品账号主页链接 */
+    userUrl: z.string().url().optional(),
+    /** inputType=note_url：笔记链接直达 */
+    noteUrl: z.string().url().optional(),
+    topicId: z.string().min(1).max(64),
+    /** 主题采集总量（缺省 200；可配 50–1000，日配额 300 双轨硬上限） */
+    targetTotal: z.number().int().min(50).max(1000).optional(),
+  })
+  .superRefine((params, ctx) => {
+    const missing = (field: string): void => {
+      ctx.addIssue({ code: 'custom', message: `inputType=${params.inputType} 时必须提供 ${field}`, path: [field] });
+    };
+    if (params.inputType === 'keyword' && !params.keyword && !params.terms) missing('keyword|terms');
+    if (params.inputType === 'user' && !params.userUrl) missing('userUrl');
+    if (params.inputType === 'note_url' && !params.noteUrl) missing('noteUrl');
+  });
+
+export const CollectStartResultSchema = z.object({ taskId: z.string() });
+
+export const CollectRemainderSchema = z.object({
+  taskId: z.string(),
+  topicId: z.string(),
+  /** 剩余目标条数（目标总量 − 该 run 已采 unique 数） */
+  remaining: z.number().int().min(0),
+  /** 触发暂停那天的本地日历日键（YYYY-MM-DD） */
+  dayKey: z.string(),
+  pausedAt: z.string(),
+  reason: z.string(),
+});
+
+export const CollectRemaindersResultSchema = z.object({ remainders: z.array(CollectRemainderSchema) });
+
+export const CollectRunStatsSchema = z.object({
+  runId: z.string(),
+  completedUnique: z.number().int(),
+  duplicate: z.number().int(),
+  noResult: z.number().int(),
+  rateLimited: z.number().int(),
+  captchaConsumed: z.number().int(),
+});
+
+export const CollectStatsParamsSchema = z.object({ runId: z.string().min(1), topicId: z.string().min(1).optional() });
+
+export const CollectStatsResultSchema = z.object({
+  stats: CollectRunStatsSchema.nullable(),
+  /** notes 表中该 run 对应主题（或全局）行数 */
+  notesCount: z.number().int(),
+  /** note_snapshots 行数（FR-4.4 二次采集追加观测断言面） */
+  snapshotsCount: z.number().int(),
+  taskStatus: z.enum(TASK_STATUSES_SCHEMA).nullable(),
+});
+
+/* circuit:* —— 熔断联动（todo 7⑥；FR-9.5：OPEN 挂起 + 人工确认恢复经 IPC） */
+
+export const CircuitStatusParamsSchema = z.strictObject({});
+
+export const CircuitStatusResultSchema = z.object({
+  state: z.enum(['CLOSED', 'OPEN', 'HALF_OPEN']),
+  openedAt: z.string().nullable(),
+  cooldownMs: z.number(),
+  cooldownRemainingMs: z.number(),
+  /** 最近事件流水（circuit_events 本地账本，倒序，≤50 条；只含事件元数据不含笔记内容） */
+  events: z.array(z.object({ kind: z.string(), at: z.string(), meta: z.unknown() })),
+});
+
+export const CircuitConfirmResumeParamsSchema = z.strictObject({});
+export const CircuitConfirmResumeResultSchema = z.object({
+  ok: z.boolean(),
+  state: z.enum(['CLOSED', 'OPEN', 'HALF_OPEN']),
+  /** false 时的拒绝原因（未到冷却期满 / 非 OPEN 态） */
+  reason: z.string().optional(),
+});
+
+export type CollectStartParams = z.infer<typeof CollectStartParamsSchema>;
+export type CollectStartResult = z.infer<typeof CollectStartResultSchema>;
+export type CollectRemainder = z.infer<typeof CollectRemainderSchema>;
+export type CollectRemaindersResult = z.infer<typeof CollectRemaindersResultSchema>;
+export type CollectRunStatsView = z.infer<typeof CollectRunStatsSchema>;
+export type CollectStatsParams = z.infer<typeof CollectStatsParamsSchema>;
+export type CollectStatsResult = z.infer<typeof CollectStatsResultSchema>;
+export type CircuitStatusResult = z.infer<typeof CircuitStatusResultSchema>;
+export type CircuitConfirmResumeResult = z.infer<typeof CircuitConfirmResumeResultSchema>;
 
 export type TaskView = z.infer<typeof TaskViewSchema>;
 export type TaskStepView = z.infer<typeof TaskStepSchema>;
@@ -238,6 +340,11 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'browser:disconnect': BrowserDisconnectParamsSchema,
   'browser:openPlatform': BrowserOpenPlatformParamsSchema,
   'browser:status': BrowserStatusParamsSchema,
+  'circuit:status': CircuitStatusParamsSchema,
+  'circuit:confirmResume': CircuitConfirmResumeParamsSchema,
+  'collect:remainders': z.strictObject({}),
+  'collect:start': CollectStartParamsSchema,
+  'collect:stats': CollectStatsParamsSchema,
   'consent:state': ConsentStateParamsSchema,
   'consent:acceptEula': ConsentAcceptParamsSchema,
   'consent:rejectEula': ConsentRejectParamsSchema,
@@ -248,6 +355,7 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'license:status': LicenseStatusParamsSchema,
   'tasks:createDemo': TasksCreateDemoParamsSchema,
   'tasks:list': TasksListParamsSchema,
+  'tasks:pause': TasksPauseParamsSchema,
   'tasks:resume': TasksResumeParamsSchema,
   'tasks:cancel': TasksCancelParamsSchema,
 };
