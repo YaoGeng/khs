@@ -1,0 +1,18 @@
+appId: com.xinglian.bench.sqlitevecpnpm
+productName: sqlite-vec-pnpm-bench
+directories:
+  output: release
+files:
+  - main.js
+  - package.json
+asar: true
+# Native modules cannot be dlopen'd from inside an asar archive: unpack them.
+# The three patterns are copied verbatim from the M0 npm-layout sandbox
+# (bench/sqlite-vec-electron/electron-builder.yml). The whole point of this
+# rerun is to check whether they still hold under pnpm's symlink layout —
+# see ADR §7 for the observed conclusion (adjust here first if a pattern
+# misses the dll, then re-record in the ADR).
+asarUnpack:
+  - node_modules/better-sqlite3/**
+  - node_modules/sqlite-vec/**
+  - node_modules/sqlite-vec-windows-x64/**

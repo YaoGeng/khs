@@ -1,0 +1,9 @@
+# Sandbox-local pnpm settings (pnpm 12 no longer reads package.json#pnpm):
+# allowBuilds approves the lifecycle scripts of electron (binary download) and
+# better-sqlite3 (prebuild-install). This file does NOT pull bench/ into the
+# repo-root pnpm workspace — the root pnpm-workspace.yaml globs (apps/*,
+# packages/*) still exclude bench/*; it only holds settings for installs run
+# inside this directory (`pnpm install` treats it as a standalone project).
+allowBuilds:
+  better-sqlite3: true
+  electron: true

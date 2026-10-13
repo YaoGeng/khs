@@ -1,0 +1,20 @@
+{
+  "name": "sqlite-vec-pnpm-bench",
+  "version": "0.0.0",
+  "private": true,
+  "description": "M1 plan todo 2 (docs/adr/sqlite-vec-packaging-validation.md §3-③ rerun duty): verify better-sqlite3 + sqlite-vec load inside an electron-builder asar package with node_modules installed by PNPM (symlink layout, node_modules/.pnpm virtual store). Standalone sandbox: NOT part of the pnpm workspace (bench/* is outside pnpm-workspace.yaml globs). Core difference vs the M0 npm-layout sandbox (bench/sqlite-vec-electron, package-lock.json): this directory ships its own pnpm-lock.yaml and no package-lock.json. electron/better-sqlite3 versions pinned to the workspace values so the electron ABI stays 130 and results stay comparable with the M0 ADR run.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.4.1",
+    "sqlite-vec": "0.1.9"
+  },
+  "devDependencies": {
+    "asar": "^3.2.0",
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8"
+  }
+}

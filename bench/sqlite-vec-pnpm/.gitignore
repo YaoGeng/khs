@@ -1,0 +1,4 @@
+node_modules/
+release/
+pack-result.json
+pack-result-failure.json
