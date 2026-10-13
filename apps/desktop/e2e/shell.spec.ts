@@ -96,7 +96,8 @@ test.describe.serial('desktop shell（九视图 + IPC 契约 + 安全基线）',
   });
 
   test('IPC 越权被拒：业务通道/伪造通道均返回 E-IPC-UNKNOWN-CHANNEL（failure QA 证据）', async () => {
-    for (const channel of ['workflow:start', 'browser:openPlatform', 'fs:readFile']) {
+    // todo 10 起 browser:* 三通道入 M0 白名单（见 security.test.ts）；越权面仍以 M1+ 通道与伪造通道为准
+    for (const channel of ['workflow:start', 'review:list', 'fs:readFile']) {
       const message = await page.evaluate(async (ch) => {
         try {
           await window.xinglian?.invoke(ch, { evil: true });

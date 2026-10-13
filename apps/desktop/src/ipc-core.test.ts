@@ -41,6 +41,34 @@ const logTaskStub = {
   cancelTask: async (taskId: string) => ({ taskId, status: 'cancelled' }),
 };
 
+/** todo 10：浏览器依赖 stub（真实逻辑在 browser/*.test.ts 单测；此处只保注册表契约） */
+const browserStub = {
+  status: async () => ({
+    state: 'detached' as const,
+    yielded: false,
+    yieldReason: null,
+    browserVersion: null,
+    browserPid: null,
+    browserPath: null,
+    browserSource: null,
+    profileDir: 'C:/profile-root',
+    currentPlatform: null,
+    openTabs: null,
+    attachedAt: null,
+    lastError: null,
+  }),
+  openPlatform: async (params: { platform: string }) => ({
+    ok: true as const,
+    state: 'attached' as const,
+    platform: params.platform as 'xhs' | '1688',
+    url: 'https://example.invalid',
+    targetId: null,
+    launchedNow: true,
+    browserVersion: null,
+  }),
+  disconnect: async () => ({ ok: true as const, state: 'detached' as const, browserClosed: true }),
+};
+
 const deps: AppInfoDeps = {
   appInfo: () => ({
     appVersion: '0.1.0',
@@ -50,6 +78,7 @@ const deps: AppInfoDeps = {
   }),
   license: licenseStub,
   logTask: logTaskStub,
+  browser: browserStub,
   consent: consentStub,
 };
 

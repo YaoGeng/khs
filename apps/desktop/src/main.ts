@@ -16,6 +16,8 @@ import { createDeferredBootstrap } from './main/lazy';
 import { createMainWindow } from './main/window';
 import { loadHeavyModules } from './main/heavy';
 import { attachMigrationReport, createStoreService, resolveStorePaths, runPreWindowMigration, type StoreService } from './main/store-service';
+import { BrowserService } from './browser/browser-service';
+import { resolveProfileRoot } from './browser/profiles';
 
 /** 冷启动计时起点：main 入口被求值的时刻（spawn 后第一个可测点） */
 const T0 = process.hrtime.bigint();
@@ -46,6 +48,9 @@ let storeService: StoreService | null = null;
 
 // todo 9：合规服务（EULA 首启确认门 + 遥测 opt-in；确认记录经 store 落 consents 表）
 let complianceService: ComplianceService | null = null;
+
+// todo 10：受控浏览器接管服务（FR-3；崩溃联动挂起 running 任务，profile 随 e2e/dev seam 隔离）
+let browserService: BrowserService | null = null;
 
 // 02 §4.2 shell 行「单实例锁」：二次启动直接退出，由已有实例接管（second-instance 聚焦）
 const gotLock = app.requestSingleInstanceLock();
@@ -82,6 +87,31 @@ if (!gotLock) {
       onLocalRecord: (record) => storeService?.logger.userAction(record.msg, record.payload),
     });
 
+    // todo 10：受控浏览器服务（FR-3；崩溃联动 → T11 runner 挂起；Profile 根目录：
+    // %LOCALAPPDATA%/xinglian-workbench/cdp-profiles，e2e 经 XINGLIAN_CDP_PROFILE_ROOT 隔离）
+    browserService = new BrowserService({
+      logger: storeService.logger,
+      profileRoot: resolveProfileRoot({
+        localAppData: process.env.LOCALAPPDATA ?? app.getPath('userData'),
+        override: process.env.XINGLIAN_CDP_PROFILE_ROOT ?? null,
+      }),
+      // S6 结论路线 A = pipe（零 TCP 暴露面）；port=0 fallback 是显式配置项，默认关闭
+      transportMode: process.env.XINGLIAN_CDP_TRANSPORT === 'port' ? 'port' : 'pipe',
+      // e2e/dev seam：健康检测周期覆盖（默认 10s；FR-3.4）
+      healthIntervalMs: Number(process.env.XINGLIAN_BROWSER_HEALTH_MS) || undefined,
+      userSettingPath: process.env.XINGLIAN_BROWSER_PATH ?? null,
+      suspendRunningTasks: async (reason) => {
+        if (!storeService) return [];
+        const running = await storeService.store.listTasks('running');
+        const suspended: string[] = [];
+        for (const task of running) {
+          const status = await storeService.runner.suspend(task.id, reason);
+          if (status === 'suspended') suspended.push(task.id);
+        }
+        return suspended;
+      },
+    });
+
     registerIpcHandlers({
       appInfo: () => ({
         appVersion: app.getVersion(),
@@ -95,7 +125,24 @@ if (!gotLock) {
       logTask: storeService.ipc,
       // todo 9：EULA 首启确认门 + 遥测 opt-in
       consent: complianceService.ipc,
+      // todo 10：受控浏览器接管（browser:status / browser:openPlatform / browser:disconnect）
+      browser: {
+        status: () => browserService?.status() ?? Promise.reject(new Error('browser service 未就绪')),
+        openPlatform: (params) => browserService?.openPlatform(params) ?? Promise.reject(new Error('browser service 未就绪')),
+        disconnect: () => browserService?.disconnect() ?? Promise.reject(new Error('browser service 未就绪')),
+      },
     });
+
+    // e2e/测试钩子（仅显式 env 门控；生产不暴露）：让位机制与崩溃联动的进程内驱动入口
+    if (process.env.XINGLIAN_DEBUG_HOOKS === '1') {
+      (globalThis as unknown as Record<string, unknown>).__xinglianDebug = {
+        browser: {
+          yieldToUser: (source: 'user-input' | 'manual' | 'e2e-hook', reason?: string) => browserService?.yieldToUser(source, reason),
+          resumeFromYield: (reason?: string) => browserService?.resumeFromYield(reason),
+          navigateTab: (url: string) => browserService?.navigateTab(url),
+        },
+      };
+    }
 
     createMainWindow({
       onDidFinishLoad: () => {
@@ -130,7 +177,27 @@ if (!gotLock) {
     if (process.platform !== 'darwin') app.quit();
   });
 
-  app.on('will-quit', () => {
-    void storeService?.shutdown();
+  // 退出前清理：受控浏览器（CDP Browser.close → Profile 冲刷，不留孤儿 Chrome）+ store。
+  // 两段式 quit：will-quit 先 preventDefault，等浏览器优雅退出（cookies 落盘）后再次 quit。
+  let quitCleanupDone = false;
+  app.on('will-quit', (event) => {
+    if (quitCleanupDone) {
+      return;
+    }
+    event.preventDefault();
+    storeService?.logger.systemError('app-quit-phase1-start', {});
+    void (async () => {
+      try {
+        await browserService?.shutdown();
+        storeService?.logger.systemError('app-quit-browser-closed', {});
+        await storeService?.shutdown();
+        storeService?.logger.systemError('app-quit-store-closed', {});
+      } catch (error) {
+        storeService?.logger.systemError('app-quit-phase1-failed', { err: String((error as Error).message) });
+      } finally {
+        quitCleanupDone = true;
+        app.quit();
+      }
+    })();
   });
 }

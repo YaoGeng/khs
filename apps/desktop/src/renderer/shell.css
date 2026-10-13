@@ -237,6 +237,51 @@ body {
   font-size: 11px;
 }
 
+/* todo 10（FR-3.5）：三态标题栏状态章（detached=灰 / attached=绿 / login-expired=橙红） */
+.browser-state-chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #eef0f4;
+  color: var(--sub);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.browser-state-chip[data-state='attached'] {
+  background: #e6f6ec;
+  border-color: #2da44e;
+  color: #1a7f37;
+}
+
+.browser-state-chip[data-state='login-expired'] {
+  background: #fff1e3;
+  border-color: #d4760a;
+  color: #b45309;
+}
+
+/* todo 10（FR-4.5）：人工输入让位指示（M0 = 状态标志 + UI 指示） */
+.browser-yield-chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid #9a6700;
+  background: #fff8c5;
+  color: #7d5b00;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* todo 10（FR-3.4）：登录失效引导重登横幅 */
+.browser-login-banner {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fff1e3;
+  border: 1px solid #d4760a;
+  font-size: 12px;
+  color: #7c3a00;
+}
+
 .btn {
   border: 1px solid var(--line);
   border-radius: 8px;

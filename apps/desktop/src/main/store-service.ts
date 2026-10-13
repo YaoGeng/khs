@@ -60,7 +60,13 @@ export function createStoreService(paths: StorePaths, workerPath: string): Store
     memoryBufferSize: 500,
   });
 
-  const runner = createTaskRunner({ store, logger });
+  // e2e/dev seam：拉长 demo 步骤时长，给「接管 → 杀浏览器 → 断言 suspended」留出确定性窗口
+  const demoStepDelayMs = Number(process.env.XINGLIAN_DEMO_STEP_DELAY_MS ?? '');
+  const runner = createTaskRunner({
+    store,
+    logger,
+    ...(Number.isFinite(demoStepDelayMs) && demoStepDelayMs > 0 ? { stepDelayMs: demoStepDelayMs } : {}),
+  });
 
   // 启动恢复在 worker ready 后执行；IPC handlers 先注册（查询在恢复完成前返回旧值是可接受竞态）
   const recoveredTaskIds = store

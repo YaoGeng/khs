@@ -79,6 +79,13 @@
         <header class="topbar">
           <h1 class="topbar-title" id="topbar-title">工作台</h1>
           <div class="topbar-right">
+            <!-- todo 10（FR-3.4/FR-4.5）：人工输入让位指示（M0 = 状态标志 + UI 指示，机制桩见 ADR） -->
+            <span class="browser-yield-chip" id="browser-yield-chip" hidden>人工接管中 · 自动化已让位</span>
+            <!-- todo 10（FR-3.5）：三态标题栏 + 平台快捷入口 + 一键断开 -->
+            <span class="browser-state-chip" id="browser-state-chip" data-state="detached">浏览器：未接管</span>
+            <button class="btn btn-ghost" type="button" id="browser-open-xhs">打开小红书</button>
+            <button class="btn btn-ghost" type="button" id="browser-open-1688">打开 1688</button>
+            <button class="btn btn-ghost" type="button" id="browser-disconnect" disabled>断开人工浏览</button>
             <span class="topbar-version" id="topbar-version"></span>
             <button class="btn btn-ghost" type="button" id="topbar-login" data-view-title="登录">登录 / 注册</button>
           </div>
@@ -86,6 +93,9 @@
 
         <!-- todo 9（FR-1.9）：EULA 路由锁拒绝提示（主进程 app:navigate 拒绝时渲染层展示） -->
         <p class="eula-nav-banner" id="eula-nav-banner" hidden>已锁定（FR-1.9）：请先在「用户协议与隐私政策」弹窗中完成确认，再使用工作流功能。</p>
+
+        <!-- todo 10（FR-3.4）：登录失效引导重登横幅（健康检测判定 → 引导在受控浏览器内重登） -->
+        <p class="browser-login-banner" id="browser-login-banner" hidden>登录已失效：请在受控浏览器窗口内重新完成登录（客户端不接触、不存储平台账号密码）。重登完成后本提示会自动消失。</p>
 
         <div class="views">
           <section class="view active" id="view-dashboard" data-view="dashboard">

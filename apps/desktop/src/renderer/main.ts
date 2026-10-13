@@ -338,6 +338,105 @@ telemetryToggle?.addEventListener('change', () => {
     });
 });
 
+/* ============================== 受控浏览器接管（todo 10 = T-M0-08） ==============================
+ * 三态标题栏（FR-3.5）+ 平台快捷入口（FR-3.2）+ 一键断开 + 让位指示（FR-4.5）+ 失效引导横幅（FR-3.4）。
+ * 状态真源在主进程（browser-service），本层 1s 轮询 browser:status 同步；html data 标记为 e2e 断言面。
+ */
+interface BrowserStatusView {
+  state: 'detached' | 'attached' | 'login-expired';
+  yielded: boolean;
+  yieldReason: string | null;
+  browserVersion: string | null;
+  browserPid: number | null;
+  openTabs: { targetId: string; url: string }[] | null;
+  lastError: string | null;
+}
+
+const browserChip = document.getElementById('browser-state-chip');
+const yieldChip = document.getElementById('browser-yield-chip');
+const loginBanner = document.getElementById('browser-login-banner');
+const openXhsBtn = document.getElementById('browser-open-xhs') as HTMLButtonElement | null;
+const open1688Btn = document.getElementById('browser-open-1688') as HTMLButtonElement | null;
+const disconnectBtn = document.getElementById('browser-disconnect') as HTMLButtonElement | null;
+
+const BROWSER_STATE_TEXT: Record<BrowserStatusView['state'], string> = {
+  detached: '浏览器：未接管',
+  attached: '浏览器：已接管',
+  'login-expired': '浏览器：登录失效',
+};
+
+function applyBrowserStatus(status: BrowserStatusView): void {
+  root.dataset.browserState = status.state;
+  root.dataset.browserYielded = status.yielded ? '1' : '0';
+  if (browserChip) {
+    browserChip.dataset.state = status.state;
+    browserChip.textContent = BROWSER_STATE_TEXT[status.state];
+    browserChip.title = status.browserVersion ? `CDP: ${status.browserVersion}` : '';
+  }
+  if (yieldChip) yieldChip.hidden = !status.yielded;
+  if (loginBanner) loginBanner.hidden = status.state !== 'login-expired';
+  if (disconnectBtn) disconnectBtn.disabled = status.state === 'detached';
+}
+
+function refreshBrowserStatus(): void {
+  if (!bridge) return;
+  bridge
+    .invoke('browser:status')
+    .then((data) => applyBrowserStatus(data as BrowserStatusView))
+    .catch((error: unknown) => {
+      console.warn('[renderer] browser:status failed:', error);
+      root.dataset.browserState = 'detached';
+    });
+}
+
+async function openPlatform(platform: 'xhs' | '1688', btn: HTMLButtonElement | null): Promise<void> {
+  if (!bridge || !btn) return;
+  btn.disabled = true;
+  root.dataset.browserOpen = 'pending';
+  try {
+    const result = (await bridge.invoke('browser:openPlatform', { platform })) as { state: string };
+    root.dataset.browserOpen = 'done';
+    root.dataset.browserOpenPlatform = platform;
+    applyBrowserStatusField(result.state);
+  } catch (error: unknown) {
+    root.dataset.browserOpen = 'failed';
+    root.dataset.browserOpenError = String(error).slice(0, 160);
+    console.warn('[renderer] browser:openPlatform failed:', error);
+  } finally {
+    btn.disabled = false;
+    refreshBrowserStatus();
+  }
+}
+
+function applyBrowserStatusField(state: string): void {
+  const map: Record<string, string> = { detached: '未接管', attached: '已接管', 'login-expired': '登录失效' };
+  if (browserChip) {
+    browserChip.dataset.state = state;
+    browserChip.textContent = `浏览器：${map[state] ?? state}`;
+  }
+}
+
+openXhsBtn?.addEventListener('click', () => void openPlatform('xhs', openXhsBtn));
+open1688Btn?.addEventListener('click', () => void openPlatform('1688', open1688Btn));
+disconnectBtn?.addEventListener('click', () => {
+  if (!bridge) return;
+  root.dataset.browserDisconnect = 'pending';
+  bridge
+    .invoke('browser:disconnect')
+    .then(() => {
+      root.dataset.browserDisconnect = 'done';
+    })
+    .catch((error: unknown) => {
+      root.dataset.browserDisconnect = 'failed';
+      console.warn('[renderer] browser:disconnect failed:', error);
+    })
+    .finally(() => refreshBrowserStatus());
+});
+
+// 状态轮询（1s）：三态/让位/失效横幅均由主进程状态机驱动
+setInterval(refreshBrowserStatus, 1000);
+refreshBrowserStatus();
+
 /* ============================== 日志视图 + demo 任务（todo 11） ============================== */
 
 interface TaskStepView {

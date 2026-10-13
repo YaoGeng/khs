@@ -41,8 +41,14 @@ describe('通道白名单（§4.3 + §11.2 preload 白名单）', () => {
 
   it('业务通道越权被拒（M0 未注册，M1+ 才有）', () => {
     expect(isChannelAllowed('workflow:start')).toBe(false);
-    expect(isChannelAllowed('browser:openPlatform')).toBe(false);
     expect(isChannelAllowed('review:list')).toBe(false);
+    expect(isChannelAllowed('keys:set')).toBe(false);
+  });
+
+  it('todo 10：受控浏览器通道进入 M0 白名单（FR-3.1/3.2/3.5）', () => {
+    expect(isChannelAllowed('browser:status')).toBe(true);
+    expect(isChannelAllowed('browser:openPlatform')).toBe(true);
+    expect(isChannelAllowed('browser:disconnect')).toBe(true);
   });
 
   it('任意伪造通道被拒', () => {

@@ -214,3 +214,59 @@ describe('启动恢复 + 检查点续跑（02:453 + §6.1）', () => {
     expect(types[types.length - 1]).toBe('TASK_COMPLETE');
   });
 });
+
+/* ------------------------------ suspend（todo 10 崩溃联动入口） ------------------------------ */
+
+describe('runner.suspend（todo 10：browser-lost → running 挂起 → 检查点续跑）', () => {
+  it('运行中挂起：suspended + 事件流水 TASK_SUSPEND；后续步骤在安全点停止', async () => {
+    const { store, dump } = makeMemoryStore();
+    const runner = createTaskRunner({ store, logger: silentLogger, stepDelayMs: 25 });
+    const taskId = await runner.startDemo();
+    await waitUntil(() => (dump().steps.get(taskId)?.length ?? 0) >= 1);
+
+    const status = await runner.suspend(taskId, 'browser-lost');
+    expect(status).toBe('suspended');
+    expect(dump().tasks.get(taskId)?.status).toBe('suspended');
+    const eventTypes = dump().events.filter((e) => e.taskId === taskId).map((e) => e.type);
+    expect(eventTypes[eventTypes.length - 1]).toBe('TASK_SUSPEND');
+
+    // 安全点停止：等待后不自行推进（02 §9.1：suspended→running 须经人工确认）
+    await new Promise((r) => setTimeout(r, 80));
+    expect(dump().tasks.get(taskId)?.status).toBe('suspended');
+  });
+
+  it('非 running 幂等：completed/不存在原样返回，不写事件', async () => {
+    const { store, dump } = makeMemoryStore();
+    const runner = makeRunner(store);
+    const taskId = await runner.startDemo();
+    await waitUntil(() => dump().tasks.get(taskId)?.status === 'completed');
+    expect(await runner.suspend(taskId, 'browser-lost')).toBe('completed');
+    expect(await runner.suspend('no-such-task', 'browser-lost')).toBeNull();
+    const events = dump().events.filter((e) => e.taskId === taskId).map((e) => e.type);
+    expect(events).not.toContain('TASK_SUSPEND');
+  });
+
+  it('挂起后 resume：按检查点续跑至 completed，未重跑（attempts=1）', async () => {
+    const { store, dump } = makeMemoryStore();
+    const runner = createTaskRunner({ store, logger: silentLogger, stepDelayMs: 25 });
+    const taskId = await runner.startDemo();
+    await waitUntil(() => (dump().steps.get(taskId)?.length ?? 0) >= 1);
+    await runner.suspend(taskId, 'browser-lost');
+
+    const tokens = new Map(
+      (dump().steps.get(taskId) ?? []).filter((s) => s.status === 'completed').map((s) => [s.stepId, (s.output as { runToken: string }).runToken]),
+    );
+
+    expect(await runner.resume(taskId)).toBe('running');
+    await waitUntil(() => dump().tasks.get(taskId)?.status === 'completed');
+    const view = (await runner.getTaskView(taskId)) as TaskView;
+    expect(view.steps).toHaveLength(3);
+    for (const step of view.steps) {
+      expect((step.output as { attempts: number }).attempts).toBe(1);
+      const before = tokens.get(step.stepId);
+      if (before !== undefined) {
+        expect((step.output as { runToken: string }).runToken).toBe(before);
+      }
+    }
+  });
+});

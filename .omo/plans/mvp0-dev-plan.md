@@ -159,7 +159,7 @@ Your next move: 双审进行中——plan-consultant 缺口分析后交 plan-rev
   QA scenarios (name the exact tool + invocation): happy=supertest+Playwright 联合 e2e 全流程脚本化断言；failure=篡改 license 验签失败、宽限期外锁定, Evidence .omo/evidence/mvp0-dev-plan/task-8-mvp0-dev-plan.log
   Commit: Y | feat(license): ed25519 license chain, device binding, grace, tier limit
   Recommended task executor category: unspecified-high（跨端安全链路，标准多文件特性）
-- [ ] 9. EULA+遥测合规基础（映射 T-M0-11）
+- [x] 9. EULA+遥测合规基础（映射 T-M0-11）
   What to do / Must NOT do: apps/desktop 合规模块：FR-1.9 首启 EULA+隐私政策弹窗（未确认锁定主功能路由守卫；版本变更重确认；确认记录{eula_version,confirmed_at} 落 SQLite 留痕，01:120）；FR-12.6 遥测 opt-in 开关（首启征求、设置可关、界面匿名化口径声明文案位，01:244）；本地守卫：遥测发送唯一出口断言 consent===true（真实上报器 M1 T-M1-07 才有，05:93——本 todo 只做开关+守卫+留痕）。Must NOT do：不接真实上报通道；不写隐私政策法律终稿（M6 T-M6-02 定稿，05 §4 M6——用占位文本+版本号机制）。
   Closes: GAP-2
   Parallelization: Wave 4 | Blocked by: 4（05:66） | Blocks: 无（T-M1-07 消费同意标志，05:93）
@@ -168,7 +168,7 @@ Your next move: 双审进行中——plan-consultant 缺口分析后交 plan-rev
   QA scenarios (name the exact tool + invocation): happy=首启确认流 e2e；failure=拒绝 EULA→功能锁→版本升级→重确认弹窗, Evidence .omo/evidence/mvp0-dev-plan/task-9-mvp0-dev-plan.log
   Commit: Y | feat(compliance): EULA first-run gate + telemetry opt-in guard
   Recommended task executor category: unspecified-high（标准多文件桌面特性，合规硬验收）
-- [ ] 10. 受控浏览器接管 browser-service（映射 T-M0-08）
+- [x] 10. 受控浏览器接管 browser-service（映射 T-M0-08）
   What to do / Must NOT do: 主进程 browser-service 模块（按 todo 3 规范定界，放 apps/desktop 或 packages/）：一键拉起独立 Chrome/Edge（优先用户设置→依次探测本机 Chrome/Edge 安装路径→无则按需下载随包便携 Chromium（哈希校验，02:234-240 §5.1）；M0 主路径覆盖本机已装 Chrome/Edge，下载分支作降级记录，01:138 FR-3.1）；按 todo 7 选型接 CDP（pipe 或 port=0+PID 校验）；每平台独立 Profile 目录持久化登录态（01:140 FR-3.3）；会话健康检测+失效引导重登（01:141 FR-3.4）；三态标题栏（已接管/未接管/登录失效）+一键断开人工浏览（01:142 FR-3.5）；人工输入让位（检测到真实输入事件即暂停自动化，01:154 FR-4.5、02:428-454 §9.1）；平台快捷入口小红书/1688 新标签（01:139 FR-3.2）；绝不读取/存储平台账号密码（01:139、02:242-247 §5.2）。Must NOT do：不做采集/发布/评论任何自动化（M1-M4）；不做多账号多 Profile 并行（P2，01:143 FR-3.6）。
   Closes: GAP-2
   Parallelization: Wave 5 | Blocked by: 7（05:63） | Blocks: 无（M1 采集消费）

@@ -6,6 +6,9 @@ import { z } from 'zod';
 import { E_EULA_LOCKED, IPC_CHANNELS, IPC_ERRORS, type IpcChannel } from '../shared/channels';
 import {
   AppInfoResultSchema,
+  BrowserDisconnectResultSchema,
+  BrowserOpenPlatformResultSchema,
+  BrowserStatusResultSchema,
   channelParamsSchemas,
   ConsentStateResultSchema,
   LicenseStatusResultSchema,
@@ -15,6 +18,10 @@ import {
   TasksListResultSchema,
   TasksResumeResultSchema,
   type AppInfoResult,
+  type BrowserDisconnectResult,
+  type BrowserOpenPlatformParams,
+  type BrowserOpenPlatformResult,
+  type BrowserStatusResult,
   type ConsentStateResult,
   type LicenseActivateParams,
   type LicenseStatusResult,
@@ -55,6 +62,13 @@ export interface ConsentDeps {
   readonly isViewAllowed: (view: string) => boolean;
 }
 
+/** 受控浏览器链路依赖注入面（todo 10；main binding 在 browser/browser-service.ts） */
+export interface BrowserIpcDeps {
+  readonly status: () => Promise<BrowserStatusResult>;
+  readonly openPlatform: (params: BrowserOpenPlatformParams) => Promise<BrowserOpenPlatformResult>;
+  readonly disconnect: () => Promise<BrowserDisconnectResult>;
+}
+
 export interface AppInfoDeps {
   /** 注入 app/appVersion 等运行时读取，保持本模块 electron-free 可单测 */
   readonly appInfo: () => AppInfoResult;
@@ -64,6 +78,8 @@ export interface AppInfoDeps {
   readonly logTask: LogTaskIpcDeps;
   /** todo 9：EULA 首启确认门 + 遥测 opt-in 依赖 */
   readonly consent: ConsentDeps;
+  /** todo 10：受控浏览器接管（三态标题栏/快捷入口/一键断开）依赖 */
+  readonly browser: BrowserIpcDeps;
 }
 
 /** 校验并执行一次 IPC 调用（主进程 handle 与单测共用同一路径） */
@@ -121,6 +137,41 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
             );
           }
           return { ok: true as const, view: payload.view };
+        },
+      },
+    ],
+    [
+      'browser:status',
+      {
+        paramsSchema: channelParamsSchemas['browser:status'],
+        handle: async () => {
+          const result = await deps.browser.status();
+          return validateExit(BrowserStatusResultSchema, result, 'browser:status');
+        },
+      },
+    ],
+    [
+      'browser:openPlatform',
+      {
+        paramsSchema: channelParamsSchemas['browser:openPlatform'],
+        // FR-3.1 接管是业务工作流的底座：EULA 门语义一致——未确认前不开放（拒绝码与路由锁相同）
+        handle: async (payload: BrowserOpenPlatformParams) => {
+          if (!deps.consent.isViewAllowed('dashboard')) {
+            throw new Error(`${E_EULA_LOCKED}: 受控浏览器接管已被 EULA 首启确认门锁定（FR-1.9）——请先完成协议确认`);
+          }
+          const result = await deps.browser.openPlatform(payload);
+          return validateExit(BrowserOpenPlatformResultSchema, result, 'browser:openPlatform');
+        },
+      },
+    ],
+    [
+      'browser:disconnect',
+      {
+        paramsSchema: channelParamsSchemas['browser:disconnect'],
+        // 断开是安全动作（人工浏览模式回归），不受 EULA/license 锁约束
+        handle: async () => {
+          const result = await deps.browser.disconnect();
+          return validateExit(BrowserDisconnectResultSchema, result, 'browser:disconnect');
         },
       },
     ],

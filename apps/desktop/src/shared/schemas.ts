@@ -3,7 +3,7 @@
  * 通道即契约，入参用 zod 校验——preload 侧与 ipcMain.handle 侧共用本文件）。
  */
 import { z } from 'zod';
-import { NAV_VIEWS, type IpcChannel } from './channels';
+import { BROWSER_PLATFORMS, NAV_VIEWS, type IpcChannel } from './channels';
 
 /* app:info —— 壳层运行时信息（M0 唯一"数据"通道，无业务含义） */
 export const AppInfoParamsSchema = z.strictObject({});
@@ -147,6 +147,12 @@ export type LicenseActivateParams = z.infer<typeof LicenseActivateParamsSchema>;
 export type LicenseStatusParams = z.infer<typeof LicenseStatusParamsSchema>;
 export type LicenseStatusResult = z.infer<typeof LicenseStatusResultSchema>;
 
+export type BrowserSessionState = z.infer<typeof BrowserStatusResultSchema>['state'];
+export type BrowserStatusResult = z.infer<typeof BrowserStatusResultSchema>;
+export type BrowserOpenPlatformParams = z.infer<typeof BrowserOpenPlatformParamsSchema>;
+export type BrowserOpenPlatformResult = z.infer<typeof BrowserOpenPlatformResultSchema>;
+export type BrowserDisconnectResult = z.infer<typeof BrowserDisconnectResultSchema>;
+
 /* consent:* —— 合规同意门（todo 9 = T-M0-11：FR-1.9 EULA 首启确认 / FR-12.6 遥测 opt-in） */
 
 export const ConsentStateParamsSchema = z.strictObject({});
@@ -178,10 +184,60 @@ export type ConsentStateResult = z.infer<typeof ConsentStateResultSchema>;
 export type ConsentAcceptParams = z.infer<typeof ConsentAcceptParamsSchema>;
 export type ConsentSetTelemetryParams = z.infer<typeof ConsentSetTelemetryParamsSchema>;
 
+/* browser:* —— 受控浏览器接管（todo 10 = T-M0-08；FR-3.1/3.2/3.4/3.5） */
+
+export const BROWSER_SESSION_STATES_SCHEMA = ['detached', 'attached', 'login-expired'] as const;
+
+/** 三态标题栏出口（FR-3.5：未接管/已接管/登录失效）+ 让位标志（FR-4.5） */
+export const BrowserStatusParamsSchema = z.strictObject({});
+
+export const BrowserStatusResultSchema = z.object({
+  state: z.enum(BROWSER_SESSION_STATES_SCHEMA),
+  /** FR-4.5 人工输入让位：M0 为状态标志 + 机制测试钩子（无业务自动化，见 notes-browser-m0.md） */
+  yielded: z.boolean(),
+  yieldReason: z.string().nullable(),
+  /** 真实 CDP 往返回填（Browser.getVersion 的 product 字段，如 "Chrome/154.0.8037.98"） */
+  browserVersion: z.string().nullable(),
+  browserPid: z.number().int().nullable(),
+  browserPath: z.string().nullable(),
+  browserSource: z.enum(['user-setting', 'registry', 'path-probe']).nullable(),
+  profileDir: z.string(),
+  currentPlatform: z.enum(BROWSER_PLATFORMS).nullable(),
+  /** 最近一次 Target.getTargets 真实往返的 page 目标（「已接管」断言证据面） */
+  openTabs: z.array(z.object({ targetId: z.string(), url: z.string() })).nullable(),
+  attachedAt: z.string().nullable(),
+  lastError: z.string().nullable(),
+});
+
+export const BrowserOpenPlatformParamsSchema = z.strictObject({ platform: z.enum(BROWSER_PLATFORMS) });
+
+export const BrowserOpenPlatformResultSchema = z.object({
+  ok: z.literal(true),
+  state: z.enum(BROWSER_SESSION_STATES_SCHEMA),
+  platform: z.enum(BROWSER_PLATFORMS),
+  url: z.string(),
+  targetId: z.string().nullable(),
+  /** 本次调用是否新拉起了浏览器进程（false = 复用既有接管会话） */
+  launchedNow: z.boolean(),
+  browserVersion: z.string().nullable(),
+});
+
+export const BrowserDisconnectParamsSchema = z.strictObject({});
+
+export const BrowserDisconnectResultSchema = z.object({
+  ok: z.literal(true),
+  state: z.literal('detached'),
+  /** ADR 断开语义：CDP 连接 + 浏览器进程一并关闭（登录态留在 Profile，见 notes-browser-m0.md §3） */
+  browserClosed: z.boolean(),
+});
+
 /** 通道 → 入参 schema。preload 与 main 侧都从这里取，保证两侧校验一致。 */
 export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'app:info': AppInfoParamsSchema,
   'app:navigate': NavigateParamsSchema,
+  'browser:disconnect': BrowserDisconnectParamsSchema,
+  'browser:openPlatform': BrowserOpenPlatformParamsSchema,
+  'browser:status': BrowserStatusParamsSchema,
   'consent:state': ConsentStateParamsSchema,
   'consent:acceptEula': ConsentAcceptParamsSchema,
   'consent:rejectEula': ConsentRejectParamsSchema,

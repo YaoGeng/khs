@@ -57,6 +57,8 @@ interface ActorBox {
   state: TaskLifecycleState;
   snapshot: unknown;
   cancelled: boolean;
+  /** 当前 drive 循环（suspend→resume 时新 drive 先等旧 drive 在安全点退出，杜绝双驱动竞态） */
+  drivePromise?: Promise<void>;
 }
 
 export class TaskRunner {
@@ -107,7 +109,7 @@ export class TaskRunner {
     const box: ActorBox = { state: 'idle', snapshot: undefined, cancelled: false };
     this.actors.set(taskId, box);
     await this.applyLifecycle(taskId, box, { type: 'TASK_START' }, traceId);
-    void this.drive(taskId, traceId, box);
+    box.drivePromise = this.drive(taskId, traceId, box);
     return taskId;
   }
 
@@ -128,9 +130,13 @@ export class TaskRunner {
       const snapshot = (latest?.payload as { machineSnapshot?: unknown } | undefined)?.machineSnapshot;
       box = { state: 'suspended', snapshot, cancelled: false };
       this.actors.set(taskId, box);
+    } else if (box.drivePromise) {
+      // 同进程挂起→恢复：旧 drive 在步骤边界观察到 suspended 已退出；等待落定再续跑
+      await box.drivePromise.catch(() => {});
+      box.drivePromise = undefined;
     }
     await this.applyLifecycle(taskId, box, { type: 'TASK_RESUME', reason: 'resume-from-checkpoint' }, traceId);
-    void this.drive(taskId, traceId, box);
+    box.drivePromise = this.drive(taskId, traceId, box);
     return 'running';
   }
 
@@ -150,6 +156,28 @@ export class TaskRunner {
       await this.deps.store.writeTaskEvent({ taskId, type: 'TASK_CANCEL', fromState: task.status, toState: next, payload: { reason } });
     }
     return next;
+  }
+
+  /**
+   * 挂起运行中任务（todo 10 崩溃联动入口；02 §9.1 running→suspended：熔断/断连/会话失效路径）。
+   * 幂等：非 running（已完成/已挂起/不存在）原样返回现态，不重复写事件。
+   * 恢复仍走 resume（02 §9.1：suspended→running 须经人工确认）。
+   */
+  async suspend(taskId: string, reason: string): Promise<TaskStatus | null> {
+    await this.deps.store.whenReady();
+    const task = await this.deps.store.getTask(taskId);
+    if (!task) return null;
+    if (task.status !== 'running') return task.status as TaskStatus;
+    const box = this.actors.get(taskId);
+    if (box) {
+      await this.applyLifecycle(taskId, box, { type: 'TASK_SUSPEND', reason });
+    } else {
+      const next = resolveTransition('running', { type: 'TASK_SUSPEND', reason }, { taskId, kind: task.kind });
+      if (next !== 'suspended') return task.status as TaskStatus;
+      await this.deps.store.updateTaskStatus({ taskId, status: next });
+      await this.deps.store.writeTaskEvent({ taskId, type: 'TASK_SUSPEND', fromState: 'running', toState: next, payload: { reason } });
+    }
+    return 'suspended';
   }
 
   /** 任务 + 步骤视图（logs 视图/dashboard 占位消费） */
@@ -259,8 +287,9 @@ export class TaskRunner {
         taskLogger.automationStep('step:skip(检查点续跑)', { taskId, stepId, seq });
         continue;
       }
-      if (box.cancelled) {
-        return; // 取消语义 = 安全点停止（02 §6.1）：步骤间即安全点，不写半步检查点
+      if (box.cancelled || box.state !== 'running') {
+        // 安全点停止（02 §6.1）：取消、挂起（崩溃联动/人工让位）都停在下个步骤边界
+        return;
       }
       await this.runDemoStep(taskId, stepId, seq, taskLogger);
     }
