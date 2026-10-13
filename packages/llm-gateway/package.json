@@ -7,6 +7,9 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "better-sqlite3": "12.4.1"
+    "@types/node": "^20.19.43"
+  },
+  "dependencies": {
+    "openai": "^7.32.0"
   }
 }

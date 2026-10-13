@@ -1,0 +1,182 @@
+{
+  "schema": "probe-report/v1",
+  "generatedAt": "2026-10-11T12:31:13.437Z",
+  "label": "failure-qa-bad-base-url",
+  "timeoutMs": 15000,
+  "node": "v24.6.0",
+  "platform": "win32/x64",
+  "envContract": "PROBE_<PROVIDER>_API_KEY / PROBE_<PROVIDER>_BASE_URL（Key 一律不落报告）",
+  "providers": {
+    "deepseek": {
+      "label": "DeepSeek",
+      "envKey": "PROBE_DEEPSEEK_API_KEY",
+      "keyPresent": true,
+      "baseUrl": "http://127.0.0.1:59999",
+      "baseUrlSource": "env",
+      "capabilities": {
+        "json_schema": {
+          "status": "probed-fail",
+          "detail": "网络错误：conn-refused",
+          "ms": 35,
+          "model": "deepseek-chat",
+          "docs": "https://api-docs.deepseek.com/guides/json_mode",
+          "statusLabel": "实测失败"
+        },
+        "tool_calling": {
+          "status": "probed-fail",
+          "detail": "网络错误：conn-refused",
+          "ms": 2,
+          "model": "deepseek-chat",
+          "docs": "https://api-docs.deepseek.com/guides/function_calling",
+          "statusLabel": "实测失败"
+        },
+        "embeddings": {
+          "status": "documented",
+          "detail": "官方 API 目录无 /embeddings 端点——不支持嵌入（官方文档核对）",
+          "docs": "https://api-docs.deepseek.com/",
+          "statusLabel": "文档源"
+        }
+      }
+    },
+    "tongyi": {
+      "label": "通义（阿里云百炼 compatible-mode）",
+      "envKey": "PROBE_TONGYI_API_KEY",
+      "keyPresent": false,
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "baseUrlSource": "default",
+      "capabilities": {
+        "json_schema": {
+          "status": "documented",
+          "detail": "百炼 compatible-mode 支持 response_format（qwen 系列支持 json_object/json_schema）",
+          "docs": "https://help.aliyun.com/zh/model-studio/json-mode",
+          "statusLabel": "文档源"
+        },
+        "tool_calling": {
+          "status": "documented",
+          "detail": "官方文档支持 tools/function calling",
+          "docs": "https://help.aliyun.com/zh/model-studio/tools",
+          "statusLabel": "文档源"
+        },
+        "embeddings": {
+          "status": "documented",
+          "detail": "text-embedding-v3/v4 官方支持",
+          "docs": "https://help.aliyun.com/zh/model-studio/embedding",
+          "statusLabel": "文档源"
+        }
+      },
+      "network": {
+        "reachable": true,
+        "httpStatus": 401,
+        "note": "HTTP 401（未鉴权即收到响应=网络可达）",
+        "ms": 383
+      }
+    },
+    "zhipu": {
+      "label": "智谱（BigModel）",
+      "envKey": "PROBE_ZHIPU_API_KEY",
+      "keyPresent": false,
+      "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+      "baseUrlSource": "default",
+      "capabilities": {
+        "json_schema": {
+          "status": "documented",
+          "detail": "glm 系列支持 response_format json_object；原生 json_schema 视模型版本",
+          "docs": "https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E5%AF%B9%E8%AF%9D%E8%A1%A5%E5%85%A8",
+          "statusLabel": "文档源"
+        },
+        "tool_calling": {
+          "status": "documented",
+          "detail": "官方文档支持 tools/function calling",
+          "docs": "https://docs.bigmodel.cn/cn/guide/agents/tool-description",
+          "statusLabel": "文档源"
+        },
+        "embeddings": {
+          "status": "documented",
+          "detail": "embedding-3 官方支持",
+          "docs": "https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E5%90%91%E9%87%8F%E6%A8%A1%E5%9E%8B",
+          "statusLabel": "文档源"
+        }
+      },
+      "network": {
+        "reachable": true,
+        "httpStatus": 401,
+        "note": "HTTP 401（未鉴权即收到响应=网络可达）",
+        "ms": 271
+      }
+    },
+    "openai": {
+      "label": "OpenAI",
+      "envKey": "PROBE_OPENAI_API_KEY",
+      "keyPresent": false,
+      "baseUrl": "https://api.openai.com/v1",
+      "baseUrlSource": "default",
+      "capabilities": {
+        "json_schema": {
+          "status": "network-unreachable",
+          "detail": "无 Key 且网络不可达（网络不可达：UND_ERR_CONNECT_TIMEOUT）",
+          "docs": "https://platform.openai.com/docs/guides/structured-outputs",
+          "statusLabel": "网络不可达"
+        },
+        "tool_calling": {
+          "status": "network-unreachable",
+          "detail": "无 Key 且网络不可达（网络不可达：UND_ERR_CONNECT_TIMEOUT）",
+          "docs": "https://platform.openai.com/docs/guides/function-calling",
+          "statusLabel": "网络不可达"
+        },
+        "embeddings": {
+          "status": "network-unreachable",
+          "detail": "无 Key 且网络不可达（网络不可达：UND_ERR_CONNECT_TIMEOUT）",
+          "docs": "https://platform.openai.com/docs/guides/embeddings",
+          "statusLabel": "网络不可达"
+        }
+      },
+      "network": {
+        "reachable": false,
+        "note": "网络不可达：UND_ERR_CONNECT_TIMEOUT",
+        "ms": 10503
+      }
+    },
+    "siliconflow": {
+      "label": "硅基流动（SiliconFlow）",
+      "envKey": "PROBE_SILICONFLOW_API_KEY",
+      "keyPresent": false,
+      "baseUrl": "https://api.siliconflow.cn/v1",
+      "baseUrlSource": "default",
+      "capabilities": {
+        "json_schema": {
+          "status": "documented",
+          "detail": "OpenAI 兼容协议；response_format 支持随模型而定",
+          "docs": "https://docs.siliconflow.cn/cn/api-reference/chat-completions/chat-completions",
+          "statusLabel": "文档源"
+        },
+        "tool_calling": {
+          "status": "documented",
+          "detail": "官方文档支持 function calling（Qwen/DeepSeek 等模型）",
+          "docs": "https://docs.siliconflow.cn/cn/userguide/guides/function-calling",
+          "statusLabel": "文档源"
+        },
+        "embeddings": {
+          "status": "documented",
+          "detail": "BAAI/bge-m3 等嵌入模型官方支持",
+          "docs": "https://docs.siliconflow.cn/cn/api-reference/embeddings/embeddings",
+          "statusLabel": "文档源"
+        }
+      },
+      "network": {
+        "reachable": true,
+        "httpStatus": 401,
+        "note": "HTTP 401（未鉴权即收到响应=网络可达）",
+        "ms": 250
+      }
+    }
+  },
+  "summary": {
+    "counts": {
+      "probed-ok": 0,
+      "probed-fail": 2,
+      "documented": 10,
+      "network-unreachable": 3
+    },
+    "liveProbes": 2
+  }
+}

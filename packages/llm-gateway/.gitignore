@@ -1,2 +1,3 @@
-# 探测报告是运行产物，可能含环境相关网络信息，不入库（Key 永不写入报告，见脚本头注释）
-scripts/probe-report*.json
+# 探测报告已按 ADR §6 脱敏政策入库（仅 keyPresent 布尔与网络元数据，无 Key 值；
+# 真源见 docs/adr/provider-matrix.md §5 与 presets.ts 头注释）——此前「探测报告不入库」
+# 的陈旧规则已删除，probe-report*.json 随代码一并版本化。

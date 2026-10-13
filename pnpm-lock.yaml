@@ -38,9 +38,27 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@xinglian/adapter-loader':
+        specifier: workspace:*
+        version: link:../../packages/adapter-loader
+      '@xinglian/adapters-xhs':
+        specifier: workspace:*
+        version: link:../../packages/adapters-xhs
+      '@xinglian/humanize':
+        specifier: workspace:*
+        version: link:../../packages/humanize
       '@xinglian/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@xinglian/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@xinglian/stealth-middleware':
+        specifier: workspace:*
+        version: link:../../packages/stealth-middleware
+      '@xinglian/workflow':
+        specifier: workspace:*
+        version: link:../../packages/workflow
       better-sqlite3:
         specifier: 12.4.1
         version: 12.4.1
@@ -164,15 +182,30 @@ importers:
         specifier: ^0.18.13
         version: 0.18.13
 
-  packages/agents: {}
+  packages/agents:
+    dependencies:
+      '@xinglian/llm-gateway':
+        specifier: workspace:*
+        version: link:../llm-gateway
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.43
+        version: 20.19.43
 
   packages/humanize: {}
 
   packages/llm-gateway:
+    dependencies:
+      openai:
+        specifier: ^7.32.0
+        version: 7.32.0(zod@4.6.5)
     devDependencies:
-      better-sqlite3:
-        specifier: 12.4.1
-        version: 12.4.1
+      '@types/node':
+        specifier: ^20.19.43
+        version: 20.19.43
 
   packages/logger:
     dependencies:
@@ -191,7 +224,11 @@ importers:
 
   packages/stealth-middleware: {}
 
-  packages/workflow: {}
+  packages/workflow:
+    dependencies:
+      '@xinglian/stealth-middleware':
+        specifier: workspace:*
+        version: link:../stealth-middleware
 
 packages:
 
@@ -3359,6 +3396,30 @@ packages:
   onetime@5.1.2:
     resolution: {integrity: sha512-kbpaSSGJTWdAY5KPVeMOKXSrPtr8C8C7wodJbcsd51jRnmD+GZu8Y0VoU6Dm5Z4vWr0Ig/1NKuWRKf7j5aaYSg==}
     engines: {node: '>=6'}
+
+  openai@7.32.0:
+    resolution: {integrity: sha512-avqxu/jl1gsVBCBgFNPr9sTh+wZppQphuhhFy1zEvAJxEaJ4t0ery6hZdOT9kws/EcNTARoQcZs2IT3bliE1SA==}
+    engines: {node: '>=22.0.0'}
+    peerDependencies:
+      '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
+      '@smithy/hash-node': '>=4.3.0 <5'
+      '@smithy/signature-v4': '>=5.4.0 <6'
+      undici: '>=5 <9'
+      ws: ^8.21.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@aws-sdk/credential-provider-node':
+        optional: true
+      '@smithy/hash-node':
+        optional: true
+      '@smithy/signature-v4':
+        optional: true
+      undici:
+        optional: true
+      ws:
+        optional: true
+      zod:
+        optional: true
 
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
@@ -7425,6 +7486,10 @@ snapshots:
   onetime@5.1.2:
     dependencies:
       mimic-fn: 2.1.0
+
+  openai@7.32.0(zod@4.6.5):
+    optionalDependencies:
+      zod: 4.6.5
 
   optionator@0.9.4:
     dependencies:
