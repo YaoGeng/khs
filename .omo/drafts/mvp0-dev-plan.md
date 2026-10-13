@@ -116,3 +116,10 @@ consultant_round1: st_01a12703ï¼ˆkimi-k3ï¼‰429 å¤±è´¥ï¼›st_01a12704ï¼ˆzai/glm-5.
 env_note: opencode-go/kimi-k3 äº ~18:05 429ï¼ˆprovider çº§ç”¨é‡ä¸Šé™ï¼Œretry-after â‰ˆ 29.8hï¼‰ï¼›åç»­ plan-reviewer æ´¾å‘åŒæ ·éœ€ model=zai/glm-5.3-flash è¦†ç›–ï¼ˆé¦–æ¬¡å°è¯• st_01a12703 å› æ­¤å¤±è´¥ï¼Œé‡å‘ st_01a12704 å·²ç”¨è¦†ç›–ï¼‰
 approach: 5 ä¸ªæ‰§è¡Œæ³¢æ¬¡è¦†ç›– T-M0-01~11ï¼ˆ11 ä¸ªå®ç° todoï¼Œæ¯ todo å¸¦å¼•ç”¨/éªŒæ”¶/QA/è¯æ®/è·¯ç”±ï¼‰+ F1~F4 æœ€ç»ˆéªŒè¯æ³¢ï¼›spike é‡‡ fallback-branchï¼›é—¨ç¦ 6 é¡¹æ˜ å°„ Success criteriaï¼›å†™å…¥ .omo/plans/mvp0-dev-plan.md åè·‘ plan-consultant + plan-reviewer åŒå®¡
 next: ç”¨æˆ·æ‰¹å‡†åé‡è·‘ scaffoldï¼ˆæ—  --draft-onlyï¼‰åˆ›å»ºè®¡åˆ’éª¨æ¶å¹¶ APPEND todos
+
+
+## Åú×¼×·ÈÏ£¨T-PRE-04 Æô¶¯»á£¬2026-10-13£©
+
+- **D7 ×·ÈÏÍ¨¹ı**£¨ÓÃ»§È·ÈÏ£¬2026-10-13£©£º×îĞ¡ÈÎÎñÔËĞĞÆ÷²¢Èë T-M0-09 Ö´ĞĞ¡ª¡ªtasks/task_steps/task_events Èı±í + XState v5 ÉúÃüÖÜÆÚ + kind=demo ºÏ³ÉÈÎÎñ£¨ÃÅ½û¢ÜÎ¨Ò»ÑİÊ¾ÔØÌå£©¡£²¹ F4 Éó¼Æ G-3 È±Ïî£»D9 Í¬ÅúÈ·ÈÏ£¨Ô­Åú×¼ 2026-10-10 ²»±ä£©¡£
+- **M0 ÃÅ½ûÍê³ÉÈ·ÈÏ**£¨ÓÃ»§È·ÈÏ£¬2026-10-13£©£ºF1=PASS / F2=PASS£¨audit prod ÇåÁã£©/ F3=6/6 PASS / F4=PASS ¡ú tag m0-gate¡£
+

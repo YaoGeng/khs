@@ -189,16 +189,16 @@ Your next move: 双审进行中——plan-consultant 缺口分析后交 plan-rev
 
 ## Final verification wave
 > Runs in parallel after ALL todos. ALL must APPROVE. Surface results and wait for the user's explicit okay before declaring complete.
-- [ ] F1. 计划符合性与基线对账审计
+- [x] F1. 计划符合性与基线对账审计
   What to do: 对照本计划与 05 v1.1 基线：11 个实现 todo 与 T-M0-01~11 一一对应无遗漏（D9/D7 扩展已标注且有用户批准记录）；Must NOT have 清单零违反；05:68-77 门禁 6 项在 Success criteria 全有映射；草稿台账（.omo/drafts/mvp0-dev-plan.md）决策 D1~D9 在计划中有落点。
   Acceptance: 对账表三列（05 卡号↔todo↔差异说明）零未解释差异, Evidence .omo/evidence/mvp0-dev-plan/f1-audit.md
-- [ ] F2. 代码质量评审
+- [x] F2. 代码质量评审
   What to do: 全仓 `pnpm -r lint && pnpm -r test` 重跑全绿；S9 边界抽查（步骤级状态不进 XState，对照 todo 3 规范）；02:610-624 §11.2/§11.3 安全清单核对（CSP、contextIsolation、BCrypt、锁定策略、指纹哈希）；`pnpm audit` 高危清零或记录豁免理由。
   Acceptance: 四项检查全过或问题转新实现行, Evidence .omo/evidence/mvp0-dev-plan/f2-quality.md
-- [ ] F3. 真实手动 QA（门禁演示面，agent 代人执行并留证）
+- [x] F3. 真实手动 QA（门禁演示面，agent 代人执行并留证）
   What to do: 逐项执行 05:68-77 六项门禁并固化证据：①注册→兑换→登录→签发→第 2 台阻断（todo 2/8）；②一键接管+重启登录态保持（todo 10）；③agent 产出 spike 评审材料包（报告+fallback 对照+建议决议）并起草评审纪要归档 evidence，纪要签发属人工白名单动作，不利结论当周升级架构师（05 §7、05:74 门禁③证据=报告+评审纪要）；④崩溃恢复 running→suspended→续跑（todo 11，kind=demo 合成任务）；⑤冷启动实测对照 NFR-1 ≤3s（判定协议见 todo 4：机器规格行+p50 判定+超支转新实现行）（todo 1/4，03:230）；⑥EULA 未确认锁功能+遥测未同意不上报（todo 9）。
   Acceptance: 六项证据表每项含操作记录+断言结果+产物路径, Evidence .omo/evidence/mvp0-dev-plan/f3-gate-evidence.md
-- [ ] F4. 理想态保真
+- [x] F4. 理想态保真
   What to do: IS-1~IS-5 逐行对照交付物（对账 .omo/drafts/mvp0-dev-plan.md 台账）；任何落差转新 `- [ ] N.` 实现行，不允许以备注形式放过。
   Acceptance: 五行 IS 全部有交付物证据且无未决落差, Evidence .omo/evidence/mvp0-dev-plan/f4-fidelity.md
 
