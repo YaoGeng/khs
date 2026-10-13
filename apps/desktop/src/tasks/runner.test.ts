@@ -9,7 +9,6 @@ import { describe, expect, it } from 'vitest';
 import { resolveTransition, TASK_STATES, type TaskLifecycleEvent, type TaskLifecycleState } from './machine';
 import { createTaskRunner, type TaskRunner, DEMO_STEPS, type TaskView } from './runner';
 import type { CreateTaskInput, StepInput, StepRowView, StoreClient, TaskEventInput, TaskEventRowView, TaskRowView, TaskStatus, TaskStatusInput } from '../store';
-// eslint-disable-next-line no-restricted-imports -- todo 11：Logger 类型源=logger 基础设施包（边界例外已记录于证据文件）
 import type { Logger } from '@xinglian/logger';
 
 /* ------------------------------ 状态机 ------------------------------ */

@@ -8,7 +8,6 @@
  * - 禁止实现任何业务步骤（采集/发布等 = M1-M3），demo 步骤仅为计时占位。
  */
 import { randomUUID } from 'node:crypto';
-// eslint-disable-next-line no-restricted-imports -- todo 11：Logger 类型源=logger 基础设施包（边界例外已记录于证据文件）
 import type { Logger } from '@xinglian/logger';
 import { resolveTransition, spawnTaskActor, type TaskLifecycleEvent, type TaskLifecycleState } from './machine';
 import type { StepInput, StoreClient, TaskStatus } from '../store';
@@ -57,6 +56,8 @@ interface ActorBox {
   state: TaskLifecycleState;
   snapshot: unknown;
   cancelled: boolean;
+  /** tasks.kind（02 §14.1）——任务级元数据透传给状态机 context，禁止硬编码 */
+  kind: string;
   /** 当前 drive 循环（suspend→resume 时新 drive 先等旧 drive 在安全点退出，杜绝双驱动竞态） */
   drivePromise?: Promise<void>;
 }
@@ -106,7 +107,7 @@ export class TaskRunner {
     const taskId = randomUUID();
     const traceId = randomUUID();
     await this.deps.store.createTask({ id: taskId, kind: 'demo', payload: { traceId, steps: [...DEMO_STEPS] } });
-    const box: ActorBox = { state: 'idle', snapshot: undefined, cancelled: false };
+    const box: ActorBox = { state: 'idle', snapshot: undefined, cancelled: false, kind: 'demo' };
     this.actors.set(taskId, box);
     await this.applyLifecycle(taskId, box, { type: 'TASK_START' }, traceId);
     box.drivePromise = this.drive(taskId, traceId, box);
@@ -128,7 +129,7 @@ export class TaskRunner {
       const events = await this.deps.store.listTaskEvents(taskId);
       const latest = events[events.length - 1];
       const snapshot = (latest?.payload as { machineSnapshot?: unknown } | undefined)?.machineSnapshot;
-      box = { state: 'suspended', snapshot, cancelled: false };
+      box = { state: 'suspended', snapshot, cancelled: false, kind: task.kind };
       this.actors.set(taskId, box);
     } else if (box.drivePromise) {
       // 同进程挂起→恢复：旧 drive 在步骤边界观察到 suspended 已退出；等待落定再续跑
@@ -214,7 +215,7 @@ export class TaskRunner {
   private snapshotFor(box: ActorBox): unknown {
     if (box.snapshot !== undefined) return box.snapshot;
     if (box.state === 'idle') return undefined;
-    const probe = spawnTaskActor({ taskId: '', kind: 'demo' });
+    const probe = spawnTaskActor({ taskId: '', kind: box.kind });
     probe.send({ type: 'TASK_START' });
     if (box.state === 'suspended') {
       probe.send({ type: 'TASK_SUSPEND', reason: 'snapshot-rebuild' });
@@ -240,12 +241,12 @@ export class TaskRunner {
 
   /** XState 迁移 → tasks.status + task_events（02 §9.1 持久化规则；快照随事件流水持久化） */
   private async applyLifecycle(taskId: string, box: ActorBox, event: TaskLifecycleEvent, traceId?: string): Promise<void> {
-    const next = resolveTransition(box.state, event, { taskId, kind: 'demo' });
+    const next = resolveTransition(box.state, event, { taskId, kind: box.kind });
     if (next === null) {
       throw new Error(`非法任务迁移：${box.state} --${event.type}--> ？(task ${taskId})`);
     }
     // 快照迁移：水合 → 取迁移前状态 → send → 持久化新快照
-    const actor = spawnTaskActor({ taskId, kind: 'demo' }, this.snapshotFor(box));
+    const actor = spawnTaskActor({ taskId, kind: box.kind }, this.snapshotFor(box));
     const fromState = actor.getSnapshot().value as TaskLifecycleState;
     actor.send(event);
     const snapshotAfter = actor.getPersistedSnapshot();

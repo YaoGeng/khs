@@ -10,13 +10,22 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const pkgRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
+const pkgRoot = path.dirname(scriptsDir);
 const req = createRequire(path.join(pkgRoot, 'package.json'));
 
 // Electron 可执行文件：node 环境下 require('electron') 导出 dist 下二进制路径（非 GUI API）
 const electronPath = req('electron');
 // vitest CLI 入口（vitest 2.x：包根 vitest.mjs；exports "." wildcard 可解析）
 const vitestMjs = req.resolve('vitest/vitest.mjs');
+
+// 任何 pnpm install 都可能把 store 内 better-sqlite3 重置回 node ABI——测试前实证检测并幂等换装
+const { ensureElectronAbi } = await import('./ensure-electron-abi.mjs');
+const abi = ensureElectronAbi();
+if (!abi.ok) {
+  console.error('[run-tests] better-sqlite3 ABI 保障失败，终止测试');
+  process.exit(1);
+}
 
 const userArgs = process.argv.slice(2);
 const args = [vitestMjs, 'run', ...userArgs];

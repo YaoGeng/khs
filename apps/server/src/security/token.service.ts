@@ -102,7 +102,7 @@ export class TokenService {
   private verifyCore(token: string): VerifiedCore {
     let decoded: string | jwt.JwtPayload;
     try {
-      decoded = jwt.verify(token, this.secret);
+      decoded = jwt.verify(token, this.secret, { algorithms: ['HS256'] });
     } catch (e) {
       if (e instanceof jwt.TokenExpiredError) {
         throw new UnauthorizedException({ error: 'TOKEN_EXPIRED' });

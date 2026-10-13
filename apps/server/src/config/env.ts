@@ -27,11 +27,23 @@ const envSchema = z.object({
   XINGLIAN_UNBIND_COOLDOWN_DAYS: z.coerce.number().int().positive().default(30),
 });
 
+// 生产态禁用开发默认密钥：Q1（F2）——已知默认值 = HS256 access/refresh 可伪造，故生产必须显式注入 ≥32 字符随机密钥。
+const DEV_JWT_SECRET = 'm0-dev-secret-change-me-please';
+const envSchemaGuarded = envSchema.superRefine((cfg, ctx) => {
+  if (cfg.NODE_ENV === 'production' && (!cfg.JWT_SECRET || cfg.JWT_SECRET === DEV_JWT_SECRET || cfg.JWT_SECRET.length < 32)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['JWT_SECRET'],
+      message: 'production 环境必须显式注入 ≥32 字符且非开发默认值的 JWT_SECRET',
+    });
+  }
+});
+
 export type AppConfig = Readonly<z.infer<typeof envSchema>>;
 
 /** 启动边界：解析失败即拒绝启动（fail-fast），不允许半解析配置进入业务层。 */
 export function parseEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const parsed = envSchema.safeParse(env);
+  const parsed = envSchemaGuarded.safeParse(env);
   if (!parsed.success) {
     const detail = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     throw new Error(`invalid env: ${detail}`);

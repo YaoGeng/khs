@@ -17,7 +17,6 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-// eslint-disable-next-line no-restricted-imports -- todo 10：Logger 类型源=logger 基础设施包（边界例外同 tasks/runner.ts，已记录于证据文件）
 import type { Logger } from '@xinglian/logger';
 import {
   BROWSER_PLATFORM_URLS,

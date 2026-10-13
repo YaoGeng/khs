@@ -5,7 +5,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "build": "pnpm -r --if-present build",
-    "ci:all": "pnpm -r lint && pnpm -r test && pnpm -r build"
+    "ci:all": "pnpm -r lint && pnpm -r test && pnpm -r build",
+    "postinstall": "node apps/desktop/scripts/ensure-electron-abi.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

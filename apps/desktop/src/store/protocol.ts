@@ -2,7 +2,6 @@
  * store 请求/响应协议（ADR-8 §7.5 最低要求：自增 id + {id, writeMs, err} 回传 + 调用方超时）。
  * 纯类型模块：worker（utilityProcess 内）与 client（主进程）共用。
  */
-// eslint-disable-next-line no-restricted-imports -- todo 11：RetentionPolicy 类型源=logger 基础设施包（边界例外已记录于证据文件）
 import type { RetentionPolicy } from '@xinglian/logger';
 
 export type TaskStatus = 'idle' | 'running' | 'suspended' | 'completed' | 'failed' | 'cancelled';

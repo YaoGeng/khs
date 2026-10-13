@@ -9,7 +9,6 @@
  */
 import path from 'node:path';
 import process from 'node:process';
-// eslint-disable-next-line no-restricted-imports -- todo 11 指定装配（唯一 import 点之一；见 store-sink.ts 注）
 import { createLogger, type Logger } from '@xinglian/logger';
 import { createUtilityProcessTransport, createStoreClient, migrateBeforeWindow, type MigrateReport, type StoreClient } from '../store';
 import type { StoreTransport } from '../store/client';

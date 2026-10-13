@@ -23,6 +23,8 @@ export default [
   },
   {
     // 规则二：app -> packages 只允许经 packages/protocol（其余 packages/* 一律禁止）
+    // 基础设施豁免：@xinglian/logger 是横切基础设施（pino NDJSON 管线，无业务语义），
+    // 允许 app 直接引用（F2/Q4 规则层化；原文见 docs/dev/工程规范.md「目录边界」）。
     files: ['apps/*/src/**'],
     rules: {
       'no-restricted-imports': [
@@ -32,7 +34,6 @@ export default [
             {
               group: [
                 '@xinglian/workflow',
-                '@xinglian/logger',
                 '@xinglian/llm-gateway',
                 '@xinglian/agents',
                 '@xinglian/humanize',

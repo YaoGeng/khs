@@ -10,7 +10,6 @@ import { handleStoreRequest, MAX_BATCH_ROWS } from './worker';
 import { openAndMigrate } from './db';
 import type { StoreRequest, LogRowInput } from './protocol';
 import { createStoreLogSink } from '../logs/store-sink';
-// eslint-disable-next-line no-restricted-imports -- todo 11：LogEntry 类型源=logger 基础设施包（边界例外已记录于证据文件）
 import type { LogEntry } from '@xinglian/logger';
 import type { SqliteDatabase } from 'better-sqlite3';
 

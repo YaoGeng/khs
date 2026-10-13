@@ -4,7 +4,6 @@
  * 本文件是 apps/desktop 对 @xinglian/logger 的唯一运行时 import 点（基础设施装配层，
  * 边界规则的例外已与任务卡对齐：todo 11 明确要求 desktop 组装 store 写入为 sink）。
  */
-// eslint-disable-next-line no-restricted-imports -- todo 11 指定装配：logger 暴露 sink 接口，desktop 注入 store 写入（基础设施包，非业务包）
 import { type LogEntry, type RetentionPolicy } from '@xinglian/logger';
 import type { StoreClient, LogRowInput } from '../store';
 

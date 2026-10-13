@@ -10,7 +10,6 @@
  * 本模块 electron-free（transport 注入），vitest 以内存 transport + 真实 worker 内核直测。
  */
 import { STORE_ERROR_CODES, type ConsentInput, type ConsentRowView, type CreateTaskInput, type LogQueryFilter, type LogRowInput, type LogRowView, type StepInput, type StepRowView, type StoreRequest, type StoreResponse, type TaskEventInput, type TaskEventRowView, type TaskRowView, type TaskStatus, type TaskStatusInput } from './protocol';
-// eslint-disable-next-line no-restricted-imports -- todo 11：RetentionPolicy 类型源=logger 基础设施包（边界例外已记录于证据文件）
 import type { RetentionPolicy } from '@xinglian/logger';
 
 export interface StoreTransport {

@@ -14,7 +14,6 @@ import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import { BrowserService } from './browser-service';
 import { encodeCdpFrame, type CdpMessage } from './cdp';
-// eslint-disable-next-line no-restricted-imports -- todo 10：Logger 类型源=logger 基础设施包（边界例外同 tasks/runner.ts）
 import type { Logger } from '@xinglian/logger';
 
 /* ------------------------------ 假 CDP 浏览器（fd3/fd4 对端） ------------------------------ */
