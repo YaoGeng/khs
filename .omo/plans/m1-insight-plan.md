@@ -181,7 +181,7 @@ Your next move: 双审中——plan-reviewer 终审通过后交付，由 /ulw-ex
   QA scenarios (name the exact tool + invocation): happy=上述①②④；failure=未配置 Key 时点「测试连接」→断言阻止且指向配置而非报裸错误, Evidence .omo/evidence/m1-insight-plan/task-10-m1-insight-plan.log + wordlist-review-checklist.md（条款行号+人工复核栏）
   Commit: Y | feat(desktop): byok key-config (safeStorage) + wordlist v1 scanner (T-M1-08)
   Recommended task executor category: HEAVY（IPC 三处同步+加密存储+词库管线）
-- [ ] 11. T-M1-06 报告 UI：八章节渲染+图表+导出+确认闸门（映射 T-M1-06，B-6）
+- [x] 11. T-M1-06 报告 UI：八章节渲染+图表+导出+确认闸门（映射 T-M1-06，B-6）
   What to do / Must NOT do: 一页一闸门：①insight/report 页（c端原型.html 只读参照）：八章节渲染（章节卡+⑧章数据来源四字段展示），读取 reports 表与任务视图数据；FR-5.3 图表=echarts 按需模块（气泡图/价格带直方图/echarts-wordcloud 词云）+getDataURL 导出 PNG（01:162「可导出 PNG」）；FR-5.4 导出 MD（Blob 下载）+PDF=main 进程 webContents.printToPDF 经 IPC 触发（渲染进程打印管线 03:220 B-6 口径，禁 pdf-lib/puppeteer）；FR-4.6 采集列表（insight 视图）导出 CSV（UTF-8 BOM——Excel 可开，不造假 .xlsx）。②选品关键词确认闸门（02:274 E 步；门禁③载体）：报告落库后 collect 工作流进入 gate 等待——tasks 表 status=awaiting_user+payload_json{gate:'keyword_confirm',report_id}（awaiting_user=todo 7 扩出的第 7 态启用点）；确认→写 idempotency_key=sha256(topic+report_id) 推进 selection 任务占位记录（queued，执行归 M2 T-M2-02——不执行选品本体）；拒绝→cancelled；重复确认幂等 no-op（同 idempotency_key 不新建任务）；⑦章建议关键词在展示与确认前过词库黑名单（todo 10 scanner：命中词剔除+keyword_hits 留痕）。Must NOT do：不做选品执行/权重排序（M2 T-M2-02/03）；不引 PDF 第三方库/echarts 全量/D3 手写；真 .xlsx 不做；不做看板/工作流转场（M2 T-M2-06）；不做多语言/主题切换（无基线）。
   Closes: T-M1-06 全量（门禁②③载体在此多方交付，门禁证据在 todo 13 收口）
   Parallelization: Wave 4 | Blocked by: 7（collect/awaiting_user 数据源）, 8（reports 表消费）, 10（scanner+keys） | Blocks: 13

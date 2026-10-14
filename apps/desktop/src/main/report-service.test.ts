@@ -138,9 +138,21 @@ function makeStore(options: { tasks?: Array<{ id: string; kind?: string; status?
 
 function makeRunner() {
   return {
-    awaitUser: vi.fn(async (_taskId: string, _reason?: string) => 'awaiting_user'),
-    cancel: vi.fn(async (_taskId: string, _reason?: string) => 'cancelled'),
-    resume: vi.fn(async (_taskId: string) => 'running'),
+    // 形参保调用方签名（vi.fn 泛型按实现推导）；void 引用满足 no-unused-vars（after-used）
+    awaitUser: vi.fn(async (taskId: string, reason?: string) => {
+      void taskId;
+      void reason;
+      return 'awaiting_user';
+    }),
+    cancel: vi.fn(async (taskId: string, reason?: string) => {
+      void taskId;
+      void reason;
+      return 'cancelled';
+    }),
+    resume: vi.fn(async (taskId: string) => {
+      void taskId;
+      return 'running';
+    }),
   };
 }
 

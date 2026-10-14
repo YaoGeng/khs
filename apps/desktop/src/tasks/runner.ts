@@ -55,6 +55,8 @@ export interface TaskView {
   status: TaskStatus;
   createdAt: string;
   updatedAt: string;
+  /** kind 专属 payload 投影（collect 输入/remainder、selection 的 idempotency_key/keywords 等；无敏感字段） */
+  payload: unknown;
   steps: TaskStepView[];
 }
 
@@ -318,6 +320,7 @@ export class TaskRunner {
       status: task.status,
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
+      payload: task.payload ?? null,
       steps: steps.map((s) => ({ stepId: s.stepId, seq: s.seq, status: s.status, output: s.output, checkpointAt: s.checkpointAt })),
     };
   }

@@ -125,6 +125,8 @@ test.describe.serial('报告 UI（m1 todo 11 = T-M1-06）', () => {
         XINGLIAN_USER_DATA: userData,
         XINGLIAN_DEBUG_HOOKS: '1',
         XINGLIAN_REPORT_STEP: 'off',
+        XINGLIAN_COLLECT_FIXTURE: scenarioFile,
+        XINGLIAN_COLLECT_PACING_SCALE: '0',
       },
     });
     page = await electronApp.firstWindow();

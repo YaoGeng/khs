@@ -99,6 +99,8 @@ export const TaskViewSchema = z.object({
   status: z.enum(TASK_STATUSES_SCHEMA),
   createdAt: z.string(),
   updatedAt: z.string(),
+  /** kind 专属 payload（collect 输入/remainder、selection 的 idempotency_key/keywords；无敏感字段） */
+  payload: z.unknown().optional(),
   steps: z.array(TaskStepSchema),
 });
 

@@ -212,8 +212,15 @@ notesExportCsv?.addEventListener('click', () => {
   })();
 });
 
-export function initInsightView(): void {
+/** 刷新洞察视图两块数据（闸门 + 采集列表）——视图激活时与周期轮询共用 */
+export function refreshInsightView(): void {
   void refreshGates();
   void refreshNotes();
+}
+
+export function initInsightView(): void {
+  refreshInsightView();
+  /* 采集在后台推进时列表/闸门需自行跟上（无推送通道；gates 2s 先例，notes 同轮询） */
   setInterval(() => void refreshGates(), 2000);
+  setInterval(() => void refreshNotes(), 3000);
 }

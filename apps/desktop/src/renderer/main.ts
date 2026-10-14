@@ -9,7 +9,7 @@
  */
 import { E_EULA_LOCKED } from '../shared/channels';
 import type { ViewId } from '../shared/types';
-import { initInsightView } from './insight';
+import { initInsightView, refreshInsightView } from './insight';
 import { initReportView } from './reportView';
 
 const bridge = window.xinglian;
@@ -41,6 +41,8 @@ function switchView(view: string, title: string): void {
     section.classList.toggle('active', section.dataset.view === view);
   }
   if (topbarTitle && title) topbarTitle.textContent = title;
+  /* 洞察视图每次激活即刷新（采集列表/闸门可能已被后台任务推进） */
+  if (view === 'insight') refreshInsightView();
 }
 
 function localFallback(view: string): void {

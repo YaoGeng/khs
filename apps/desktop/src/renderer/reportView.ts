@@ -24,6 +24,28 @@ const root = document.documentElement;
 const CHAPTER_IDS = ['scenarios', 'painPoints', 'decisionFactors', 'priceBands', 'competitorPlaybook', 'contentOpportunities', 'selectionKeywords', 'methodology'] as const;
 type ChapterId = (typeof CHAPTER_IDS)[number];
 
+/** 章节序号（FR-5.1 八章枚举；失败边界文案用「第⑧章」形态）与章名分开组织 */
+const CHAPTER_NUMERALS: Record<ChapterId, string> = {
+  scenarios: '①',
+  painPoints: '②',
+  decisionFactors: '③',
+  priceBands: '④',
+  competitorPlaybook: '⑤',
+  contentOpportunities: '⑥',
+  selectionKeywords: '⑦',
+  methodology: '⑧',
+};
+const CHAPTER_NAMES: Record<ChapterId, string> = {
+  scenarios: '需求场景聚类与热度',
+  painPoints: '用户痛点 TopN',
+  decisionFactors: '购买决策因素',
+  priceBands: '价格带分布',
+  competitorPlaybook: '竞品内容打法',
+  contentOpportunities: '内容机会点',
+  selectionKeywords: '1688 选品关键词建议',
+  methodology: '数据来源与方法说明',
+};
+
 interface ReportJson {
   topic: string;
   generatedAt: string;
@@ -65,9 +87,10 @@ export function validateReport(report: ReportJson | null | undefined): string | 
   if (!report || typeof report !== 'object' || !report.chapters) return '报告数据缺失或格式损坏（chapters 缺失）';
   for (const id of CHAPTER_IDS) {
     const chapter = report.chapters[id];
-    if (!chapter || typeof chapter.title !== 'string' || chapter.title.length === 0) return `第「${id}」章缺失：章节标题为空`;
-    if (typeof chapter.summary !== 'string' || chapter.summary.length === 0) return `第「${id}」章缺失：章节摘要为空`;
-    if (!Array.isArray(chapter.bullets) || chapter.bullets.length === 0) return `第「${id}」章缺失：章节要点为空`;
+    const label = `第${CHAPTER_NUMERALS[id]}章（${CHAPTER_NAMES[id]}）`;
+    if (!chapter || typeof chapter.title !== 'string' || chapter.title.length === 0) return `${label}缺失：章节标题为空`;
+    if (typeof chapter.summary !== 'string' || chapter.summary.length === 0) return `${label}缺失：章节摘要为空`;
+    if (!Array.isArray(chapter.bullets) || chapter.bullets.length === 0) return `${label}缺失：章节要点为空`;
   }
   const methodology = report.chapters.methodology;
   if (!methodology) return '第⑧章缺失：数据来源与方法说明';

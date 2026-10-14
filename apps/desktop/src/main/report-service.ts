@@ -290,7 +290,9 @@ export function createReportService(deps: ReportServiceDeps): ReportService {
 
       const outcome: ReportOutcome = await generateReport(
         {
-          structured: deps.createGateway(llm).structured,
+          // 箭头包一层保住 this：方法脱实例引用（.structured 裸传）会因 this=undefined
+          // 在 LlmGateway.structured 内部第一段就 TypeError，两段降级链全败（e2e 实测）
+          structured: (req) => deps.createGateway(llm).structured(req),
           store: {
             insertReport: async (input) => {
               const { id } = await deps.store.insertReport({ ...input, gateState: 'awaiting_keyword_confirm' });
