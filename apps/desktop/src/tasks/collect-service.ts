@@ -505,6 +505,13 @@ export class CollectService {
       const itemBudget = createItemBudget(() => this.now().getTime());
       const detail = await automation.readDetail(noteId);
       itemBudget.check();
+      // 空详情护栏（pilot 修复）：详情上下文不可达时字段全空——不可读样本不入库（与 B-4 no_result 同口径），
+      // 杜绝空语料进入报告环节被误读为「数据受限」。
+      if (detail.title === null && detail.content === null) {
+        noResult += 1;
+        processed.add(noteId);
+        continue;
+      }
       await this.delayMs(sampleDetailRead(this.rng, { contentLengthChars: detail.content?.length ?? 0 }));
 
       // B-4 AND：标题正文全词过滤（不过滤项计 no_result，不入库、不占采集目标）

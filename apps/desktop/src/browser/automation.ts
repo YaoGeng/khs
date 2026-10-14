@@ -72,10 +72,14 @@ export interface CdpAutomationDeps {
 
 const EVAL_TIMEOUT_DEFAULT = 10_000;
 const POLL_DEFAULT = 200;
+/** 详情轮询上限：压在单条读预算（NFR-1 ≤8s）内，给导航耗时留余量 */
+const DETAIL_POLL_CAP = 5_000;
 
 export class CdpAutomation {
   private readonly deps: CdpAutomationDeps;
   private hooksInstalled = false;
+  /** 搜索时留存的笔记 href（含 xsec_token；readDetail 导航凭证） */
+  private noteHrefs = new Map<string, string>();
 
   constructor(deps: CdpAutomationDeps) {
     this.deps = deps;
@@ -135,13 +139,19 @@ export class CdpAutomation {
     this.hooksInstalled = true;
   }
 
+  /** 让位传感器专用：**不走 gate / AutomationWindow**。闸门 release 只能由本传感器的静默
+   *  判断触发——若传感器自己过 gate，让位期间 poll 挂起等 release → 循环等待死锁
+   *  （pilot 实测；fixture 的 gate 是空操作，e2e 测不出）。轮询失败按无输入处置。 */
   async pollYieldFlag(): Promise<number | null> {
-    return this.action('poll-yield', async () => {
+    try {
       const value = await this.evaluate<number | null>(
         `typeof window.${YIELD_FLAG_GLOBAL} === 'number' ? window.${YIELD_FLAG_GLOBAL} : null`,
       );
       return typeof value === 'number' && Number.isFinite(value) ? value : null;
-    });
+    } catch {
+      // 页面跳转中：视为无输入，下个周期重试
+      return null;
+    }
   }
 
   async probeFeatures(selectors: string[]): Promise<Record<string, number>> {
@@ -176,17 +186,68 @@ export class CdpAutomation {
 
   async search(keyword: string): Promise<string[]> {
     return this.action('search', async () => {
-      const escaped = JSON.stringify(keyword);
       await this.deps.connection.send('Page.navigate', { url: 'https://www.xiaohongshu.com/search_result?keyword=' + encodeURIComponent(keyword) }, this.deps.sessionId);
-      await this.deps.delay(500);
-      return this.evaluate<string[]>(extractNoteIdsSource(escaped));
+      // 真实搜索页是 SPA：Page.navigate 完成只代表导航提交，列表要等 XHR+渲染（pilot 实测
+      // 固定 500ms 提取恒 0）。轮询提取直至非空；期间 evaluate 异常（跳转中上下文销毁）按
+      // 空结果重试；超时返回末次结果（可能为空）走上层 noResult 口径，不抛错。
+      const links = await this.pollExtractNoteLinks();
+      for (const link of links) this.noteHrefs.set(link.id, link.href);
+      return links.map((link) => link.id);
     });
+  }
+
+  /** 搜索结果轮询提取（竞态对策）：非空即回；deadline 兜底返回空数组 */
+  private async pollExtractNoteLinks(): Promise<Array<{ id: string; href: string }>> {
+    const interval = this.deps.pollIntervalMs ?? POLL_DEFAULT;
+    const timeout = this.deps.waitForTimeoutMs ?? EVAL_TIMEOUT_DEFAULT;
+    const deadline = this.now() + timeout;
+    for (;;) {
+      let links: Array<{ id: string; href: string }> = [];
+      try {
+        links = await this.evaluate<Array<{ id: string; href: string }>>(extractNoteLinksSource());
+      } catch {
+        // 页面跳转/上下文重建中：下个周期重试
+      }
+      if (links.length > 0 || this.now() + interval > deadline) return links;
+      await this.deps.delay(interval);
+    }
   }
 
   async readDetail(noteId: string): Promise<NoteDetail> {
     return this.action('read-detail', async () => {
-      return this.evaluate<NoteDetail>(readDetailSource(JSON.stringify(noteId)));
+      const stored = this.noteHrefs.get(noteId);
+      if (stored) {
+        // 关键词路由：详情必须在笔记上下文读（pilot 实测在搜索结果页 evaluate 详情选择器恒空），
+        // 用带 xsec_token 的完整 href 导航后再轮询提取。
+        const target = new URL(stored, 'https://www.xiaohongshu.com').toString();
+        await this.deps.connection.send('Page.navigate', { url: target }, this.deps.sessionId);
+        return this.pollDetail(noteId);
+      }
+      // note/user 路由：服务层已把页面导航到目标，先试当前页；无详情再兜底裸 /explore/<id>。
+      const direct = await this.pollDetail(noteId);
+      if (direct.title !== null || direct.content !== null) return direct;
+      await this.deps.connection.send('Page.navigate', { url: `https://www.xiaohongshu.com/explore/${noteId}` }, this.deps.sessionId);
+      return this.pollDetail(noteId);
     });
+  }
+
+  /** 详情轮询提取：标题或正文出现即回；期间 evaluate 异常按空结果重试；
+   *  deadline 兜底返回空字段对象（由上层空详情护栏计 noResult，不入库）。 */
+  private async pollDetail(noteId: string): Promise<NoteDetail> {
+    const interval = this.deps.pollIntervalMs ?? POLL_DEFAULT;
+    const timeout = Math.min(this.deps.waitForTimeoutMs ?? EVAL_TIMEOUT_DEFAULT, DETAIL_POLL_CAP);
+    const deadline = this.now() + timeout;
+    for (;;) {
+      let detail: NoteDetail | null = null;
+      try {
+        detail = await this.evaluate<NoteDetail>(readDetailSource(JSON.stringify(noteId)));
+      } catch {
+        // 页面跳转/上下文重建中：下个周期重试
+      }
+      const current = detail ?? { noteId, title: null, content: null, likes: 0, collects: 0, comments: 0, tags: [], author: { name: null }, publishedAt: null, coverUrl: null, imageUrls: [] };
+      if (current.title !== null || current.content !== null || this.now() + interval > deadline) return current;
+      await this.deps.delay(interval);
+    }
   }
 }
 
@@ -211,21 +272,37 @@ function probeFeaturesSource(selectors: string[]): string {
 })()`;
 }
 
-function extractNoteIdsSource(keywordJson: string): string {
+/** 搜索结果笔记链接提取（页面侧表达式；导出供单测以 stub document 直评源码）。
+ *  返回 [{id, href}]：href 含 xsec_token 是笔记详情页可达的必要凭证（裸 /explore/<id> 会被
+ *  风控拦截，pilot 实测 error_code=300031）——同一 id 出现多条时**优先保留带 token 的**。 */
+export function extractNoteLinksSource(): string {
   return `(function () {
-  var keyword = ${keywordJson};
-  var links = Array.prototype.slice.call(document.querySelectorAll('section.note-item a.cover, a.cover'));
-  var ids = [];
+  var links = Array.prototype.slice.call(document.querySelectorAll('a[href]'));
+  var seen = {};
+  var order = [];
   for (var i = 0; i < links.length; i++) {
     var href = links[i].getAttribute('href') || '';
     var m = /(?:\\/explore\\/|\\/search_result\\/|note=)([0-9a-fA-F]{16,32})/.exec(href);
-    if (m && ids.indexOf(m[1]) < 0) ids.push(m[1]);
+    if (!m) continue;
+    var id = m[1];
+    var prev = seen[id];
+    var tokened = href.indexOf('xsec_token') >= 0;
+    if (!prev) {
+      seen[id] = { id: id, href: href, tokened: tokened };
+      order.push(id);
+    } else if (tokened && !prev.tokened) {
+      seen[id] = { id: id, href: href, tokened: true };
+    }
   }
-  return ids;
+  var out = [];
+  for (var j = 0; j < order.length; j++) out.push({ id: seen[order[j]].id, href: seen[order[j]].href });
+  return out;
 })()`;
 }
 
-function readDetailSource(noteIdJson: string): string {
+/** 笔记详情提取（页面侧表达式；导出供单测以 stub document 直评源码）。
+ *  选择器对应笔记详情上下文（/explore/<id> 或搜索态详情视图），必须在导航到位后 evaluate。 */
+export function readDetailSource(noteIdJson: string): string {
   return `(function () {
   var noteId = ${noteIdJson};
   var text = function (sel) {
@@ -235,8 +312,13 @@ function readDetailSource(noteIdJson: string): string {
   var count = function (sel) {
     var raw = text(sel);
     if (!raw) return 0;
-    var m = parseInt(raw.replace(/[^0-9]/g, ''), 10);
-    return Number.isFinite(m) ? m : 0;
+    var m = /([\\d.]+)\\s*(万|w|k)?/i.exec(raw);
+    if (!m) return 0;
+    var n = parseFloat(m[1]);
+    if (!isFinite(n)) return 0;
+    var unit = (m[2] || '').toLowerCase();
+    var mult = unit === '万' || unit === 'w' ? 10000 : unit === 'k' ? 1000 : 1;
+    return Math.round(n * mult);
   };
   var list = function (sel) {
     return Array.prototype.slice.call(document.querySelectorAll(sel)).map(function (el) {

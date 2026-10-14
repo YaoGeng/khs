@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { AutomationWindow, YieldClassifier } from '@xinglian/stealth-middleware';
-import { CdpAutomation, createFixtureAutomation, parseFixtureScenario, startYieldMonitor } from './automation';
+import { CdpAutomation, createFixtureAutomation, extractNoteLinksSource, parseFixtureScenario, readDetailSource, startYieldMonitor } from './automation';
 import { CdpConnection, type CdpMessage } from './cdp';
 
 /** 假 CDP 传输：记录请求并同步回包（onData 回放句柄在构造前声明，规避 TDZ） */
@@ -55,8 +55,9 @@ describe('CdpAutomation：gate + AutomationWindow 包裹', () => {
       now: () => (tick += 10),
     });
     await automation.probeFeatures(['.login-btn']);
+    // pollYieldFlag 是让位传感器，不再过 gate（真实链路 yield 死锁修复）：只有 probeFeatures 计闸
+    expect(gateCalls).toBe(1);
     await automation.pollYieldFlag();
-    expect(gateCalls).toBe(2);
     // evaluate 走 flat 会话（sessionId 透传）
     for (const message of sent) {
       expect(message.sessionId).toBe('sess-1');
@@ -77,6 +78,216 @@ describe('CdpAutomation：gate + AutomationWindow 包裹', () => {
       delay: async () => {},
     });
     await expect(automation.pollYieldFlag()).resolves.toBe(1728888888888);
+  });
+});
+
+describe('真实搜索/详情提取（pilot 修复：SPA 竞态 + href 凭证导航 + 空详情护栏上游）', () => {
+  const LINKS = [
+    { id: '6613aabbccddeeff00112233', href: '/search_result/6613aabbccddeeff00112233?xsec_token=AB' },
+    { id: '6613aabbccddeeff00112244', href: '/explore/6613aabbccddeeff00112244' },
+  ];
+
+  it('search：轮询提取直至非空（固定 500ms 实测恒 0 的竞态对策），并留存 href 供详情导航', async () => {
+    const windows = new AutomationWindow();
+    let extracts = 0;
+    const { connection, sent } = fakeConnection((message) => {
+      const expression = String((message.params as { expression?: string } | undefined)?.expression ?? '');
+      if (message.method === 'Runtime.evaluate' && expression.includes('a[href]')) {
+        extracts += 1;
+        return { result: { value: extracts >= 3 ? LINKS : [] } };
+      }
+      return {};
+    });
+    const automation = new CdpAutomation({
+      connection,
+      sessionId: 's',
+      gate: async () => {},
+      windows,
+      delay: async () => {},
+      pollIntervalMs: 1,
+      waitForTimeoutMs: 5_000,
+      now: () => extracts * 10,
+    });
+    await expect(automation.search('防晒衣')).resolves.toEqual(['6613aabbccddeeff00112233', '6613aabbccddeeff00112244']);
+    expect(extracts).toBe(3);
+    expect(sent.some((m) => m.method === 'Page.navigate')).toBe(true);
+  });
+
+  it('search：轮询超时优雅返回空数组（上层 noResult 口径），evaluate 异常不中断轮询', async () => {
+    let calls = 0;
+    const { connection } = fakeConnection(() => {
+      calls += 1;
+      return calls % 2 === 0 ? { result: { value: [] } } : { exceptionDetails: { text: 'context destroyed' } };
+    });
+    let tick = 0;
+    const automation = new CdpAutomation({
+      connection,
+      sessionId: 's',
+      gate: async () => {},
+      windows: new AutomationWindow(),
+      delay: async () => {},
+      pollIntervalMs: 10,
+      waitForTimeoutMs: 100,
+      now: () => (tick += 30),
+    });
+    await expect(automation.search('kw')).resolves.toEqual([]);
+  });
+
+  it('pollYieldFlag 不经过让位闸门（真实链路 yield 死锁锁定：release 依赖本传感器）', async () => {
+    let gateCalls = 0;
+    const { connection } = fakeConnection((message) => {
+      const expression = String((message.params as { expression?: string } | undefined)?.expression ?? '');
+      if (message.method === 'Runtime.evaluate' && expression.includes('__khs_yield__')) {
+        return { result: { value: 1728888888888 } };
+      }
+      return {};
+    });
+    const automation = new CdpAutomation({
+      connection,
+      sessionId: 's',
+      gate: () => {
+        gateCalls += 1;
+        return new Promise<void>(() => {}); // 永不放行（模拟让位挂起中）
+      },
+      windows: new AutomationWindow(),
+      delay: async () => {},
+    });
+    // 若传感器仍过 gate，此调用将永远挂起（测试超时即失败）
+    await expect(automation.pollYieldFlag()).resolves.toBe(1728888888888);
+    expect(gateCalls).toBe(0);
+  });
+
+  it('readDetail：用搜索留存的带 token href 导航到详情上下文，轮询到非空字段即回', async () => {
+    let detailCalls = 0;
+    const { connection, sent } = fakeConnection((message) => {
+      const expression = String((message.params as { expression?: string } | undefined)?.expression ?? '');
+      if (message.method === 'Runtime.evaluate' && expression.includes('a[href]')) {
+        return { result: { value: LINKS } };
+      }
+      if (message.method === 'Runtime.evaluate' && expression.includes('#detail-title')) {
+        detailCalls += 1;
+        return {
+          result: {
+            value:
+              detailCalls === 1
+                ? null
+                : {
+                    noteId: '6613aabbccddeeff00112233',
+                    title: '每次出门都是全副武装',
+                    content: '防晒衣真的有用',
+                    likes: 55,
+                    collects: 3,
+                    comments: 2,
+                    tags: ['防晒衣'],
+                    author: { name: null },
+                    publishedAt: '04-24',
+                    coverUrl: null,
+                    imageUrls: [],
+                  },
+          },
+        };
+      }
+      return {};
+    });
+    const automation = new CdpAutomation({
+      connection,
+      sessionId: 's',
+      gate: async () => {},
+      windows: new AutomationWindow(),
+      delay: async () => {},
+      pollIntervalMs: 1,
+      waitForTimeoutMs: 5_000,
+      now: () => detailCalls * 10,
+    });
+    await automation.search('kw');
+    const detail = await automation.readDetail('6613aabbccddeeff00112233');
+    expect(detail.title).toBe('每次出门都是全副武装');
+    expect(detail.likes).toBe(55);
+    const navUrls = sent.filter((m) => m.method === 'Page.navigate').map((m) => String((m.params as { url?: string }).url));
+    expect(navUrls).toContain('https://www.xiaohongshu.com/search_result/6613aabbccddeeff00112233?xsec_token=AB');
+  });
+
+  it('readDetail：无留存 href 时先试当前页（note 路由已在详情），有字段则不导航', async () => {
+    const { connection, sent } = fakeConnection((message) => {
+      const expression = String((message.params as { expression?: string } | undefined)?.expression ?? '');
+      if (message.method === 'Runtime.evaluate' && expression.includes('#detail-title')) {
+        return {
+          result: {
+            value: {
+              noteId: '6613aabbccddeeff00112244',
+              title: 'T',
+              content: 'C',
+              likes: 1,
+              collects: 0,
+              comments: 0,
+              tags: [],
+              author: { name: null },
+              publishedAt: null,
+              coverUrl: null,
+              imageUrls: [],
+            },
+          },
+        };
+      }
+      return {};
+    });
+    const automation = new CdpAutomation({
+      connection,
+      sessionId: 's',
+      gate: async () => {},
+      windows: new AutomationWindow(),
+      delay: async () => {},
+    });
+    const detail = await automation.readDetail('6613aabbccddeeff00112244');
+    expect(detail.title).toBe('T');
+    expect(sent.some((m) => m.method === 'Page.navigate')).toBe(false);
+  });
+
+  it('extractNoteLinksSource：按 href 提取 id+href；同一 id 优先保留带 xsec_token 的（300031 风控对策）；用户主页不误收', () => {
+    const anchors = [
+      { href: '/explore/6613aabbccddeeff00112233' },
+      { href: '/search_result/6613aabbccddeeff00112233?xsec_token=AB' },
+      { href: '/explore/6613aabbccddeeff00112244' },
+      { href: '/user/profile/6613aabbccddeeff00112255' },
+      { href: '/search_result/6613aabbccddeeff00112244?xsec_token=CD' },
+      { href: 'javascript:;' },
+    ];
+    const stub = { querySelectorAll: () => anchors.map((a) => ({ getAttribute: (k: string) => (k === 'href' ? a.href : null) })) };
+    (globalThis as { document?: unknown }).document = stub;
+    try {
+      const links = new Function(`return ${extractNoteLinksSource()}`)() as Array<{ id: string; href: string }>;
+      expect(links).toEqual([
+        { id: '6613aabbccddeeff00112233', href: '/search_result/6613aabbccddeeff00112233?xsec_token=AB' },
+        { id: '6613aabbccddeeff00112244', href: '/search_result/6613aabbccddeeff00112244?xsec_token=CD' },
+      ]);
+    } finally {
+      delete (globalThis as { document?: unknown }).document;
+    }
+  });
+
+  it('readDetailSource：互动数「万/w/k」量级解析（1.5万 → 15000）与字段提取', () => {
+    const bySel: Record<string, string> = {
+      '#detail-title': '防晒衣怎么选',
+      '#detail-desc': '面料 UPF50+',
+      '.engage-bar .like .count': '1.5万',
+      '.engage-bar .collect .count': '2031',
+      '.engage-bar .chat .count': '1.2万',
+      '.date': '04-24',
+    };
+    const stub = {
+      querySelector: (sel: string) => (bySel[sel] ? { textContent: bySel[sel] } : null),
+      querySelectorAll: () => [],
+    };
+    (globalThis as { document?: unknown }).document = stub;
+    try {
+      const detail = new Function(`return ${readDetailSource(JSON.stringify('n1'))}`)() as { likes: number; collects: number; comments: number; title: string };
+      expect(detail.title).toBe('防晒衣怎么选');
+      expect(detail.likes).toBe(15000);
+      expect(detail.collects).toBe(2031);
+      expect(detail.comments).toBe(12000);
+    } finally {
+      delete (globalThis as { document?: unknown }).document;
+    }
   });
 });
 

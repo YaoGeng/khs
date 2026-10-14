@@ -320,6 +320,12 @@ export async function refreshReportList(): Promise<void> {
     if (result.reports.some((r) => String(r.id) === previous)) reportSelect.value = previous;
     root.dataset.reportListLoaded = '1';
     root.dataset.reportCount = String(result.reports.length);
+    // 首份报告默认选中但 change 事件不触发 → currentReport 恒空、导出静默失效（pilot 实测）；
+    // 列表刷新后无已加载报告时自动加载当前选中项。
+    if (!currentReport) {
+      const selected = Number(reportSelect.value);
+      if (Number.isInteger(selected) && selected > 0) void loadReport(selected);
+    }
   } catch (error) {
     root.dataset.reportListLoaded = 'error';
     console.warn('[renderer] reports:list failed:', error);
@@ -334,7 +340,11 @@ reportSelect?.addEventListener('change', () => {
 reportRefreshBtn?.addEventListener('click', () => void refreshReportList());
 
 reportExportMd?.addEventListener('click', () => {
-  if (!currentReport || !reportExportStatus) return;
+  if (!reportExportStatus) return;
+  if (!currentReport) {
+    reportExportStatus.textContent = '报告尚未加载：请先在上方下拉框选择一份报告（或点「刷新」）。';
+    return;
+  }
   const blob = new Blob([currentReport.contentMd], { type: 'text/markdown;charset=utf-8' });
   downloadBlob(`${currentReport.report.topic}-report.md`, blob);
   reportExportStatus.textContent = 'Markdown 已导出。';
@@ -343,7 +353,11 @@ reportExportMd?.addEventListener('click', () => {
 
 reportExportPdf?.addEventListener('click', () => {
   void (async () => {
-    if (!currentReport || !reportExportStatus) return;
+    if (!reportExportStatus) return;
+    if (!currentReport) {
+      reportExportStatus.textContent = '报告尚未加载：请先在上方下拉框选择一份报告（或点「刷新」）。';
+      return;
+    }
     reportExportPdf.disabled = true;
     root.dataset.reportExportPdf = 'pending';
     try {
