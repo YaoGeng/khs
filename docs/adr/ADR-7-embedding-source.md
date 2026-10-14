@@ -1,7 +1,7 @@
 # ADR-7 嵌入来源决策（语义聚类嵌入路线）
 
-> 任务：T-M1-01（计划 todo 3）· 定论依据：03-PRD与架构对齐审查报告.md:219（B-5）、04-架构评审报告.md:66-71（S5 定论，M1 编码前时限）、04:110-113（S5 放行条件）
-> 日期：2026-10-13 · 状态：已接受（Accepted）· 关联：02-系统架构设计.md §8.2（report-agent）、§14.1（store v3 embeddings 表）；docs/adr/provider-matrix.md（§3 能力分档 / §4.2 嵌入缓存注记 / §5 M1 复跑记录）；docs/adr/sqlite-vec-packaging-validation.md（§3 / §7 打包加载事实）
+> 任务：T-M1-01（计划 todo 3）· 定论依据：docs/03-PRD与架构对齐审查报告.md:219（B-5）、docs/04-架构评审报告.md:66-71（S5 定论，M1 编码前时限）、04:110-113（S5 放行条件）
+> 日期：2026-10-13 · 状态：已接受（Accepted）· 关联：docs/02-系统架构设计.md §8.2（report-agent）、§14.1（store v3 embeddings 表）；docs/adr/provider-matrix.md（§3 能力分档 / §4.2 嵌入缓存注记 / §5 M1 复跑记录）；docs/adr/sqlite-vec-packaging-validation.md（§3 / §7 打包加载事实）
 
 ## 1. 背景
 

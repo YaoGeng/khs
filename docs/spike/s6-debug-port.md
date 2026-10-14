@@ -1,7 +1,7 @@
 # Spike S6：CDP 调试口方案结论（pipe vs port=0+loopback+PID 校验）
 
 > 映射 T-M0-05（todo 7）；证据脚本与原始输出：`bench/s6-debug/`（沙箱自带 package.json，不进 pnpm workspace）与本仓库 evidence 日志 `.omo/evidence/mvp0-dev-plan/task-7-mvp0-dev-plan.log`。
-> 关联：04-架构评审报告.md S6（第 73-77 行）与放行条件（第 114 行）；02-系统架构设计.md §5.3（第 248-254 行）、§11.2（第 610-617 行）。
+> 关联：docs/04-架构评审报告.md S6（第 73-77 行）与放行条件（第 114 行）；docs/02-系统架构设计.md §5.3（第 248-254 行）、§11.2（第 610-617 行）。
 
 **测试机**：Windows 11 专业版，Intel i7-9750H @2.60GHz，31.9GB RAM，node v24.6.0
 **被测内核**：Chrome 154.0.8037.98（`C:\Program Files\Google\Chrome\Application\chrome.exe`）、Edge 155.0.4283.45（x86 安装）、Electron 33.4.11（Chromium 130.0.6723.191，bench 沙箱内二进制）

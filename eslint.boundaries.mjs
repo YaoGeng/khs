@@ -1,6 +1,6 @@
 // 本文件为独立配置切片，已组合进根 eslint 配置（eslint.config.mjs）；保留独立文件以便规则单独演进。
 // 目录边界规则：apps/* 之间禁止互相 import；跨层只允许经 packages/protocol。
-// 依据：docs/dev/工程规范.md「目录边界」节；04-架构评审报告.md S9；02-系统架构设计.md §3.3。
+// 依据：docs/dev/工程规范.md「目录边界」节；docs/04-架构评审报告.md S9；docs/02-系统架构设计.md §3.3。
 
 export default [
   {

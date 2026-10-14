@@ -2,7 +2,7 @@
 /**
  * probe-providers.mjs — BYOK 服务商能力探测（todo 5 / T-M0-06，Spike S4）
  *
- * 五家预设服务商（01-需求说明书.md 第 126 行 FR-2.1）：deepseek / tongyi / zhipu / openai / siliconflow
+ * 五家预设服务商（docs/01-需求说明书.md 第 126 行 FR-2.1）：deepseek / tongyi / zhipu / openai / siliconflow
  * 每家探三项能力：json_schema 结构化输出 / tool calling / embeddings。
  *
  * Key 契约（只从环境变量读取，脚本绝不打印任何 Key 值）：

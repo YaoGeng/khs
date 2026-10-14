@@ -1,6 +1,6 @@
 # sqlite-vec + better-sqlite3 在 electron-builder asar 打包下的加载验证（M0 Spike S11）
 
-> 任务：T-M0-06（计划 todo 5）· 依据：04-架构评审报告.md:94（S11：原生扩展 asar 加载路径 + Win/macOS 预编译产物，须 M0 打包管线验证）、02-系统架构设计.md:143（§3.1 本地向量检索选型行）
+> 任务：T-M0-06（计划 todo 5）· 依据：docs/04-架构评审报告.md:94（S11：原生扩展 asar 加载路径 + Win/macOS 预编译产物，须 M0 打包管线验证）、docs/02-系统架构设计.md:143（§3.1 本地向量检索选型行）
 > 日期：2026-10-11 · 平台：Windows 11（Win 必做项已覆盖；macOS 本机不可得，未测——见 §6 风险）
 > **结论：可行 ✅**——better-sqlite3（electron ABI 130 预编译）+ sqlite-vec v0.1.9 在 electron-builder asar 包内加载并完成 KNN 实测，退出码 0。发现两处必须写进 M1 store 实现规范的关键细节（§3）。
 

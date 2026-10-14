@@ -1,6 +1,6 @@
 # ADR-8: 主进程 SQLite 写策略（utilityProcess 托管写 + 事务粒度约束）
 
-> 任务：T-M0-04（计划 todo 6，Spike S3）· 依据：04-架构评审报告.md:52-58（S3）、04:111（放行条件：M0 内出 spike 报告）、02-系统架构设计.md:699-718（§14.1 客户端 SQLite/WAL）、05:271（spike 风险行）
+> 任务：T-M0-04（计划 todo 6，Spike S3）· 依据：docs/04-架构评审报告.md:52-58（S3）、04:111（放行条件：M0 内出 spike 报告）、docs/02-系统架构设计.md:699-718（§14.1 客户端 SQLite/WAL）、05:271（spike 风险行）
 > 日期：2026-10-11 · 平台：Windows 11 · 状态：**已决（采纳）**
 > 证据：`.omo/evidence/mvp0-dev-plan/task-6-mvp0-dev-plan.log`（命令+退出码+三轮完整数据）；复现沙箱 `bench/sqlite-write-bench/`
 >

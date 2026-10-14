@@ -24,7 +24,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-const DOC = '02-系统架构设计.md';
+const DOC = 'docs/02-系统架构设计.md';
 
 function usage() {
   console.log(`用法: node scripts/tm101-diff-check.mjs [--base <ref>] [--help]

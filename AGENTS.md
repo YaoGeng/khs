@@ -28,10 +28,9 @@
 │   ├── adapters-1688/     # 1688 平台适配器
 │   └── logger/            # pino NDJSON 日志（横切豁免，app 可直接引用）
 ├── bench/       # 独立实验场，非 workspace 成员，勿引用、检索时排除
-├── docs/        # adr/ perf/ spike/ + dev/工程规范.md（边界规则原文）
+├── docs/        # 01~09 编号文档（需求/架构/评审/里程碑，开发唯一事实源）+ adr/ perf/ spike/ + dev/工程规范.md（边界规则原文）
 ├── scripts/     # 仓库级脚本：adapter-sign / adapter-activation-e2e / tm101-diff-check / gen-card
-├── .omo/        # 任务编排：plans/、evidence/(验收证据)、secrets/ 与 state/(不入库)
-└── 01~09-*.md   # 需求/架构/评审/里程碑编号文档 —— 开发唯一事实源
+└── .omo/        # 任务编排：plans/、evidence/(验收证据)、secrets/ 与 state/(不入库)
 ```
 
 ## WHERE TO LOOK
@@ -67,7 +66,7 @@
 
 ## CONVENTIONS
 
-- 全中文文档与注释；代码标识符英文。01~09 编号文档是唯一事实源；`02-系统架构设计.md` 的修改受 scripts/tm101-diff-check.mjs 白名单门禁（未授权段落改动 exit 1）。
+- 全中文文档与注释；代码标识符英文。01~09 编号文档是唯一事实源；`docs/02-系统架构设计.md` 的修改受 scripts/tm101-diff-check.mjs 白名单门禁（未授权段落改动 exit 1）。
 - 任务卡四段式：完成报告必须含 产物/证据/自测/风险，证据落 `.omo/evidence/`，缺任一段判未通过。
 - 跨包测试 import 兄弟包编译产物 dist/，多个包的 test 脚本会先构建依赖（如 workflow 的 test 先 build stealth-middleware）。改包后先 `pnpm -r build` 再跑下游测试。
 - 根 vitest 只收 `apps/*/src/*.test.ts` + `packages/*/src/*.test.ts`（无 DB 依赖冒烟集）；server 的 test/** 需 embedded-postgres；desktop 测试需 Electron ABI。全部串行（fileParallelism:false）。

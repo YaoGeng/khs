@@ -1,6 +1,6 @@
 # BYOK 服务商能力探测矩阵（M0 Spike S4）
 
-> 任务：T-M0-06（计划 todo 5）· 依据：04-架构评审报告.md:59-68（S4）、05-AI开发计划与里程碑.md §7 R9（BYOK 降级链）、01-需求说明书.md:126（FR-2.1 五家预设）
+> 任务：T-M0-06（计划 todo 5）· 依据：docs/04-架构评审报告.md:59-68（S4）、docs/05-AI开发计划与里程碑.md §7 R9（BYOK 降级链）、docs/01-需求说明书.md:126（FR-2.1 五家预设）
 > 日期：2026-10-11 · 探测脚本：packages/llm-gateway/scripts/probe-providers.mjs · 预设常量：packages/llm-gateway/src/presets.ts（与本文互链）
 > 探测证据：.omo/evidence/mvp0-dev-plan/probe-report.no-key.json（M0 无 Key 脱敏存档）；**M1 更新（2026-10-13）：zhipu 携真实 Key 实测，证据 packages/llm-gateway/scripts/probe-report.json（已脱敏入库）与 .omo/evidence/m1-insight-plan/probe-report.probed.json**
 

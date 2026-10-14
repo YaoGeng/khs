@@ -1,7 +1,7 @@
 # 冷启动实测（C-3 / NFR-1）
 
-> 依据：03-PRD与架构对齐审查报告.md 第 230 行（C-3 要求 M0 退出标准加入实测值）；
-> 预算分解见 `docs/perf/cold-start-budget.md`；总预算对照 NFR-1 ≤3s（01-需求说明书.md 第 262 行）。
+> 依据：docs/03-PRD与架构对齐审查报告.md 第 230 行（C-3 要求 M0 退出标准加入实测值）；
+> 预算分解见 `docs/perf/cold-start-budget.md`；总预算对照 NFR-1 ≤3s（docs/01-需求说明书.md 第 262 行）。
 > 实测载体：todo 4（T-M0-02）Electron 九视图空壳，`apps/desktop/scripts/cold-start.mjs` 自动采样。
 
 ## 机器规格（2026-10-11 实测）
