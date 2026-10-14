@@ -36,6 +36,9 @@ function launchEnv(userData: string, fixtureFile: string, pacingScale = '0'): No
     XINGLIAN_YIELD_POLL_MS: '100',
     XINGLIAN_COLLECT_POLL_MS: '100',
     XINGLIAN_COLLECT_WAIT_MS: '3000',
+    // 本 spec 只验采集管道（todo 7 四步）：关闭 m1 todo 11 的 collect-report 步骤
+    // （报告步骤会因无 Key 把任务转 awaiting_user/llm_key_config，与完成态断言冲突）
+    XINGLIAN_REPORT_STEP: 'off',
   };
 }
 

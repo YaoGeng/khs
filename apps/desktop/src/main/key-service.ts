@@ -74,6 +74,7 @@ export interface KeyService {
 const KV_KEY_PREFIX = 'byok:key:';
 const KV_META_PREFIX = 'byok:meta:';
 export const KV_WORDLIST_ACTIVE = 'wordlist:active';
+export { KV_KEY_PREFIX, KV_META_PREFIX };
 
 interface KeyMetaJson {
   provider: KeyProviderId;
@@ -106,6 +107,51 @@ export function maskKey(key: string): string {
   const last4 = key.slice(-4);
   const prefix = key.startsWith('sk-') ? 'sk-' : '';
   return `${prefix}****${last4}`;
+}
+
+/** 报告网关 Key 条目（明文仅主进程内存；结构与 report-service.ReportLlmConfig 对齐） */
+export interface GatewayKeyEntry {
+  provider: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
+/**
+ * BYOK Key → 报告网关配置读取器（m1 todo 11 组合根消费）：复用本模块的官方缺省
+ * base_url/model 表；密文经 safeStorage 解密，明文形态原样返回。未配置返回 null。
+ */
+export function createGatewayKeyReader(
+  deps: Pick<StoreClient, 'kvGet'>,
+  safeStorage: SafeStoragePort | null,
+): (provider: string) => Promise<GatewayKeyEntry | null> {
+  async function readMeta(provider: KeyProviderId): Promise<KeyMetaJson | null> {
+    const raw = await deps.kvGet(KV_META_PREFIX + provider);
+    if (typeof raw !== 'string') return null;
+    try {
+      return JSON.parse(raw) as KeyMetaJson;
+    } catch {
+      return null;
+    }
+  }
+  return async (providerId: string) => {
+    const provider = providerId as KeyProviderId;
+    const raw = await deps.kvGet(KV_KEY_PREFIX + provider);
+    const meta = await readMeta(provider);
+    if (!raw || !meta) return null;
+    let apiKey: string;
+    if (typeof raw === 'string') {
+      apiKey = raw;
+    } else if (safeStorage) {
+      apiKey = safeStorage.decryptString(raw);
+    } else {
+      return null;
+    }
+    const baseUrl = meta.baseUrl ?? DEFAULT_BASE_URLS[provider] ?? null;
+    const model = meta.model ?? DEFAULT_MODELS[provider] ?? null;
+    if (!baseUrl || !model) return null;
+    return { provider, baseUrl, apiKey, model };
+  };
 }
 
 function providerLabel(provider: KeyProviderId): string {

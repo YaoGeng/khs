@@ -17,6 +17,9 @@ import {
   CollectStatsParams,
   CollectStatsResultSchema,
   ConsentStateResultSchema,
+  GateConfirmResultSchema,
+  GateListResultSchema,
+  GateRejectResultSchema,
   KeysGetMaskedResultSchema,
   KeysPrecallConfirmResultSchema,
   KeysScanTestResultSchema,
@@ -24,6 +27,11 @@ import {
   KeysTestResultSchema,
   LicenseStatusResultSchema,
   LogsQueryResultSchema,
+  NotesListResultSchema,
+  ReportChartDataResultSchema,
+  ReportExportPdfResultSchema,
+  ReportGetResultSchema,
+  ReportsListResultSchema,
   TasksCancelResultSchema,
   TasksCreateDemoResultSchema,
   TasksListResultSchema,
@@ -38,6 +46,11 @@ import {
   type CollectRemaindersResult,
   type CollectStatsResult,
   type ConsentStateResult,
+  type GateConfirmParams,
+  type GateConfirmResult,
+  type GateListResult,
+  type GateRejectParams,
+  type GateRejectResult,
   type KeysGetMaskedResult,
   type KeysPrecallConfirmParams,
   type KeysPrecallConfirmResult,
@@ -51,6 +64,13 @@ import {
   type LicenseStatusResult,
   type LogsQueryParams,
   type LogsQueryResult,
+  type NotesListParams,
+  type NotesListResult,
+  type ReportChartDataResult,
+  type ReportExportPdfResult,
+  type ReportGetResult,
+  type ReportInsertFixtureParams,
+  type ReportsListResult,
   type TasksListResult,
 } from '../shared/schemas';
 import { isChannelAllowed } from './security';
@@ -118,6 +138,25 @@ export interface KeysIpcDeps {
   readonly scanTest: (params: KeysScanTestParams) => Promise<KeysScanTestResult>;
 }
 
+/**
+ * 报告 UI + 确认闸门链路依赖注入面（m1 todo 11 = T-M1-06；main binding 在 main.ts →
+ * report-service）。读面（notes/reports/chartData/pdf）无需 EULA 门；gate:confirm/reject
+ * 是 insight 视图的业务写入口，与 collect:start 同受 EULA 路由锁约束。
+ */
+export interface ReportIpcDeps {
+  readonly listNotes: (params: NotesListParams) => Promise<NotesListResult>;
+  readonly listReports: () => Promise<ReportsListResult>;
+  readonly getReport: (params: { reportId: number }) => Promise<ReportGetResult>;
+  readonly chartData: (params: { reportId: number }) => Promise<ReportChartDataResult>;
+  /** main 进程 webContents.printToPDF（03:220 B-6 渲染打印管线；禁 pdf-lib/puppeteer） */
+  readonly exportPdf: () => Promise<ReportExportPdfResult>;
+  /** 仅 debug 门控装配（XINGLIAN_DEBUG_HOOKS=1）；缺省显式报未就绪 */
+  readonly insertFixture?: (params: ReportInsertFixtureParams) => Promise<{ id: number }>;
+  readonly listGates: () => Promise<GateListResult>;
+  readonly confirmGate: (params: GateConfirmParams) => Promise<GateConfirmResult>;
+  readonly rejectGate: (params: GateRejectParams) => Promise<GateRejectResult>;
+}
+
 export interface AppInfoDeps {
   /** 注入 app/appVersion 等运行时读取，保持本模块 electron-free 可单测 */
   readonly appInfo: () => AppInfoResult;
@@ -133,6 +172,8 @@ export interface AppInfoDeps {
   readonly collect?: CollectIpcDeps;
   /** m1 todo 10：BYOK Key 链路（T-M1-08①）依赖；未装配时 keys: 通道显式报未就绪 */
   readonly keys?: KeysIpcDeps;
+  /** m1 todo 11：报告 UI + 确认闸门（T-M1-06）依赖；未装配时 notes:/reports:/gate: 通道显式报未就绪 */
+  readonly report?: ReportIpcDeps;
 }
 
 /** 校验并执行一次 IPC 调用（主进程 handle 与单测共用同一路径） */
@@ -528,6 +569,113 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
           if (!deps.keys) throw new Error('E-IPC-DEP-MISSING: keys 链路未装配');
           const result = await deps.keys.scanTest(payload);
           return validateExit(KeysScanTestResultSchema, result, 'keys:scan-test');
+        },
+      },
+    ],
+    [
+      'notes:list',
+      {
+        paramsSchema: channelParamsSchemas['notes:list'],
+        // 只读面（FR-4.6 采集列表 + CSV 数据源）：不设 EULA 门（历史数据可访问语义一致）
+        handle: async (payload: NotesListParams) => {
+          if (!deps.report) throw new Error('E-IPC-DEP-MISSING: report 链路未装配');
+          const result = await deps.report.listNotes(payload);
+          return validateExit(NotesListResultSchema, result, 'notes:list');
+        },
+      },
+    ],
+    [
+      'reports:list',
+      {
+        paramsSchema: channelParamsSchemas['reports:list'],
+        handle: async () => {
+          if (!deps.report) throw new Error('E-IPC-DEP-MISSING: report 链路未装配');
+          const result = await deps.report.listReports();
+          return validateExit(ReportsListResultSchema, result, 'reports:list');
+        },
+      },
+    ],
+    [
+      'reports:get',
+      {
+        paramsSchema: channelParamsSchemas['reports:get'],
+        handle: async (payload: { reportId: number }) => {
+          if (!deps.report) throw new Error('E-IPC-DEP-MISSING: report 链路未装配');
+          const result = await deps.report.getReport(payload);
+          return validateExit(ReportGetResultSchema, result, 'reports:get');
+        },
+      },
+    ],
+    [
+      'report:chartData',
+      {
+        paramsSchema: channelParamsSchemas['report:chartData'],
+        handle: async (payload: { reportId: number }) => {
+          if (!deps.report) throw new Error('E-IPC-DEP-MISSING: report 链路未装配');
+          const result = await deps.report.chartData(payload);
+          return validateExit(ReportChartDataResultSchema, result, 'report:chartData');
+        },
+      },
+    ],
+    [
+      'report:exportPdf',
+      {
+        paramsSchema: channelParamsSchemas['report:exportPdf'],
+        handle: async () => {
+          if (!deps.report) throw new Error('E-IPC-DEP-MISSING: report 链路未装配');
+          const result = await deps.report.exportPdf();
+          return validateExit(ReportExportPdfResultSchema, result, 'report:exportPdf');
+        },
+      },
+    ],
+    [
+      'report:insertFixture',
+      {
+        paramsSchema: channelParamsSchemas['report:insertFixture'],
+        // QA failure 组专用：仅组合根显式装配（XINGLIAN_DEBUG_HOOKS=1）时存在
+        handle: async (payload: ReportInsertFixtureParams) => {
+          if (!deps.report?.insertFixture) throw new Error('E-IPC-DEP-MISSING: report:insertFixture 未装配（debug 门控）');
+          return validateExit(z.object({ id: z.number().int() }), await deps.report.insertFixture(payload), 'report:insertFixture');
+        },
+      },
+    ],
+    [
+      'gate:list',
+      {
+        paramsSchema: channelParamsSchemas['gate:list'],
+        handle: async () => {
+          if (!deps.report) throw new Error('E-IPC-DEP-MISSING: report 链路未装配');
+          const result = await deps.report.listGates();
+          return validateExit(GateListResultSchema, result, 'gate:list');
+        },
+      },
+    ],
+    [
+      'gate:confirm',
+      {
+        paramsSchema: channelParamsSchemas['gate:confirm'],
+        // 确认闸门 = insight 视图业务写入口：EULA 门语义与 collect:start 一致（FR-1.9）
+        handle: async (payload: GateConfirmParams) => {
+          if (!deps.report) throw new Error('E-IPC-DEP-MISSING: report 链路未装配');
+          if (!deps.consent.isViewAllowed('insight')) {
+            throw new Error(`${E_EULA_LOCKED}: 闸门确认已被 EULA 首启确认门锁定（FR-1.9）——请先完成协议确认`);
+          }
+          const result = await deps.report.confirmGate(payload);
+          return validateExit(GateConfirmResultSchema, result, 'gate:confirm');
+        },
+      },
+    ],
+    [
+      'gate:reject',
+      {
+        paramsSchema: channelParamsSchemas['gate:reject'],
+        handle: async (payload: GateRejectParams) => {
+          if (!deps.report) throw new Error('E-IPC-DEP-MISSING: report 链路未装配');
+          if (!deps.consent.isViewAllowed('insight')) {
+            throw new Error(`${E_EULA_LOCKED}: 闸门拒绝已被 EULA 首启确认门锁定（FR-1.9）——请先完成协议确认`);
+          }
+          const result = await deps.report.rejectGate(payload);
+          return validateExit(GateRejectResultSchema, result, 'gate:reject');
         },
       },
     ],

@@ -31,7 +31,7 @@ import {
 import type { Logger } from '@xinglian/logger';
 import type { StoreClient } from '../store';
 import type { TaskRunner } from '../tasks';
-import { CollectService, type CollectTaskInput } from '../tasks/collect-service';
+import { CollectService, type CollectReportStepContext, type CollectTaskInput } from '../tasks/collect-service';
 import type { ComplianceService } from '../compliance/compliance-service';
 import type { CollectStatsResult } from '../shared/schemas';
 import {
@@ -60,6 +60,12 @@ export interface CollectBindingDeps {
   readonly now?: () => Date;
   /** 节奏缩放（env XINGLIAN_COLLECT_PACING_SCALE；生产 1） */
   readonly pacingScale?: number;
+  /**
+   * 报告步骤钩子（m1 todo 11 组合接线；main/report-service 提供）：
+   * 提供则追加第 5 步 collect-report（报告生成 + awaiting_user 闸门）；
+   * 缺省 = todo 7 四步管道原样（e2e/dev seam XINGLIAN_REPORT_STEP=off 时组合根不传）。
+   */
+  readonly reportStep?: (ctx: CollectReportStepContext) => Promise<unknown>;
 }
 
 export interface CollectStartParams {
@@ -280,6 +286,7 @@ export function createCollectBinding(deps: CollectBindingDeps): CollectBinding {
     },
     ...(deps.compliance ? { sendTelemetry: (event: { name: string; payload?: unknown }) => deps.compliance!.sendTelemetry(event) } : {}),
     ...(deps.notify ? { notify: deps.notify } : {}),
+    ...(deps.reportStep ? { reportStep: deps.reportStep } : {}),
     now,
     pacingScale,
   });

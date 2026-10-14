@@ -169,6 +169,26 @@ export class QuotaPausedSignal extends Error {
   }
 }
 
+/**
+ * 报告闸门控制流信号（m1-insight-plan todo 11 = T-M1-06②；02:274 E 步人工确认）：
+ * 报告步骤的前置检查不通过（如 LLM Key 未配置）→ 任务转 awaiting_user（人工补齐后 resume
+ * 重跑 collect-report 步骤）。非步骤失败（禁重试），gate 两值枚举见 report-service.GATE_TYPES。
+ */
+export class CollectReportGateSignal extends Error {
+  readonly code = 'E-COLLECT-REPORT-GATE';
+  constructor(readonly gate: 'llm_key_config', message: string) {
+    super(message);
+    this.name = 'CollectReportGateSignal';
+  }
+}
+
+/** 报告步骤上下文（组合根 report-service 注入消费；S9 边界：步骤状态仍落 task_steps） */
+export interface CollectReportStepContext {
+  readonly taskId: string;
+  readonly payload: CollectTaskPayload;
+  readonly logger: Logger;
+}
+
 export interface CollectServiceDeps {
   readonly store: Pick<
     StoreClient,
@@ -196,6 +216,12 @@ export interface CollectServiceDeps {
   readonly quota: { consume(n?: number): Promise<QuotaDecision>; remaining(): Promise<number> };
   /** 遥测唯一出口（complianceService.sendTelemetry；只调用不修改合规模块） */
   readonly sendTelemetry?: (event: { name: string; payload?: unknown }) => Promise<unknown>;
+  /**
+   * 报告步骤钩子（m1-insight-plan todo 11 = T-M1-06②组合接线；main/report-service 注入）：
+   * 清洗落库完成后生成八章报告 → reports 落库 → 任务转 awaiting_user 关键词闸门。
+   * 缺省 = 不追加 collect-report 步骤（todo 7 四步管道原样；e2e/dev seam XINGLIAN_REPORT_STEP=off）。
+   */
+  readonly reportStep?: (ctx: CollectReportStepContext) => Promise<unknown>;
   /** 桌面通知（Electron Notification；组合根注入） */
   readonly notify?: (title: string, body: string) => void;
   readonly now?: () => Date;
@@ -304,12 +330,18 @@ export class CollectService {
           { id: 'collect-search', run: () => this.stepSearch(payload, logger) },
           { id: 'collect-detail-batch', run: () => this.stepDetailBatch(taskId, payload, shouldStop, logger) },
           { id: 'collect-finalize', run: () => this.stepFinalize(taskId, logger) },
+          ...(this.deps.reportStep
+            ? [{ id: 'collect-report', run: () => this.deps.reportStep!({ taskId, payload, logger }) }]
+            : []),
         ]),
         control: {
           shouldStop,
           yieldGate: async () => {},
           circuitState: () => this.deps.breaker.state,
-          isRetryable: (error) => !(error instanceof LoginGateError) && !(error instanceof QuotaPausedSignal),
+          isRetryable: (error) =>
+            !(error instanceof LoginGateError) &&
+            !(error instanceof QuotaPausedSignal) &&
+            !(error instanceof CollectReportGateSignal),
         },
         checkpoints: this.checkpointsFor(taskId),
         retry: { maxAttempts: 3, baseDelayMs: 250, maxDelayMs: 2_000 },
@@ -325,6 +357,14 @@ export class CollectService {
       }
       if (error instanceof QuotaPausedSignal) {
         // 配额触顶已在步骤内 pause + 落 remainder；此处只吞控制流信号
+        return;
+      }
+      if (error instanceof CollectReportGateSignal) {
+        // 报告闸门（todo 11）：任务转 awaiting_user（boot 恢复原样保留）；用户补齐前置
+        // 条件（如配置 LLM Key）后 resume → collect-report 步骤重跑（检查点未完成）
+        this.deps.notify?.('报告生成等待人工操作', error.message);
+        await this.deps.runner.awaitUser(taskId, `report-gate:${error.gate}（${error.message}）`);
+        logger.automationStep('collect:report-gate', { taskId, gate: error.gate });
         return;
       }
       if (error instanceof CircuitOpenAbortError) {

@@ -626,3 +626,95 @@ body {
 .scan-test-result { font-size: 12px; color: #57606a; line-height: 1.7; }
 .precall-body { font-size: 13px; line-height: 1.7; color: #24292f; }
 .precall-provider-line { font-size: 12px; color: #57606a; }
+
+/* ============================== m1 todo 11（T-M1-06）：insight/report 视图 ============================== */
+
+.insight-card {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.insight-card h3 { margin: 0 0 8px; font-size: 15px; }
+
+.gate-status { font-size: 12px; color: #57606a; margin: 0 0 8px; }
+
+.gate-item {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid #d4a72c;
+  border-radius: 8px;
+  background: #fff8c5;
+}
+
+.gate-item-head { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+.gate-filter-note, .gate-removed-note, .gate-hint { margin: 4px 0; font-size: 12px; color: #57606a; }
+.gate-removed-note { color: #cf222e; }
+
+.gate-keyword-list { margin: 6px 0; padding-left: 20px; font-size: 13px; }
+.gate-keyword { margin: 2px 0; }
+
+.gate-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+.notes-toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 6px; }
+.notes-status, .notes-csv-status { font-size: 12px; color: #57606a; }
+
+.notes-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.notes-table th, .notes-table td { border-bottom: 1px solid #d0d7de; padding: 4px 6px; text-align: left; }
+.notes-table th { background: #f6f8fa; }
+
+.report-toolbar { display: flex; gap: 10px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+.report-select-label { font-size: 13px; display: flex; gap: 6px; align-items: center; }
+.report-export-status { font-size: 12px; color: #57606a; }
+
+.report-error {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid #cf222e;
+  border-radius: 8px;
+  background: #ffebe9;
+  color: #cf222e;
+  font-size: 13px;
+}
+
+.report-meta { font-size: 12px; color: #57606a; }
+
+.report-chapter {
+  margin: 10px 0;
+  padding: 10px 14px;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.report-chapter .chapter-title { margin: 0 0 4px; font-size: 15px; }
+.report-chapter .chapter-summary { margin: 0 0 6px; font-size: 13px; color: #24292f; }
+.report-chapter .chapter-bullets { margin: 0 0 6px; padding-left: 20px; font-size: 13px; }
+.chapter-filter-note { font-size: 12px; color: #cf222e; }
+
+.method-fields { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 12px; margin: 6px 0 0; }
+.method-fields dt { color: #57606a; }
+.method-fields dd { margin: 0; }
+
+.report-charts h3 { font-size: 15px; margin: 14px 0 6px; }
+.chart-block { margin: 10px 0; padding: 10px; border: 1px solid #d0d7de; border-radius: 10px; background: #fff; }
+.chart-block h4 { margin: 0 0 6px; font-size: 13px; }
+.chart-box { width: 100%; height: 260px; }
+
+/* FR-5.4 PDF（printToPDF）：只打印 #print-root，壳层全部隐藏（03:220 B-6 渲染打印管线） */
+#print-root { display: none; }
+
+@media print {
+  /* 只打 #print-root：侧栏与其余视图全部隐藏，壳层内容不出现在 PDF（03:220 B-6 渲染打印管线） */
+  .app > .sidebar,
+  .app > .main > :not(#print-root) {
+    display: none !important;
+  }
+  #print-root {
+    display: block !important;
+    position: static;
+  }
+  .print-md { white-space: pre-wrap; font-family: "Microsoft YaHei", sans-serif; font-size: 12px; }
+}

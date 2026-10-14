@@ -62,6 +62,9 @@ await build({
   platform: 'browser',
   format: 'iife',
   target: 'es2022',
+  // echarts 按需模块单实例别名：echarts-wordcloud 内部 import 'echarts/lib/echarts'，
+  // 若不归一到 'echarts/core' 会出现双实例（插件注册进第二份 echarts，词云 series 不生效）
+  alias: { 'echarts/lib/echarts': 'echarts/core' },
   outfile: path.join(out, 'renderer.js'),
 });
 

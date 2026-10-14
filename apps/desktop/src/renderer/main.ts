@@ -9,6 +9,8 @@
  */
 import { E_EULA_LOCKED } from '../shared/channels';
 import type { ViewId } from '../shared/types';
+import { initInsightView } from './insight';
+import { initReportView } from './reportView';
 
 const bridge = window.xinglian;
 
@@ -1027,6 +1029,18 @@ refreshConsentState();
 // todo 11：日志视图 + demo 任务初始拉取（占位级；失败不阻断壳挂载）
 refreshLogs();
 refreshTasks();
+
+// m1 todo 11（T-M1-06）：市场洞察（闸门卡片 + 采集列表/CSV）与选品报告（八章节/图表/导出）
+try {
+  initInsightView();
+} catch (error) {
+  console.warn('[renderer] insight view init failed:', error);
+}
+try {
+  initReportView();
+} catch (error) {
+  console.warn('[renderer] report view init failed:', error);
+}
 
 if (bridge) {
   bridge

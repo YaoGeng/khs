@@ -19,7 +19,10 @@ import { loadHeavyModules } from './main/heavy';
 import { attachMigrationReport, createStoreService, resolveStorePaths, runPreWindowMigration, type StoreService } from './main/store-service';
 import { createCollectBinding, type CollectBinding } from './main/collect-binding';
 import { createElectronSafeStoragePort } from './main/safe-storage-port';
-import { createKeyService, type KeyService } from './main/key-service';
+import { createGatewayKeyReader, createKeyService, type KeyService, type SafeStoragePort } from './main/key-service';
+import { createReportService, type ReportService } from './main/report-service';
+import { LlmGateway } from '@xinglian/llm-gateway';
+import type { StoreClient } from './store';
 import { createWordlistService, type WordlistService } from './compliance/wordlist-service';
 import { BrowserService } from './browser/browser-service';
 import { resolveProfileRoot } from './browser/profiles';
@@ -59,6 +62,9 @@ let browserService: BrowserService | null = null;
 
 // todo 7：采集链路绑定（熔断器/日配额/适配包/mock-CDP seam/让位监视；T-M1-04）
 let collectBinding: CollectBinding | null = null;
+
+// m1 todo 11：报告组合根服务（report-agent 接线 + 确认闸门；T-M1-06）
+let reportService: ReportService | null = null;
 
 // m1 todo 10：词库配置包服务（seed→sha256 manifest→fs watch 热更；T-M1-08②）
 let wordlistService: WordlistService | null = null;
@@ -133,7 +139,56 @@ if (!gotLock) {
       },
     });
 
-    // todo 7：采集链路绑定（熔断/配额/适配包/让位监视；fixture seam = XINGLIAN_COLLECT_FIXTURE）
+    // m1 todo 10：词库服务（配置包根 = <userData>/config/wordlist；seed 首启落盘 + fs watch 热更）
+    const storeClient: StoreClient = storeService.store;
+    wordlistService = createWordlistService({
+      root: join(app.getPath('userData'), 'config', 'wordlist'),
+      kvGet: (key) => storeClient.kvGet(key),
+      kvSet: (key, value) => storeClient.kvSet(key, value),
+      onAudit: (msg, payload) => storeService?.logger.userAction(msg, payload),
+    });
+    void wordlistService.whenReady;
+
+    // m1 todo 10：BYOK Key 服务（safeStorage 注入 Port；密文/降级明文双形态落 kv_config）
+    const safeStoragePort: SafeStoragePort = createElectronSafeStoragePort();
+    keyService = createKeyService({
+      store: storeClient,
+      safeStorage: safeStoragePort,
+      fetchFn: globalThis.fetch.bind(globalThis),
+      wordlist: wordlistService,
+    });
+
+    // m1 todo 11：报告组合根服务（T-M1-06 组合接线）——report-agent 真实 Ports：
+    // structured = LlmGateway（BYOK 解密 Key），llm_calls sink = store.insertLlmCall，
+    // insertReport/kv = store client，telemetry emitter = complianceService 唯一出口。
+    reportService = createReportService({
+      store: storeClient,
+      runner: storeService.runner,
+      logger: storeService.logger,
+      wordlist: wordlistService,
+      sendTelemetry: (event) => complianceService!.sendTelemetry(event),
+      readKeyEntry: createGatewayKeyReader(storeClient, safeStoragePort),
+      salt: `xinglian-report-salt:${app.getPath('userData')}`,
+      createGateway: (config) =>
+        new LlmGateway({
+          provider: config.provider,
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          model: config.model,
+          strategies: ['prompt-embedded-schema', 'regex-extraction-fallback'],
+          maxRetries: 1,
+          timeoutMs: 120_000,
+          maxTokens: 8192,
+          temperature: 0.2,
+          sink: async (record) => {
+            await storeClient.insertLlmCall(record);
+          },
+        }),
+    });
+
+    // todo 7：采集链路绑定（熔断/配额/适配包/让位监视；fixture seam = XINGLIAN_COLLECT_FIXTURE）。
+    // 报告步骤（collect-report）默认接线；e2e/dev seam XINGLIAN_REPORT_STEP=off 回 todo 7 四步管道。
+    const reportStepEnabled = process.env.XINGLIAN_REPORT_STEP !== 'off';
     collectBinding = createCollectBinding({
       store: storeService.store,
       runner: storeService.runner,
@@ -141,6 +196,9 @@ if (!gotLock) {
       compliance: complianceService,
       notify: showDesktopNotification,
       userDataDir: app.getPath('userData'),
+      ...(reportStepEnabled && reportService
+        ? { reportStep: (ctx) => reportService!.runCollectReportStep(ctx) }
+        : {}),
       browser: {
         prepareAutomationTab: () => browserService!.prepareAutomationTab(),
         whenAutomationAllowed: () => browserService!.whenAutomationAllowed(),
@@ -152,24 +210,6 @@ if (!gotLock) {
         && Number(process.env.XINGLIAN_COLLECT_PACING_SCALE) >= 0
         ? Number(process.env.XINGLIAN_COLLECT_PACING_SCALE)
         : 1,
-    });
-
-    // m1 todo 10：词库服务（配置包根 = <userData>/config/wordlist；seed 首启落盘 + fs watch 热更）
-    const storeClient = storeService.store;
-    wordlistService = createWordlistService({
-      root: join(app.getPath('userData'), 'config', 'wordlist'),
-      kvGet: (key) => storeClient.kvGet(key),
-      kvSet: (key, value) => storeClient.kvSet(key, value),
-      onAudit: (msg, payload) => storeService?.logger.userAction(msg, payload),
-    });
-    void wordlistService.whenReady;
-
-    // m1 todo 10：BYOK Key 服务（safeStorage 注入 Port；密文/降级明文双形态落 kv_config）
-    keyService = createKeyService({
-      store: storeClient,
-      safeStorage: createElectronSafeStoragePort(),
-      fetchFn: globalThis.fetch.bind(globalThis),
-      wordlist: wordlistService,
     });
 
     // 跨日续采扫描（02 §9.1：应用启动扫描昨日未完 remainder；UI「继续采集」经 collect:remainders）
@@ -220,6 +260,34 @@ if (!gotLock) {
         test: (params) => keyService?.test(params) ?? Promise.reject(new Error('keys service 未就绪')),
         precallConfirm: (params) => keyService?.precallConfirm(params) ?? Promise.reject(new Error('keys service 未就绪')),
         scanTest: (params) => keyService?.scanTest(params) ?? Promise.reject(new Error('keys service 未就绪')),
+      },
+      // m1 todo 11：报告 UI + 确认闸门（notes:/reports:/report:*/gate:*；T-M1-06）
+      report: {
+        listNotes: (params) => reportService!.listNotes(params.topicId, params.limit),
+        listReports: () => reportService!.listReports(),
+        getReport: (params) => reportService!.getReportView(params.reportId),
+        chartData: (params) => reportService!.chartData(params.reportId),
+        exportPdf: async () => {
+          const win = BrowserWindow.getAllWindows()[0];
+          if (!win) throw new Error('E-REPORT-PDF-WINDOW-MISSING: 主窗口未就绪，无法打印 PDF');
+          // B-6（03:220）：PDF = 渲染进程打印管线——webContents.printToPDF，无第三方 PDF 库
+          const buffer = await win.webContents.printToPDF({
+            landscape: false,
+            printBackground: true,
+            pageSize: 'A4',
+            margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 },
+          });
+          return { dataBase64: buffer.toString('base64') };
+        },
+        // QA failure 组专用（缺⑧章 mock 报告 → error boundary）：仅 debug 门控装配
+        ...(process.env.XINGLIAN_DEBUG_HOOKS === '1'
+          ? {
+              insertFixture: (params) => reportService!.insertFixtureReport(params),
+            }
+          : {}),
+        listGates: () => reportService!.listGates(),
+        confirmGate: (params) => reportService!.confirmGate(params.taskId),
+        rejectGate: (params) => reportService!.rejectGate(params.taskId),
       },
     });
 

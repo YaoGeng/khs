@@ -107,14 +107,67 @@
           </section>
           <section class="view" id="view-insight" data-view="insight">
             <h2>市场洞察</h2>
-            <p class="placeholder">M0 占位视图：仅导航骨架。采集/洞察内容 M1+ 交付。</p>
             <p class="license-lock-banner" data-license-lock hidden>已锁定：license 缺失或过期（FR-1.6）——工作流执行入口不可用；历史与日志仍可访问。</p>
-            <button class="btn btn-primary workflow-entry" type="button" data-write-entry>执行入口（占位）</button>
-            <p class="entry-msg" data-entry-msg hidden>M0 占位：工作流引擎随 M1+ 交付。</p>
+            <!-- m1 todo 11（T-M1-06②；02:274 E 步）：选品关键词确认闸门卡片 -->
+            <section class="insight-card" id="gate-card" data-gate-card>
+              <h3>选品关键词确认闸门（02:274 E 步）</h3>
+              <p class="gate-status" id="gate-status">闸门状态：检测中…</p>
+              <div id="gate-list"></div>
+            </section>
+            <!-- m1 todo 11（FR-4.6）：采集列表 + CSV 导出（UTF-8 BOM，Excel 可开；不造假 .xlsx） -->
+            <section class="insight-card" id="notes-card">
+              <h3>采集列表（FR-4.6）</h3>
+              <div class="notes-toolbar">
+                <button class="btn btn-primary" id="notes-export-csv" type="button">导出 CSV（UTF-8 BOM）</button>
+                <span class="notes-csv-status" id="notes-csv-status"></span>
+              </div>
+              <p class="notes-status" id="notes-status">加载中…</p>
+              <table class="notes-table" id="notes-table" hidden>
+                <thead>
+                  <tr><th>标题</th><th>赞</th><th>藏</th><th>评</th><th>发布时间</th><th>采集时间</th></tr>
+                </thead>
+                <tbody id="notes-tbody"></tbody>
+              </table>
+            </section>
+            <button class="btn btn-primary workflow-entry" type="button" data-write-entry>采集执行入口（占位）</button>
+            <p class="entry-msg" data-entry-msg hidden>M1：采集经任务运行器执行（mock/fixture 联调见 collect 链路）。</p>
           </section>
           <section class="view" id="view-report" data-view="report">
             <h2>选品报告</h2>
-            <p class="placeholder">M0 占位视图：仅导航骨架。报告生成 M2+ 交付。</p>
+            <!-- m1 todo 11（T-M1-06①）：八章节渲染 + FR-5.3 图表 + FR-5.4 导出 -->
+            <div class="report-toolbar">
+              <label class="report-select-label">报告
+                <select id="report-select" aria-label="选择报告">
+                  <option value="">（暂无报告）</option>
+                </select>
+              </label>
+              <button class="btn btn-ghost" id="report-refresh" type="button">刷新</button>
+              <button class="btn btn-primary" id="report-export-md" type="button" disabled>导出 Markdown</button>
+              <button class="btn btn-primary" id="report-export-pdf" type="button" disabled>导出 PDF（打印管线）</button>
+              <span class="report-export-status" id="report-export-status"></span>
+            </div>
+            <p class="report-error" id="report-error" hidden></p>
+            <p class="report-meta" id="report-meta" hidden></p>
+            <div id="report-chapters"></div>
+            <section class="report-charts" id="report-charts" hidden>
+              <h3>洞察图表（FR-5.3，可导出 PNG）</h3>
+              <div class="chart-block">
+                <h4>需求场景聚类（气泡图）</h4>
+                <div class="chart-box" id="report-chart-bubble"></div>
+                <button class="btn btn-ghost chart-export" type="button" data-chart-export="bubble">导出气泡图 PNG</button>
+              </div>
+              <div class="chart-block">
+                <h4>价格带分布（直方图）</h4>
+                <div class="chart-box" id="report-chart-price"></div>
+                <button class="btn btn-ghost chart-export" type="button" data-chart-export="price">导出直方图 PNG</button>
+              </div>
+              <div class="chart-block">
+                <h4>热词云</h4>
+                <div class="chart-box" id="report-chart-wordcloud"></div>
+                <button class="btn btn-ghost chart-export" type="button" data-chart-export="wordcloud">导出词云 PNG</button>
+              </div>
+            </section>
+            <p class="placeholder">报告由采集任务完成后的报告步骤生成（真实 LLM，去标识化送检）；确认⑦章建议词请前往「市场洞察」闸门卡片。</p>
           </section>
           <section class="view" id="view-sourcing" data-view="sourcing">
             <h2>智能选品</h2>
@@ -316,6 +369,9 @@
             </div>
           </div>
         </div>
+
+        <!-- ===== m1 todo 11（FR-5.4）：PDF 打印区（printToPDF 只打本区；@media print 隐藏壳层） ===== -->
+        <div id="print-root" aria-hidden="true"></div>
       </main>
     </div>
 

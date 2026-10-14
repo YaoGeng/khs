@@ -13,6 +13,10 @@
  * M0 一律不注册，渲染进程越权调用将被白名单拒绝并返回稳定错误码。
  * M1（m1 todo 10 = T-M1-08）：keys:* 五通道入白名单（keys:set/keys:get-masked/keys:test/
  * keys:precall-confirm/keys:scan-test——BYOK Key 配置 + 词库扫描验证通道）。
+ * M1（m1 todo 11 = T-M1-06）：报告 UI + 确认闸门九通道入白名单——notes:list（FR-4.6 采集列表/
+ * CSV 数据源）、reports:list/reports:get/report:chartData（FR-5.3 图表数据）、report:exportPdf
+ * （printToPDF 管线，禁第三方 PDF 库）、report:insertFixture（QA failure 组，debug 门控装配）、
+ * gate:list/gate:confirm/gate:reject（02:274 E 步关键词确认闸门）。
  */
 export const IPC_CHANNELS = [
   'app:info',
@@ -29,6 +33,9 @@ export const IPC_CHANNELS = [
   'consent:acceptEula',
   'consent:rejectEula',
   'consent:setTelemetry',
+  'gate:confirm',
+  'gate:list',
+  'gate:reject',
   'keys:get-masked',
   'keys:precall-confirm',
   'keys:scan-test',
@@ -38,6 +45,12 @@ export const IPC_CHANNELS = [
   'logs:query',
   'license:activate',
   'license:status',
+  'notes:list',
+  'report:chartData',
+  'report:exportPdf',
+  'report:insertFixture',
+  'reports:get',
+  'reports:list',
   'tasks:createDemo',
   'tasks:list',
   'tasks:pause',
@@ -131,6 +144,19 @@ export const KEY_ERRORS = {
   BASE_URL_REQUIRED: 'E-KEY-BASE-URL-REQUIRED',
   /** 词库未就绪（active 配置包缺失/全部损坏） */
   WORDLIST_NOT_READY: 'E-WORDLIST-NOT-READY',
+} as const;
+
+/**
+ * 关键词确认闸门稳定错误码（m1 todo 11 = T-M1-06②；renderer/e2e 据此判定拒绝原因）。
+ * 闸门状态机：collect 任务 awaiting_user → 确认（selection 占位 queued）/拒绝（cancelled）。
+ */
+export const GATE_ERRORS = {
+  /** 目标任务不在 awaiting_user 态（已收口/不存在） */
+  NOT_AWAITING: 'E-GATE-NOT-AWAITING',
+  /** 挂起闸门不是 keyword_confirm（如 llm_key_config 不可确认） */
+  NOT_KEYWORD_CONFIRM: 'E-GATE-NOT-KEYWORD-CONFIRM',
+  /** 无挂起闸门记录（kv 指针缺失） */
+  NOT_PENDING: 'E-GATE-NOT-PENDING',
 } as const;
 
 /** 平台 → 首页 URL 与 Profile 子目录名（FR-3.3：每平台独立 Profile 目录持久化登录态） */

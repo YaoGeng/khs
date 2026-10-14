@@ -251,6 +251,23 @@ export type KeysScanTestParams = z.infer<typeof KeysScanTestParamsSchema>;
 export type KeysScanTestResult = z.infer<typeof KeysScanTestResultSchema>;
 export type KeywordHitView = z.infer<typeof KeywordHitViewSchema>;
 
+export type NotesListParams = z.infer<typeof NotesListParamsSchema>;
+export type NotesListResult = z.infer<typeof NotesListResultSchema>;
+export type NoteView = z.infer<typeof NoteViewSchema>;
+export type ReportsListResult = z.infer<typeof ReportsListResultSchema>;
+export type ReportSummary = z.infer<typeof ReportSummarySchema>;
+export type ReportGetResult = z.infer<typeof ReportGetResultSchema>;
+export type KeywordFilterView = z.infer<typeof KeywordFilterViewSchema>;
+export type ReportChartDataResult = z.infer<typeof ReportChartDataResultSchema>;
+export type ReportExportPdfResult = z.infer<typeof ReportExportPdfResultSchema>;
+export type ReportInsertFixtureParams = z.infer<typeof ReportInsertFixtureParamsSchema>;
+export type GateView = z.infer<typeof GateViewSchema>;
+export type GateListResult = z.infer<typeof GateListResultSchema>;
+export type GateConfirmParams = z.infer<typeof GateConfirmParamsSchema>;
+export type GateConfirmResult = z.infer<typeof GateConfirmResultSchema>;
+export type GateRejectParams = z.infer<typeof GateRejectParamsSchema>;
+export type GateRejectResult = z.infer<typeof GateRejectResultSchema>;
+
 export type AppInfoParams = z.infer<typeof AppInfoParamsSchema>;
 export type AppInfoResult = z.infer<typeof AppInfoResultSchema>;
 export type NavigateParams = z.infer<typeof NavigateParamsSchema>;
@@ -440,6 +457,129 @@ export const KeysScanTestResultSchema = z.object({
   persisted: z.number().int(),
 });
 
+/* notes:/reports:/report:/gate: —— 报告 UI + 确认闸门（m1 todo 11 = T-M1-06；FR-4.6/5.3/5.4、02:274 E 步） */
+
+export const NotesListParamsSchema = z.strictObject({
+  topicId: z.string().min(1).max(64).optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+});
+
+export const NoteViewSchema = z.object({
+  id: z.number().int(),
+  noteId: z.string(),
+  title: z.string().nullable(),
+  author: z.unknown(),
+  likes: z.number().int(),
+  collects: z.number().int(),
+  comments: z.number().int(),
+  publishedAt: z.string().nullable(),
+  collectedAt: z.string(),
+});
+
+export const NotesListResultSchema = z.object({ notes: z.array(NoteViewSchema) });
+
+export const ReportsListParamsSchema = z.strictObject({});
+
+export const ReportSummarySchema = z.object({
+  id: z.number().int(),
+  topic: z.string(),
+  createdAt: z.string(),
+  model: z.string().nullable(),
+  tokenCost: z.number().int().nullable(),
+});
+
+export const ReportsListResultSchema = z.object({ reports: z.array(ReportSummarySchema) });
+
+export const ReportGetParamsSchema = z.strictObject({ reportId: z.number().int().min(1) });
+
+/** ⑦章黑名单过滤面（命中词剔除 + keyword_hits 留痕计数；wordlist_version 随行） */
+export const KeywordFilterViewSchema = z.object({
+  allowed: z.array(z.string()),
+  removed: z.array(
+    z.object({
+      bullet: z.string(),
+      term: z.string(),
+      kind: z.string(),
+      category: z.string().nullable(),
+    }),
+  ),
+  wordlistVersion: z.string().nullable(),
+  persisted: z.number().int(),
+});
+
+export const ReportGetResultSchema = z.object({
+  reportId: z.number().int(),
+  /** 八章节 JSON（结构校验在渲染层 error boundary——渲染 bundle 不携带 zod） */
+  report: z.unknown().nullable(),
+  contentMd: z.string().nullable(),
+  keywordFilter: KeywordFilterViewSchema.nullable(),
+});
+
+export const ReportChartDataParamsSchema = z.strictObject({ reportId: z.number().int().min(1) });
+
+export const ReportChartDataResultSchema = z.object({
+  sampleSize: z.number().int(),
+  clusters: z.array(
+    z.object({
+      label: z.string(),
+      size: z.number().int(),
+      avgLikes: z.number(),
+      avgCollects: z.number(),
+      topTerms: z.array(z.string()),
+    }),
+  ),
+  priceBuckets: z.object({ ranges: z.array(z.string()), counts: z.array(z.number().int()) }),
+  wordcloud: z.array(z.object({ term: z.string(), weight: z.number() })),
+});
+
+export const ReportExportPdfParamsSchema = z.strictObject({});
+
+export const ReportExportPdfResultSchema = z.object({
+  /** webContents.printToPDF 产物的 base64（渲染层解码为 Blob 下载；禁第三方 PDF 库） */
+  dataBase64: z.string(),
+});
+
+/** QA failure 组专用（XINGLIAN_DEBUG_HOOKS=1 才装配）：注入缺⑧章的 mock 报告 → error boundary 断言 */
+export const ReportInsertFixtureParamsSchema = z.strictObject({
+  topic: z.string().min(1).max(120),
+  report: z.unknown(),
+  contentMd: z.string().max(2_000_000).optional(),
+});
+
+export const ReportInsertFixtureResultSchema = z.object({ id: z.number().int() });
+
+/** 闸门类型枚举（两值；02:274 E 步 + Key 未配置分支——文档化契约） */
+export const GATE_TYPES_SCHEMA = ['keyword_confirm', 'llm_key_config'] as const;
+
+export const GateListParamsSchema = z.strictObject({});
+
+export const GateViewSchema = z.object({
+  taskId: z.string(),
+  kind: z.string(),
+  status: z.enum(TASK_STATUSES_SCHEMA),
+  gate: z.enum(GATE_TYPES_SCHEMA),
+  reportId: z.number().int().nullable(),
+  topicId: z.string().nullable(),
+  topic: z.string().nullable(),
+  createdAt: z.string(),
+  keywords: KeywordFilterViewSchema.nullable(),
+});
+
+export const GateListResultSchema = z.object({ gates: z.array(GateViewSchema) });
+
+export const GateConfirmParamsSchema = z.strictObject({ taskId: z.string().min(1).max(64) });
+
+export const GateConfirmResultSchema = z.object({
+  /** false = 幂等 no-op（同 idempotency_key 的 selection 占位已存在，行数不变） */
+  created: z.boolean(),
+  selectionTaskId: z.string().nullable(),
+  idempotencyKey: z.string(),
+});
+
+export const GateRejectParamsSchema = z.strictObject({ taskId: z.string().min(1).max(64) });
+
+export const GateRejectResultSchema = z.object({ taskId: z.string(), status: z.enum(TASK_STATUSES_SCHEMA) });
+
 /** 通道 → 入参 schema。preload 与 main 侧都从这里取，保证两侧校验一致。 */
 export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'app:info': AppInfoParamsSchema,
@@ -465,6 +605,15 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'logs:query': LogsQueryParamsSchema,
   'license:activate': LicenseActivateParamsSchema,
   'license:status': LicenseStatusParamsSchema,
+  'notes:list': NotesListParamsSchema,
+  'report:chartData': ReportChartDataParamsSchema,
+  'report:exportPdf': ReportExportPdfParamsSchema,
+  'report:insertFixture': ReportInsertFixtureParamsSchema,
+  'reports:get': ReportGetParamsSchema,
+  'reports:list': ReportsListParamsSchema,
+  'gate:confirm': GateConfirmParamsSchema,
+  'gate:list': GateListParamsSchema,
+  'gate:reject': GateRejectParamsSchema,
   'tasks:createDemo': TasksCreateDemoParamsSchema,
   'tasks:list': TasksListParamsSchema,
   'tasks:pause': TasksPauseParamsSchema,
