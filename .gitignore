@@ -12,3 +12,6 @@ scripts/out/
 # 执行编排本地状态与机密（不入库）
 .omo/secrets/
 .omo/state/
+
+# 编排工具本地状态（不入库）
+.mimosa/
