@@ -190,7 +190,7 @@ Your next move: 双审中——plan-reviewer 终审通过后交付，由 /ulw-ex
   QA scenarios (name the exact tool + invocation): happy=上述 e2e；failure=mock 报告缺⑧章→渲染区显示显式错误提示而非空白页（e2e 断言 error 边界提示）, Evidence .omo/evidence/m1-insight-plan/task-11-m1-insight-plan.log + exported-md-sample.md/pdf
   Commit: Y | feat(desktop): report UI, charts, MD/PDF/CSV exports, keyword gate (T-M1-06)
   Recommended task executor category: HEAVY（UI+导出管线+状态机衔接）
-- [ ] 12. FR-2.4/2.5/2.6 追加卡：多 Key 故障转移+用量面板+RPM 限额（05:253「M1（llm-gateway 成熟时）」）
+- [x] 12. FR-2.4/2.5/2.6 追加卡：多 Key 故障转移+用量面板+RPM 限额（05:253「M1（llm-gateway 成熟时）」）
   What to do / Must NOT do: 三件：①FR-2.4 多 Key 配置与故障转移（01:129）：KeyProvider 接口+同任务内主 Key 失败自动切备用（同 provider 多 Key；不跨 provider 混用）+转移时遥测 key_failover 事件；②FR-2.5 用量面板（01:130）：settings/usage 视图=llm_calls 按天/按工作流聚合+自填单价（或预设价）估算+provider 探测档展示（04:63 建议行「探测表纳入用量面板展示」）；③FR-2.6 RPM 限额器（01:131/03:220）：网关层令牌桶（全局+单任务设置界面），超限=排队等待非报错。Must NOT do：不做成本预警推送（无基线）；不做跨 provider 自动调优；不做额度上限熔断（无基线）；FR-2.4 若 Wave 4 中点未合，按预授权顺延条款降级至「M2 前闭合」（触发条件=该时点主功能未合+台账记录证据+用户追认 05 §8；FR-2.5/2.6 不可顺延——体量小且删了会破坏 05:253 插入承诺）。
   Closes: 05:253 P1 插入条款（M1 承诺）+04:63 探测表展示
   Parallelization: Wave 4 | Blocked by: 8（llm-gateway 调用链「成熟」条件） | Blocks: 13

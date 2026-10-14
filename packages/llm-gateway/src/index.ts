@@ -44,12 +44,17 @@ export type {
   ChatResult,
   GatewayConfig,
   GatewayPricing,
+  GatewayKeyFailoverInfo,
+  GatewayKeyProvider,
+  GatewayRateLimiter,
   LlmCallRecord,
   LlmCallSink,
   StrategyAttempt,
   StructuredRequest,
   StructuredResult,
 } from './types.js';
+export { TokenBucketLimiter, composeLimiters } from './ratelimit.js';
+export type { TokenBucketOptions } from './ratelimit.js';
 
 /** 便捷构造：内存收集 sink（单测/组合根调试用；生产组合根应接 store client.insertLlmCall） */
 export function createMemoryLlmCallSink(): { records: LlmCallRecord[]; sink: (record: LlmCallRecord) => Promise<void> } {
@@ -62,9 +67,9 @@ export function createMemoryLlmCallSink(): { records: LlmCallRecord[]; sink: (re
   };
 }
 
-/** 组合根装配前的最小配置断言（Key 缺失即抛，防裸 401 泄漏到 UI） */
+/** 组合根装配前的最小配置断言（Key 缺失即抛，防裸 401 泄漏到 UI；keyProvider 候选可替代 apiKey） */
 export function assertGatewayConfig(config: GatewayConfig): void {
-  if (!config.apiKey) throw new Error('GatewayConfig.apiKey 缺失（BYOK Key 只经内存传入，不入库不入日志）');
+  if (!config.apiKey && !config.keyProvider) throw new Error('GatewayConfig.apiKey 缺失（BYOK Key 只经内存传入，不入库不入日志）');
   if (!config.baseUrl) throw new Error('GatewayConfig.baseUrl 缺失');
   if (!config.model) throw new Error('GatewayConfig.model 缺失');
 }

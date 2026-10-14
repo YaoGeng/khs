@@ -9,7 +9,7 @@
  *   当前批不重放（replay）——丢失面与 ADR-8「日志类可丢、任务类以事件流水可重建」口径一致。
  * 本模块 electron-free（transport 注入），vitest 以内存 transport + 真实 worker 内核直测。
  */
-import { STORE_ERROR_CODES, type CircuitEventFilter, type CircuitEventInput, type CircuitEventRowView, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type CreateTaskInput, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KeywordHitRowView, type KnnHit, type KnnQuery, type LogQueryFilter, type LogRowInput, type LogRowView, type LlmCallInput, type NoteInput, type NoteQueryFilter, type NoteRowView, type ReportInput, type ReportRowView, type StepInput, type StepRowView, type StoreRequest, type StoreResponse, type TaskEventInput, type TaskEventRowView, type TaskRowView, type TaskStatus, type TaskStatusInput, type KvValue } from './protocol';
+import { STORE_ERROR_CODES, type CircuitEventFilter, type CircuitEventInput, type CircuitEventRowView, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type CreateTaskInput, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KeywordHitRowView, type KnnHit, type KnnQuery, type LogQueryFilter, type LogRowInput, type LogRowView, type LlmCallFilter, type LlmCallInput, type LlmCallRowView, type NoteInput, type NoteQueryFilter, type NoteRowView, type ReportInput, type ReportRowView, type StepInput, type StepRowView, type StoreRequest, type StoreResponse, type TaskEventInput, type TaskEventRowView, type TaskRowView, type TaskStatus, type TaskStatusInput, type KvValue } from './protocol';
 import type { RetentionPolicy } from '@xinglian/logger';
 
 export interface StoreTransport {
@@ -87,6 +87,8 @@ export interface StoreClient {
   /** 不存在返回 null（getTask 同款语义，不抛） */
   getReport(reportId: number): Promise<ReportRowView | null>;
   insertLlmCall(call: LlmCallInput): Promise<{ written: boolean; id: number }>;
+  /** FR-2.5 用量面板数据源（计量元数据行，无内容字段） */
+  listLlmCalls(filter?: LlmCallFilter): Promise<LlmCallRowView[]>;
   appendCircuitEvent(event: CircuitEventInput): Promise<{ written: boolean; id: number }>;
   listCircuitEvents(filter?: CircuitEventFilter): Promise<CircuitEventRowView[]>;
   insertKeywordHit(hit: KeywordHitInput): Promise<{ written: boolean; id: number }>;
@@ -358,6 +360,10 @@ export function createStoreClient(options: StoreClientOptions): StoreClient {
       return data.report;
     },
     insertLlmCall: (call: LlmCallInput) => unwrap(dispatch(false, (id) => ({ id, type: 'insertLlmCall', call }))),
+    listLlmCalls: async (filter: LlmCallFilter = {}) => {
+      const data = await unwrap<{ calls: LlmCallRowView[] }>(dispatch(false, (id) => ({ id, type: 'listLlmCalls', filter })));
+      return data.calls;
+    },
     appendCircuitEvent: (event: CircuitEventInput) => unwrap(dispatch(false, (id) => ({ id, type: 'appendCircuitEvent', event }))),
     listCircuitEvents: async (filter: CircuitEventFilter = {}) => {
       const data = await unwrap<{ events: CircuitEventRowView[] }>(dispatch(false, (id) => ({ id, type: 'listCircuitEvents', filter })));

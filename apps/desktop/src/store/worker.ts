@@ -7,7 +7,7 @@
  * 事务粒度（ADR-8 §7.2）：insertLogs 分片 ≤100 行/事务；其余单行写各自成事务。
  */
 import { openAndMigrate } from './db';
-import { EMBEDDINGS_RETENTION_DAYS, STORE_ERROR_CODES, isTaskStatus, type CircuitEventFilter, type CircuitEventInput, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KnnQuery, type NoteInput, type NoteQueryFilter, type NoteRowView, type ReportInput, type ReportRowView, type StoreRequest, type StoreResponse, type CreateTaskInput, type LogQueryFilter, type LlmCallInput, type StepInput, type TaskEventInput, type TaskStatusInput, type RetentionPolicy } from './protocol';
+import { EMBEDDINGS_RETENTION_DAYS, STORE_ERROR_CODES, isTaskStatus, type CircuitEventFilter, type CircuitEventInput, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KnnQuery, type LlmCallFilter, type NoteInput, type NoteQueryFilter, type NoteRowView, type ReportInput, type ReportRowView, type StoreRequest, type StoreResponse, type CreateTaskInput, type LogQueryFilter, type LlmCallInput, type StepInput, type TaskEventInput, type TaskStatusInput, type RetentionPolicy } from './protocol';
 
 type SqliteDatabase = import('better-sqlite3').SqliteDatabase;
 
@@ -418,6 +418,29 @@ export function handleStoreRequest(db: SqliteDatabase, request: StoreRequest): {
             call.at ?? new Date().toISOString(),
           );
         return { written: true, id: Number(result.lastInsertRowid) };
+      }
+
+      case 'listLlmCalls': {
+        const filter = request.filter as LlmCallFilter;
+        const limit = Math.min(Math.max(filter.limit ?? 500, 1), 2000);
+        const rows = (
+          filter.since
+            ? db.prepare(`SELECT * FROM llm_calls WHERE at >= ? ORDER BY at DESC LIMIT ${limit}`).all(filter.since)
+            : db.prepare(`SELECT * FROM llm_calls ORDER BY at DESC LIMIT ${limit}`).all()
+        ) as Array<Record<string, unknown>>;
+        return {
+          calls: rows.map((row) => ({
+            id: Number(row.id),
+            traceId: (row.trace_id as string) ?? null,
+            provider: row.provider as string,
+            model: row.model as string,
+            tokensIn: (row.tokens_in as number) ?? null,
+            tokensOut: (row.tokens_out as number) ?? null,
+            cost: (row.cost as number) ?? null,
+            latencyMs: (row.latency_ms as number) ?? null,
+            at: row.at as string,
+          })),
+        };
       }
 
       case 'appendCircuitEvent': {

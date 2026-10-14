@@ -374,6 +374,8 @@ export const KeysSetParamsSchema = z
     provider: z.enum(KEY_PROVIDER_IDS),
     /** API Key 全值（仅主进程经 safeStorage 加密落 kv_config；masked 读回 sk-****+后 4 位） */
     key: z.string().min(8).max(400),
+    /** FR-2.4 备用 Key（同 provider；主 Key 401/403 时网关单调轮换；逐把独立加密） */
+    backupKeys: z.array(z.string().min(8).max(400)).max(5).optional(),
     /** 自定义网关 base_url（custom 必填；预设五家可覆盖官方默认） */
     baseUrl: z.string().url().max(300).optional(),
     /** 测试连接/后续调用用的模型名（custom 必填；预设五家有缺省表） */
@@ -389,6 +391,8 @@ export const KeysSetResultSchema = z.object({
   provider: z.enum(KEY_PROVIDER_IDS),
   /** 仅 masked（sk-****+后 4 位）；全值永不回渲染层 */
   masked: z.string(),
+  /** FR-2.4 备用 Key 的 masked 列表（保存几把回显几把） */
+  backupMasked: z.array(z.string()).default([]),
   encryption: z.enum(KEY_ENCRYPTION_MODES_SCHEMA),
   /** 明文降级时非空：界面告警 toast 文案（绝不静默） */
   warning: z.string().optional(),
@@ -400,6 +404,7 @@ export const KeysGetMaskedParamsSchema = z.strictObject({});
 export const KeyMaskedEntrySchema = z.object({
   provider: z.enum(KEY_PROVIDER_IDS),
   masked: z.string().nullable(),
+  backupMasked: z.array(z.string()).default([]),
   encryption: z.enum(KEY_ENCRYPTION_MODES_SCHEMA).nullable(),
   baseUrl: z.string().nullable(),
   model: z.string().nullable(),
@@ -582,6 +587,65 @@ export const GateRejectParamsSchema = z.strictObject({ taskId: z.string().min(1)
 
 export const GateRejectResultSchema = z.object({ taskId: z.string(), status: z.enum(TASK_STATUSES_SCHEMA) });
 
+/* usage:* —— FR-2.5 用量面板 + FR-2.6 全局 RPM（m1 todo 12；聚合数据源=llm_calls 计量元数据） */
+
+export const UsageSummaryParamsSchema = z.strictObject({
+  /** 统计窗口天数（默认 30，1~365） */
+  days: z.number().int().min(1).max(365).optional(),
+});
+
+export const UsageBucketSchema = z.object({
+  key: z.string(),
+  calls: z.number().int().nonnegative(),
+  tokensIn: z.number().int().nonnegative(),
+  tokensOut: z.number().int().nonnegative(),
+  /** 网关已知成本（GatewayConfig.pricing 注入时 llm_calls 自带） */
+  costKnown: z.number(),
+  /** 自填单价估算成本（usage:setPricing） */
+  costEstimated: z.number(),
+  /** 无任何定价依据的调用数（不造数，显式计数） */
+  unestimatedCalls: z.number().int().nonnegative(),
+});
+
+export const UsageSummaryResultSchema = z.object({
+  sinceDays: z.number().int().min(1).max(365),
+  totals: UsageBucketSchema,
+  byDay: z.array(UsageBucketSchema),
+  byWorkflow: z.array(UsageBucketSchema),
+  byProviderModel: z.array(UsageBucketSchema),
+  pricing: z.record(z.string(), z.object({ inputPer1k: z.number().nonnegative().optional(), outputPer1k: z.number().nonnegative().optional() })),
+  /** FR-2.6 全局 RPM（0=不限流） */
+  rpmGlobal: z.number().int().nonnegative(),
+  /** 能力矩阵探测档展示（04:63；tierSource=documented 时 UI 显示「文档源，待实测」角标，R9） */
+  providers: z.array(
+    z.object({
+      provider: z.string(),
+      label: z.string(),
+      tier: z.string(),
+      tierSource: z.enum(['documented', 'probed', 'network-unreachable']),
+      reachability: z.string(),
+    }),
+  ),
+});
+
+export const UsageSetPricingParamsSchema = z.strictObject({
+  pricing: z.record(z.string(), z.object({ inputPer1k: z.number().nonnegative().optional(), outputPer1k: z.number().nonnegative().optional() })),
+});
+export const UsageSetPricingResultSchema = z.object({ set: z.boolean() });
+
+export const UsageSetRpmParamsSchema = z.strictObject({
+  /** 每分钟请求上限；0=不限流（FR-2.6） */
+  rpm: z.number().int().min(0).max(10000),
+});
+export const UsageSetRpmResultSchema = z.object({ set: z.boolean() });
+
+export type UsageSummaryParams = z.infer<typeof UsageSummaryParamsSchema>;
+export type UsageSummaryResult = z.infer<typeof UsageSummaryResultSchema>;
+export type UsageSetPricingParams = z.infer<typeof UsageSetPricingParamsSchema>;
+export type UsageSetPricingResult = z.infer<typeof UsageSetPricingResultSchema>;
+export type UsageSetRpmParams = z.infer<typeof UsageSetRpmParamsSchema>;
+export type UsageSetRpmResult = z.infer<typeof UsageSetRpmResultSchema>;
+
 /** 通道 → 入参 schema。preload 与 main 侧都从这里取，保证两侧校验一致。 */
 export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'app:info': AppInfoParamsSchema,
@@ -621,4 +685,7 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'tasks:pause': TasksPauseParamsSchema,
   'tasks:resume': TasksResumeParamsSchema,
   'tasks:cancel': TasksCancelParamsSchema,
+  'usage:setPricing': UsageSetPricingParamsSchema,
+  'usage:setRpm': UsageSetRpmParamsSchema,
+  'usage:summary': UsageSummaryParamsSchema,
 };

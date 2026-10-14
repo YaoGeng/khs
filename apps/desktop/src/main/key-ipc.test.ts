@@ -60,12 +60,13 @@ const browserStub = {
 };
 
 const keysStub: KeysIpcDeps = {
-  setKey: async () => ({ provider: 'zhipu', masked: 'sk-****abcd', encryption: 'safeStorage' }),
+  setKey: async () => ({ provider: 'zhipu', masked: 'sk-****abcd', backupMasked: [], encryption: 'safeStorage' }),
   getMasked: async () => ({
     keys: [
       {
         provider: 'zhipu',
         masked: 'sk-****abcd',
+        backupMasked: [],
         encryption: 'safeStorage',
         baseUrl: null,
         model: null,
@@ -114,6 +115,7 @@ describe('keys:* 通道注册（T4 注册表模式延续）', () => {
     await expect(data).resolves.toEqual({
       provider: 'zhipu',
       masked: 'sk-****abcd',
+      backupMasked: [],
       encryption: 'safeStorage',
     });
   });
@@ -134,7 +136,7 @@ describe('keys:* 通道注册（T4 注册表模式延续）', () => {
       ...keysStub,
       // 模拟「出口结构合法但值泄漏」的契约破坏：masked 字段被错误写成全值
       getMasked: async () => ({
-        keys: [{ provider: 'zhipu', masked: FULL, encryption: 'safeStorage', baseUrl: null, model: null, setAt: null }],
+        keys: [{ provider: 'zhipu', masked: FULL, backupMasked: [], encryption: 'safeStorage', baseUrl: null, model: null, setAt: null }],
       }),
       exitAuditRawValues: async () => [FULL],
     };

@@ -51,7 +51,7 @@ export interface WordlistScanFacade {
 }
 
 export interface KeyServiceDeps {
-  readonly store: Pick<StoreClient, 'kvGet' | 'kvSet' | 'insertLogs' | 'insertKeywordHit'>;
+  readonly store: Pick<StoreClient, 'kvGet' | 'kvSet' | 'kvDel' | 'insertLogs' | 'insertKeywordHit'>;
   /** null = 运行环境无 safeStorage（非 electron/测试桩显式关闭）→ 同「不可用」显式降级路径 */
   readonly safeStorage: SafeStoragePort | null;
   readonly fetchFn: typeof fetch;
@@ -73,16 +73,26 @@ export interface KeyService {
 
 const KV_KEY_PREFIX = 'byok:key:';
 const KV_META_PREFIX = 'byok:meta:';
+const KV_BACKUP_PREFIX = 'byok:key-backup:';
 export const KV_WORDLIST_ACTIVE = 'wordlist:active';
-export { KV_KEY_PREFIX, KV_META_PREFIX };
+export { KV_KEY_PREFIX, KV_META_PREFIX, KV_BACKUP_PREFIX };
 
 interface KeyMetaJson {
   provider: KeyProviderId;
   masked: string;
+  /** FR-2.4 备用 Key 的 masked 列表（与主 Key 同形态脱敏） */
+  backupMasked?: string[];
   encryption: 'safeStorage' | 'plaintext-fallback';
   baseUrl: string | null;
   model: string | null;
   setAt: string;
+}
+
+/** 备用 Key 存储形态（逐把独立加密；与主 Key 同一降级纪律） */
+interface BackupStoreJson {
+  encryption: 'safeStorage' | 'plaintext-fallback';
+  /** safeStorage=base64(ciphertext)；plaintext-fallback=明文（仅显式降级路径） */
+  items: string[];
 }
 
 /** 预设五家官方默认 base_url（与 llm-gateway presets.ts 互链镜像；custom 必须用户自填） */
@@ -114,7 +124,33 @@ export interface GatewayKeyEntry {
   provider: string;
   baseUrl: string;
   apiKey: string;
+  /** FR-2.4 备用 Key（同 provider，主 Key 鉴权失败时网关轮换；顺序即优先级） */
+  backupKeys: string[];
   model: string;
+}
+
+/** 备用 Key 解密读取（明文形态仅主进程内存；无记录/解析失败 → 空数组不抛） */
+async function readBackupKeys(deps: Pick<StoreClient, 'kvGet'>, safeStorage: SafeStoragePort | null, provider: KeyProviderId): Promise<string[]> {
+  const raw = await deps.kvGet(KV_BACKUP_PREFIX + provider);
+  if (typeof raw !== 'string' || raw.length === 0) return [];
+  let parsed: BackupStoreJson;
+  try {
+    parsed = JSON.parse(raw) as BackupStoreJson;
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed.items)) return [];
+  return parsed.items
+    .map((item) => {
+      if (parsed.encryption !== 'safeStorage') return item;
+      if (!safeStorage) return '';
+      try {
+        return safeStorage.decryptString(Buffer.from(item, 'base64'));
+      } catch {
+        return '';
+      }
+    })
+    .filter((key) => key.length >= 8);
 }
 
 /**
@@ -150,7 +186,8 @@ export function createGatewayKeyReader(
     const baseUrl = meta.baseUrl ?? DEFAULT_BASE_URLS[provider] ?? null;
     const model = meta.model ?? DEFAULT_MODELS[provider] ?? null;
     if (!baseUrl || !model) return null;
-    return { provider, baseUrl, apiKey, model };
+    const backupKeys = await readBackupKeys(deps, safeStorage, provider);
+    return { provider, baseUrl, apiKey, backupKeys, model };
   };
 }
 
@@ -185,6 +222,7 @@ export function createKeyService(deps: KeyServiceDeps): KeyService {
     async setKey(params: KeysSetParams): Promise<KeysSetResult> {
       const at = now().toISOString();
       const masked = maskKey(params.key);
+      const backups = (params.backupKeys ?? []).filter((k) => k.length >= 8);
       const available = deps.safeStorage?.isEncryptionAvailable() ?? false;
       let encryption: 'safeStorage' | 'plaintext-fallback';
       let warning: string | undefined;
@@ -198,6 +236,7 @@ export function createKeyService(deps: KeyServiceDeps): KeyService {
           provider: params.provider,
           safeStorageAvailable: false,
           at,
+          backupCount: backups.length,
           note: 'safeStorage 不可用，Key 以明文落 kv_config（FR-2.7 显式降级）',
         });
         await deps.store.kvSet(KV_KEY_PREFIX + params.provider, params.key);
@@ -205,9 +244,30 @@ export function createKeyService(deps: KeyServiceDeps): KeyService {
         warning =
           'safeStorage 不可用：Key 已按明文本地保存（已写入审计日志）。建议在支持操作系统级凭据保护的环境中尽快更换。';
       }
+      // FR-2.4 备用 Key：逐把独立加密，同一降级纪律（无 safeStorage 时随审计条目一并告警）
+      const backupMasked = backups.map(maskKey);
+      if (backups.length > 0) {
+        const items =
+          available && deps.safeStorage
+            ? backups.map((key) => deps.safeStorage!.encryptString(key).toString('base64'))
+            : backups;
+        await deps.store.kvSet(KV_BACKUP_PREFIX + params.provider, JSON.stringify({ encryption, items } satisfies BackupStoreJson));
+        if (!(available && deps.safeStorage)) {
+          await writeAudit('keys:backup-stored-plaintext-fallback', {
+            provider: params.provider,
+            count: backups.length,
+            at,
+            note: 'safeStorage 不可用，备用 Key 以明文落 kv_config（FR-2.4 显式降级）',
+          });
+          warning = `${warning ?? ''}备用 Key（${backups.length} 把）同样以明文保存并已写审计日志。`;
+        }
+      } else {
+        await deps.store.kvDel(KV_BACKUP_PREFIX + params.provider);
+      }
       const meta: KeyMetaJson = {
         provider: params.provider,
         masked,
+        backupMasked,
         encryption,
         baseUrl: params.baseUrl ?? null,
         model: params.model ?? null,
@@ -217,6 +277,7 @@ export function createKeyService(deps: KeyServiceDeps): KeyService {
       return KeysSetResultSchema.parse({
         provider: params.provider,
         masked,
+        backupMasked,
         encryption,
         ...(warning ? { warning } : {}),
       });
@@ -227,14 +288,17 @@ export function createKeyService(deps: KeyServiceDeps): KeyService {
       for (const provider of KEY_PROVIDER_IDS) {
         const meta = await readMetaAsync(provider);
         keys.push(
-          meta ?? {
-            provider,
-            masked: null,
-            encryption: null,
-            baseUrl: null,
-            model: null,
-            setAt: null,
-          },
+          meta
+            ? { ...meta, backupMasked: meta.backupMasked ?? [] }
+            : {
+                provider,
+                masked: null,
+                backupMasked: [],
+                encryption: null,
+                baseUrl: null,
+                model: null,
+                setAt: null,
+              },
         );
       }
       return { keys };
@@ -245,6 +309,8 @@ export function createKeyService(deps: KeyServiceDeps): KeyService {
       for (const provider of KEY_PROVIDER_IDS) {
         const raw = await deps.store.kvGet(KV_KEY_PREFIX + provider);
         if (typeof raw === 'string' && raw.length > 0) values.push(raw);
+        // FR-2.4：备用 Key 全值同在深扫描范围（masked 出口泄漏检测不漏备用 Key）
+        for (const backup of await readBackupKeys(deps.store, deps.safeStorage, provider)) values.push(backup);
       }
       return values;
     },

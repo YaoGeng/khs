@@ -10,6 +10,7 @@
 import { E_EULA_LOCKED } from '../shared/channels';
 import type { ViewId } from '../shared/types';
 import { initInsightView, refreshInsightView } from './insight';
+import { initUsageView, refreshUsagePanel } from './usage';
 import { initReportView } from './reportView';
 
 const bridge = window.xinglian;
@@ -43,6 +44,8 @@ function switchView(view: string, title: string): void {
   if (topbarTitle && title) topbarTitle.textContent = title;
   /* 洞察视图每次激活即刷新（采集列表/闸门可能已被后台任务推进） */
   if (view === 'insight') refreshInsightView();
+  /* 设置视图激活即刷新用量面板（报告跑完回来看消耗） */
+  if (view === 'settings') refreshUsagePanel();
 }
 
 function localFallback(view: string): void {
@@ -594,6 +597,7 @@ const keyProviderSelect = document.getElementById('key-provider-select') as HTML
 const keyInput = document.getElementById('key-input') as HTMLInputElement | null;
 const keyBaseUrlInput = document.getElementById('key-baseurl-input') as HTMLInputElement | null;
 const keyModelInput = document.getElementById('key-model-input') as HTMLInputElement | null;
+const keyBackupInput = document.getElementById('key-backup-input') as HTMLTextAreaElement | null;
 const keyTestBtn = document.getElementById('key-test-btn');
 const keyTestStatus = document.getElementById('key-test-status');
 const precallResetBtn = document.getElementById('key-precall-reset-btn');
@@ -608,6 +612,7 @@ const scanTestResult = document.getElementById('scan-test-result');
 interface KeyMaskedEntryView {
   provider: string;
   masked: string | null;
+  backupMasked?: string[];
   encryption: 'safeStorage' | 'plaintext-fallback' | null;
   baseUrl: string | null;
   model: string | null;
@@ -636,7 +641,8 @@ function applyMaskedKeys(result: { keys: KeyMaskedEntryView[] }): void {
     if (entry.masked) {
       anyConfigured = true;
       const encryptionLabel = entry.encryption === 'safeStorage' ? 'safeStorage 加密' : '明文降级（告警）';
-      line.textContent = `${KEY_PROVIDER_LABELS[entry.provider] ?? entry.provider}：${entry.masked}（${encryptionLabel}${entry.setAt ? `，${entry.setAt.slice(0, 10)}` : ''}）`;
+      const backupNote = entry.backupMasked && entry.backupMasked.length > 0 ? `，备用 ${entry.backupMasked.length} 把（${entry.backupMasked.join(' / ')}）` : '';
+      line.textContent = `${KEY_PROVIDER_LABELS[entry.provider] ?? entry.provider}：${entry.masked}（${encryptionLabel}${entry.setAt ? `，${entry.setAt.slice(0, 10)}` : ''}${backupNote}）`;
     } else {
       line.textContent = `${KEY_PROVIDER_LABELS[entry.provider] ?? entry.provider}：未配置`;
     }
@@ -674,14 +680,30 @@ keySetForm?.addEventListener('submit', (event) => {
   const key = keyInput.value.trim();
   const baseUrl = keyBaseUrlInput?.value.trim() || undefined;
   const model = keyModelInput?.value.trim() || undefined;
+  // FR-2.4 备用 Key：每行一把（≤5），空行忽略；随主 Key 同一加密纪律落库
+  const backupKeys = (keyBackupInput?.value ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
   if (key.length < 8) {
     if (keyStatusLine) keyStatusLine.textContent = 'Key 状态：Key 至少 8 个字符，请检查输入。';
     root.dataset.keySet = 'invalid-input';
     return;
   }
+  if (backupKeys.some((k) => k.length < 8) || backupKeys.length > 5) {
+    if (keyStatusLine) keyStatusLine.textContent = 'Key 状态：备用 Key 每把至少 8 个字符且最多 5 把，请检查输入。';
+    root.dataset.keySet = 'invalid-input';
+    return;
+  }
   root.dataset.keySet = 'pending';
   bridge
-    .invoke('keys:set', { provider, key, ...(baseUrl ? { baseUrl } : {}), ...(model ? { model } : {}) })
+    .invoke('keys:set', {
+      provider,
+      key,
+      ...(backupKeys.length > 0 ? { backupKeys } : {}),
+      ...(baseUrl ? { baseUrl } : {}),
+      ...(model ? { model } : {}),
+    })
     .then((data) => {
       const result = data as { masked: string; encryption: string; warning?: string };
       root.dataset.keySet = result.warning ? 'warn' : 'done';
@@ -1042,6 +1064,13 @@ try {
   initReportView();
 } catch (error) {
   console.warn('[renderer] report view init failed:', error);
+}
+
+// m1 todo 12（FR-2.5/2.6）：用量面板（settings 视图内 usage-card）
+try {
+  initUsageView();
+} catch (error) {
+  console.warn('[renderer] usage view init failed:', error);
 }
 
 if (bridge) {

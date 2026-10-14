@@ -13,6 +13,7 @@
 | qs ≤6.15.x | GHSA-q8mj-m7cp-5q26 等 3 条（moderate DoS） | override ≥6.16.0 |
 | body-parser <1.20.6 | GHSA-v422-hmwv-36x6（low） | override ≥1.20.6 |
 | @nestjs/core 10.x | GHSA-36xv-jgw5-4q75（moderate 注入） | Nest 全栈升 ^11.2.7 |
+| echarts <6.1.0 | GHSA-fgmj-fm8m-jvvx（moderate XSS） | override >=6.1.0（echarts-wordcloud 2.1.0 peer 声明 ^5，实际渲染兼容——report-ui e2e 用例 A 词云 canvas 断言为金丝雀，2026-10-14 实测通过） |
 
 ## 豁免项（dev 面，不随应用发布）
 

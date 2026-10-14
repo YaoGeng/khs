@@ -17,6 +17,9 @@
  * CSV 数据源）、reports:list/reports:get/report:chartData（FR-5.3 图表数据）、report:exportPdf
  * （printToPDF 管线，禁第三方 PDF 库）、report:insertFixture（QA failure 组，debug 门控装配）、
  * gate:list/gate:confirm/gate:reject（02:274 E 步关键词确认闸门）。
+ * M1（m1 todo 12 = FR-2.4~2.6）：usage:* 三通道入白名单——usage:summary（llm_calls 聚合+
+ * 自填单价估算+探测档展示，01:130/04:63）、usage:setPricing（自填单价表）、usage:setRpm
+ * （FR-2.6 全局 RPM，0=不限流）。
  */
 export const IPC_CHANNELS = [
   'app:info',
@@ -56,6 +59,9 @@ export const IPC_CHANNELS = [
   'tasks:pause',
   'tasks:resume',
   'tasks:cancel',
+  'usage:setPricing',
+  'usage:setRpm',
+  'usage:summary',
 ] as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[number];

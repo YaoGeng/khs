@@ -21,7 +21,8 @@ import { createCollectBinding, type CollectBinding } from './main/collect-bindin
 import { createElectronSafeStoragePort } from './main/safe-storage-port';
 import { createGatewayKeyReader, createKeyService, type KeyService, type SafeStoragePort } from './main/key-service';
 import { createReportService, type ReportService } from './main/report-service';
-import { LlmGateway } from '@xinglian/llm-gateway';
+import { createUsageService, type UsageService } from './main/usage-service';
+import { LlmGateway, TokenBucketLimiter } from '@xinglian/llm-gateway';
 import type { StoreClient } from './store';
 import { createWordlistService, type WordlistService } from './compliance/wordlist-service';
 import { BrowserService } from './browser/browser-service';
@@ -71,6 +72,9 @@ let wordlistService: WordlistService | null = null;
 
 // m1 todo 10：BYOK Key 服务（safeStorage 经注入 Port；masked 出口断言在 ipc-core；T-M1-08①）
 let keyService: KeyService | null = null;
+
+// m1 todo 12：用量面板 + 全局 RPM（FR-2.5/2.6；llm_calls 聚合 + 自填单价 + 探测档展示）
+let usageService: UsageService | null = null;
 
 /** 桌面通知（Electron Notification；不可用环境静默降级为日志，e2e/CI 无通知中心） */
 function showDesktopNotification(title: string, body: string): void {
@@ -180,6 +184,25 @@ if (!gotLock) {
           timeoutMs: 120_000,
           maxTokens: 8192,
           temperature: 0.2,
+          // FR-2.4：主 Key 401/403 → 同 provider 备用 Key 单调轮换；遥测经唯一出口 + 本地日志留痕
+          keyProvider: {
+            list: async () => [config.apiKey, ...config.backupKeys],
+            onFailover: (info) => {
+              void complianceService
+                ?.sendTelemetry({ name: 'key_failover', payload: { provider: info.provider, from: info.failedKeyMasked, to: info.nextKeyMasked, index: info.nextIndex, total: info.total } })
+                .catch(() => {});
+              storeService?.logger.userAction('key:failover', {
+                provider: info.provider,
+                from: info.failedKeyMasked,
+                to: info.nextKeyMasked,
+                index: info.nextIndex,
+                total: info.total,
+                at: info.at,
+              });
+            },
+          },
+          // FR-2.6：全局 RPM 令牌桶（kv llm:rpm-global，0/缺失=不限流；report 步骤解析配置时读取）
+          ...(config.rpmGlobal > 0 ? { limiter: new TokenBucketLimiter({ rpm: config.rpmGlobal }) } : {}),
           sink: async (record) => {
             await storeClient.insertLlmCall(record);
           },
@@ -223,6 +246,9 @@ if (!gotLock) {
         });
       }
     });
+
+    // m1 todo 12：用量面板 + 全局 RPM（FR-2.5/2.6；llm_calls 聚合 + 自填单价 + 探测档展示）
+    usageService = createUsageService({ store: storeClient });
 
     registerIpcHandlers({
       appInfo: () => ({
@@ -289,6 +315,8 @@ if (!gotLock) {
         confirmGate: (params) => reportService!.confirmGate(params.taskId),
         rejectGate: (params) => reportService!.rejectGate(params.taskId),
       },
+      // m1 todo 12：用量面板 + 全局 RPM（usage:summary / usage:setPricing / usage:setRpm；FR-2.5/2.6）
+      usage: usageService!.ipc,
     });
 
     // e2e/测试钩子（仅显式 env 门控；生产不暴露）：让位机制与崩溃联动的进程内驱动入口

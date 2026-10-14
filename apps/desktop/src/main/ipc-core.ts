@@ -36,6 +36,9 @@ import {
   TasksCreateDemoResultSchema,
   TasksListResultSchema,
   TasksResumeResultSchema,
+  UsageSetPricingResultSchema,
+  UsageSetRpmResultSchema,
+  UsageSummaryResultSchema,
   type AppInfoResult,
   type BrowserDisconnectResult,
   type BrowserOpenPlatformParams,
@@ -72,6 +75,12 @@ import {
   type ReportInsertFixtureParams,
   type ReportsListResult,
   type TasksListResult,
+  type UsageSetPricingParams,
+  type UsageSetPricingResult,
+  type UsageSetRpmParams,
+  type UsageSetRpmResult,
+  type UsageSummaryParams,
+  type UsageSummaryResult,
 } from '../shared/schemas';
 import { isChannelAllowed } from './security';
 
@@ -174,6 +183,18 @@ export interface AppInfoDeps {
   readonly keys?: KeysIpcDeps;
   /** m1 todo 11：报告 UI + 确认闸门（T-M1-06）依赖；未装配时 notes:/reports:/gate: 通道显式报未就绪 */
   readonly report?: ReportIpcDeps;
+  /** m1 todo 12：用量面板 + 全局 RPM（FR-2.5/2.6）依赖；未装配时 usage: 通道显式报未就绪 */
+  readonly usage?: UsageIpcDeps;
+}
+
+/**
+ * 用量链路依赖注入面（m1 todo 12 = FR-2.5/2.6；main binding 在 main.ts → usage-service）。
+ * 读面/设置面均为 settings 视图消费，无需 EULA 门。
+ */
+export interface UsageIpcDeps {
+  readonly summary: (params: UsageSummaryParams) => Promise<UsageSummaryResult>;
+  readonly setPricing: (params: UsageSetPricingParams) => Promise<UsageSetPricingResult>;
+  readonly setRpm: (params: UsageSetRpmParams) => Promise<UsageSetRpmResult>;
 }
 
 /** 校验并执行一次 IPC 调用（主进程 handle 与单测共用同一路径） */
@@ -676,6 +697,36 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
           }
           const result = await deps.report.rejectGate(payload);
           return validateExit(GateRejectResultSchema, result, 'gate:reject');
+        },
+      },
+    ],
+    [
+      'usage:summary',
+      {
+        paramsSchema: channelParamsSchemas['usage:summary'],
+        handle: async (payload: UsageSummaryParams) => {
+          if (!deps.usage) throw new Error('E-IPC-DEP-MISSING: usage 链路未装配');
+          return validateExit(UsageSummaryResultSchema, await deps.usage.summary(payload), 'usage:summary');
+        },
+      },
+    ],
+    [
+      'usage:setPricing',
+      {
+        paramsSchema: channelParamsSchemas['usage:setPricing'],
+        handle: async (payload: UsageSetPricingParams) => {
+          if (!deps.usage) throw new Error('E-IPC-DEP-MISSING: usage 链路未装配');
+          return validateExit(UsageSetPricingResultSchema, await deps.usage.setPricing(payload), 'usage:setPricing');
+        },
+      },
+    ],
+    [
+      'usage:setRpm',
+      {
+        paramsSchema: channelParamsSchemas['usage:setRpm'],
+        handle: async (payload: UsageSetRpmParams) => {
+          if (!deps.usage) throw new Error('E-IPC-DEP-MISSING: usage 链路未装配');
+          return validateExit(UsageSetRpmResultSchema, await deps.usage.setRpm(payload), 'usage:setRpm');
         },
       },
     ],

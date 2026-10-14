@@ -232,6 +232,26 @@ export interface LlmCallInput {
   at?: string;
 }
 
+/** llm_calls 行视图（FR-2.5 用量面板聚合数据源；无内容字段——只有计量元数据） */
+export interface LlmCallRowView {
+  id: number;
+  traceId: string | null;
+  provider: string;
+  model: string;
+  tokensIn: number | null;
+  tokensOut: number | null;
+  cost: number | null;
+  latencyMs: number | null;
+  at: string;
+}
+
+export interface LlmCallFilter {
+  /** ISO 时间下界（含）；缺省不限 */
+  since?: string;
+  /** 默认 500，上限 2000 */
+  limit?: number;
+}
+
 /** 熔断/配额/自检失败事件（只记事件元数据，禁带笔记内容字段——02:354） */
 export interface CircuitEventInput {
   kind: string;
@@ -363,6 +383,7 @@ export type StoreRequest =
   | (RequestBase & { type: 'insertReport'; report: ReportInput })
   | (RequestBase & { type: 'getReport'; reportId: number })
   | (RequestBase & { type: 'insertLlmCall'; call: LlmCallInput })
+  | (RequestBase & { type: 'listLlmCalls'; filter: LlmCallFilter })
   | (RequestBase & { type: 'appendCircuitEvent'; event: CircuitEventInput })
   | (RequestBase & { type: 'listCircuitEvents'; filter: CircuitEventFilter })
   | (RequestBase & { type: 'insertKeywordHit'; hit: KeywordHitInput })

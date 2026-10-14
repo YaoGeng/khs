@@ -29,6 +29,33 @@ export interface GatewayPricing {
   outputPer1k?: number;
 }
 
+/** Key 轮换遥测信息（组合根接 sendTelemetry('key_failover')；仅脱敏形态，永不含全值） */
+export interface GatewayKeyFailoverInfo {
+  provider: string;
+  /** 失败 Key 的脱敏形态（sk-****后4位） */
+  failedKeyMasked: string;
+  nextKeyMasked: string;
+  failedIndex: number;
+  nextIndex: number;
+  total: number;
+  at: string;
+}
+
+/**
+ * FR-2.4 KeyProvider 接口：同 provider 多 Key 有序候选（[0]=主 Key）。
+ * 不跨 provider 混用由实现方保证；list() 在每次 chat 调用开始时拉取一次。
+ */
+export interface GatewayKeyProvider {
+  list(): Promise<string[]>;
+  /** 401/403 轮换通知（缺省 no-op） */
+  onFailover?(info: GatewayKeyFailoverInfo): void;
+}
+
+/** FR-2.6 RPM 限额面（网关在每次 HTTP 请求前 acquire；超限=排队等待非报错） */
+export interface GatewayRateLimiter {
+  acquire(): Promise<void>;
+}
+
 export interface GatewayConfig {
   /** 计量与 llm_calls 落库用 provider 标识；BYOK 自定义网关可为任意稳定 id（ADR-7 §4 附注：不新增第六预设，矩阵五预设不动） */
   provider: string;
@@ -49,6 +76,14 @@ export interface GatewayConfig {
   /** 额外请求头（如 coding-agent 网关要求的自定义 User-Agent / x-opencode-session） */
   headers?: Record<string, string>;
   pricing?: GatewayPricing;
+  /**
+   * FR-2.4 多 Key 候选（同 provider）：提供时 list()[0] 为主 Key（覆盖 apiKey 字段语义），
+   * 401/403 单调前进轮换、每 Key 对鉴权失败恰试一次、不消耗传输层退避预算。
+   * 缺省退回 apiKey 单 Key。
+   */
+  keyProvider?: GatewayKeyProvider;
+  /** FR-2.6 RPM 令牌桶（全局/任务级由组合根组合后注入；缺省不限流） */
+  limiter?: GatewayRateLimiter;
   /** 每次完成（含失败）请求的计量落点；默认 no-op。sink 自身异常不中断 LLM 调用，计入 sinkErrorCount */
   sink?: LlmCallSink;
   /** 测试注入的 sleep（退避计数值），默认真实 setTimeout */

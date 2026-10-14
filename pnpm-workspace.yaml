@@ -18,3 +18,6 @@ overrides:
   mysql2: '>=3.23.1'
   qs: '>=6.16.0'
   body-parser: '>=1.20.6'
+  # GHSA-fgmj-fm8m-jvvx（moderate XSS，echarts<6.1.0）；echarts-wordcloud 2.1.0 peer 声明 ^5
+  # 但 wordcloud 渲染在 echarts 6 下经 e2e canvas 断言实测兼容（report-ui 用例 A 为金丝雀）
+  echarts: '>=6.1.0'

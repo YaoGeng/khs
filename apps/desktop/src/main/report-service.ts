@@ -24,6 +24,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { clusterTexts, extractPrices, generateReport, type AgentNote, type ReportOutcome } from '@xinglian/agents';
 import type { SchemaInjectionStrategy } from '@xinglian/llm-gateway';
+import { KV_LLM_RPM_GLOBAL } from './usage-service';
 import type { Logger } from '@xinglian/logger';
 import type { StoreClient, NoteRowView } from '../store';
 import type { TaskRunner } from '../tasks';
@@ -77,7 +78,11 @@ export interface ReportLlmConfig {
   provider: string;
   baseUrl: string;
   apiKey: string;
+  /** FR-2.4 备用 Key（同 provider；主 Key 401/403 时网关轮换） */
+  backupKeys: string[];
   model: string;
+  /** FR-2.6 全局 RPM（0=不限流；resolveLlmConfig 时从 kv llm:rpm-global 读取，改设置后下次报告生效） */
+  rpmGlobal: number;
 }
 
 export interface ReportServiceDeps {
@@ -107,7 +112,8 @@ export interface ReportServiceDeps {
   /** 遥测唯一出口（complianceService.sendTelemetry） */
   readonly sendTelemetry?: (event: { name: string; payload?: unknown }) => Promise<unknown>;
   /** BYOK Key 解密面（key-service 同款 kv 布局；组合根注入，明文仅主进程内存） */
-  readonly readKeyEntry: (provider: string) => Promise<ReportLlmConfig | null>;
+  /** BYOK Key 解密面（key-service GatewayKeyEntry 同构；backupKeys 供 FR-2.4 轮换） */
+  readonly readKeyEntry: (provider: string) => Promise<{ provider: string; baseUrl: string; apiKey: string; backupKeys: string[]; model: string } | null>;
   /** 去标识化本地盐（与 realrun 同语义；组合根注入持久值） */
   readonly salt: string;
   /** 聚类/筛选确定性种子 */
@@ -254,7 +260,19 @@ export function createReportService(deps: ReportServiceDeps): ReportService {
     const order = override ? [override, ...PROVIDER_PREFERENCE.filter((p) => p !== override)] : [...PROVIDER_PREFERENCE];
     for (const provider of order) {
       const entry = await deps.readKeyEntry(provider);
-      if (entry) return entry;
+      if (entry) {
+        // FR-2.6：全局 RPM 随解析一并读取（kv 读经 store worker；改设置后下一次报告步骤生效）
+        const rpmRaw = await deps.store.kvGet(KV_LLM_RPM_GLOBAL);
+        const rpm = typeof rpmRaw === 'string' ? Number(rpmRaw) : 0;
+        return {
+          provider: entry.provider,
+          baseUrl: entry.baseUrl,
+          apiKey: entry.apiKey,
+          backupKeys: entry.backupKeys,
+          model: entry.model,
+          rpmGlobal: Number.isFinite(rpm) && rpm > 0 ? Math.floor(rpm) : 0,
+        };
+      }
     }
     return null;
   }

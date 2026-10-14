@@ -210,7 +210,7 @@ function makeDeps(options: { tasks?: Parameters<typeof makeStore>[0]['tasks']; n
     },
     readKeyEntry: options.withKey === false
       ? async () => null
-      : async (provider) => (provider === 'custom' ? { provider, baseUrl: 'http://127.0.0.1:9/v1', apiKey: 'sk-test', model: 'e2e-model' } : null),
+      : async (provider) => (provider === 'custom' ? { provider, baseUrl: 'http://127.0.0.1:9/v1', apiKey: 'sk-test', backupKeys: [], model: 'e2e-model' } : null),
     salt: 'unit-salt',
     seed: 7,
     now: () => new Date('2026-10-14T08:00:00.000Z'),

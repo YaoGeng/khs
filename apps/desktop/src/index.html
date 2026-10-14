@@ -287,6 +287,9 @@
                 <label class="key-label">模型名（可选，自定义网关必填）
                   <input class="key-input" id="key-model-input" type="text" placeholder="如 glm-4.7-flash / deepseek-chat" autocomplete="off" spellcheck="false" />
                 </label>
+                <label class="key-label">备用 Key（可选，每行一把；主 Key 鉴权失败时自动轮换，FR-2.4）
+                  <textarea class="key-input" id="key-backup-input" rows="2" placeholder="同一服务商的备用 API Key，每行一把（最多 5 把）" autocomplete="off" spellcheck="false"></textarea>
+                </label>
                 <button class="btn btn-primary" id="key-save-btn" type="submit">保存 Key（加密落库）</button>
               </form>
               <p class="key-status-line" id="key-status-line">Key 状态：检测中…</p>
@@ -303,6 +306,36 @@
                 </label>
                 <button class="btn btn-ghost" id="scan-test-btn" type="button">扫描（命中留痕 keyword_hits）</button>
                 <p class="scan-test-result" id="scan-test-result">尚未扫描。</p>
+              </div>
+            </section>
+            <!-- m1 todo 12（FR-2.5/2.6）：用量面板——llm_calls 聚合 + 自填单价估算 + 探测档 + 全局 RPM -->
+            <section class="settings-card" id="usage-card">
+              <h3>用量与限额（FR-2.5 / FR-2.6）</h3>
+              <p class="placeholder">数据源=本地 llm_calls 计量（不含笔记内容）；成本=网关已知成本优先，其次按下方自填单价估算，都无则计「未估算」。</p>
+              <div class="usage-totals" id="usage-totals">加载中…</div>
+              <div class="usage-block">
+                <h4>按天</h4>
+                <div class="usage-table" id="usage-by-day" role="table" aria-label="按天用量"></div>
+              </div>
+              <div class="usage-block">
+                <h4>按服务商/模型</h4>
+                <div class="usage-table" id="usage-by-provider" role="table" aria-label="按服务商模型用量"></div>
+              </div>
+              <div class="usage-block">
+                <h4>能力探测档（04:63；「文档源」=未实测档，UI 承诺以上表实测结论为准）</h4>
+                <div class="usage-table" id="usage-providers" role="table" aria-label="服务商能力探测档"></div>
+              </div>
+              <div class="usage-block">
+                <h4>自填单价（元 / 1k tokens；键=服务商/模型，* 为该服务商兜底）</h4>
+                <textarea class="key-input" id="usage-pricing-input" rows="4" placeholder='{"zhipu/glm-4.7-flash":{"inputPer1k":0.001,"outputPer1k":0.002}}' spellcheck="false"></textarea>
+                <button class="btn btn-ghost" id="usage-pricing-save" type="button">保存单价表</button>
+                <span class="usage-status" id="usage-pricing-status"></span>
+              </div>
+              <div class="usage-block">
+                <h4>全局 RPM 限额（FR-2.6：每分钟请求上限，超限排队等待；0=不限流）</h4>
+                <input class="key-input" id="usage-rpm-input" type="number" min="0" max="10000" step="1" placeholder="0" />
+                <button class="btn btn-ghost" id="usage-rpm-save" type="button">保存 RPM</button>
+                <span class="usage-status" id="usage-rpm-status"></span>
               </div>
             </section>
           </section>

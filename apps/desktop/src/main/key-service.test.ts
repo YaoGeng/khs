@@ -139,7 +139,7 @@ describe('验收①：set→masked 读回 + DB 字节级断言不含明文 Key',
     await store.whenReady();
     const service = makeKeyService(store);
     const setResult = await service.setKey({ provider: 'zhipu', key: FULL_KEY });
-    expect(setResult).toEqual({ provider: 'zhipu', masked: 'sk-****cdef', encryption: 'safeStorage' });
+    expect(setResult).toEqual({ provider: 'zhipu', masked: 'sk-****cdef', backupMasked: [], encryption: 'safeStorage' });
 
     const masked = await service.getMasked();
     const entry = masked.keys.find((k) => k.provider === 'zhipu');
@@ -161,6 +161,39 @@ describe('验收①：set→masked 读回 + DB 字节级断言不含明文 Key',
     expect(await service.exitAuditRawValues()).toEqual([]);
   });
 
+  it('FR-2.4 备用 Key：逐把加密落库、masked 回显、exitAudit 深扫描含备用、reader 解密列表', async () => {
+    const store = makeRealStoreClient();
+    await store.whenReady();
+    const service = makeKeyService(store);
+    const PRIMARY = 'sk-primary-aaaa1234';
+    const BACKUP_A = 'sk-backup-bbbb5678';
+    const BACKUP_B = 'sk-backup-cccc9012';
+    const result = await service.setKey({ provider: 'custom', key: PRIMARY, backupKeys: [BACKUP_A, BACKUP_B], baseUrl: 'http://127.0.0.1:9/v1', model: 'm' });
+    expect(result.backupMasked).toEqual([maskKey(BACKUP_A), maskKey(BACKUP_B)]);
+
+    const entry = (await service.getMasked()).keys.find((k) => k.provider === 'custom');
+    expect(entry?.backupMasked).toHaveLength(2);
+    expect(JSON.stringify(await service.getMasked())).not.toContain(BACKUP_A);
+
+    // 出口断言输入（masked 出口深扫描）：主 Key 为 safeStorage 密文不入列（既有语义，
+    // 密文形态不适用 JSON 泄漏面）；备用 Key 的解密形态入列——防御其明文形态漏进出口
+    const audit = await service.exitAuditRawValues();
+    expect(audit).not.toContain(PRIMARY);
+    expect(audit).toContain(BACKUP_A);
+    expect(audit).toContain(BACKUP_B);
+
+    // DB 字节无备用 Key 明文（逐把 safeStorage 加密）
+    const bytes = readFileSync(dbFile);
+    expect(bytes.indexOf(Buffer.from(BACKUP_A, 'utf8'))).toBe(-1);
+
+    // 网关 reader：主 Key 在前 + 备用按序解密
+    const { createGatewayKeyReader } = await import('./key-service');
+    const reader = createGatewayKeyReader(store, safeStorageOk);
+    const gatewayEntry = await reader('custom');
+    expect(gatewayEntry?.apiKey).toBe(PRIMARY);
+    expect(gatewayEntry?.backupKeys).toEqual([BACKUP_A, BACKUP_B]);
+  });
+
   it('safeStorage 不可用：明文落库**前**先写审计条目（顺序断言）+ 告警文案随结果返回', async () => {
     const store = makeRealStoreClient();
     await store.whenReady();
@@ -174,6 +207,7 @@ describe('验收①：set→masked 读回 + DB 字节级断言不含明文 Key',
           callOrder.push(`kvSet:${key}`);
           return store.kvSet(key, value);
         },
+        kvDel: (key) => store.kvDel(key),
         insertLogs: async (rows) => {
           callOrder.push(`insertLogs:${rows.map((r) => r.msg).join(',')}`);
           return store.insertLogs(rows);

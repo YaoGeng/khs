@@ -387,6 +387,14 @@ describe('store v3 五面同步 e2e（M1 todo 6：client 新方法逐个走通�
       latencyMs: 800,
     });
     expect(call.written).toBe(true);
+    await client.insertLlmCall({ traceId: 'report-t2', provider: 'deepseek', model: 'deepseek-chat', tokensIn: 10, tokensOut: 5, at: '2020-01-01T00:00:00.000Z' });
+    const calls = await client.listLlmCalls();
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    const zhipuCall = calls.find((c) => c.provider === 'zhipu');
+    expect(zhipuCall).toMatchObject({ traceId: 'tr-llm-1', model: 'glm-4.7-flash', tokensIn: 100, tokensOut: 50, cost: 0.01, latencyMs: 800 });
+    const sinceFiltered = await client.listLlmCalls({ since: '2025-01-01T00:00:00.000Z' });
+    expect(sinceFiltered.some((c) => c.provider === 'deepseek')).toBe(false); // 2020 行被过滤
+    expect(sinceFiltered.some((c) => c.provider === 'zhipu')).toBe(true);
 
     // circuit_events：追加 + 过滤（kind 不符的行不混入）
     await client.appendCircuitEvent({ kind: 'circuit_open', meta: { reason: 'captcha_feature' } });
