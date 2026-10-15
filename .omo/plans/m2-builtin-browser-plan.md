@@ -36,10 +36,10 @@
 
 | 卡 | 内容 | 边界 |
 |---|---|---|
-| B1 | `browser/builtin.ts`：URL 组装、双 pin 常量、流式哈希、原子落盘（临时目录→rename）、幂等安装检测（已存在且哈希匹配→跳过）、磁盘预检；单测全假注入 | 纯增量不接线，不动 detect/doctor |
-| B2 | 接线：detect 顺序变更为 user-setting → built-in → chrome → edge、下载进度 IPC（channels/schemas/ipc-core 三面镜像）、设置 UI（下载按钮+进度+优先级开关）、doctor 输出内置状态、openPlatform 下载引导 | 待 todo 13 收口后动工 |
-| B3 | 文档与合规：ADR 定稿、01 §7.5 / 02 §5.1 授权段落变更走 tm101-diff-check 白名单流程、EULA 与文案 PC-12 复查、「仅驱动用户自有浏览器」表述重新锚定、pilot-runbook 更新 | 02 改动未过门禁不得合入 |
-| B4 | 验收：fixture e2e（下载→校验→哈希不符拒绝→重下→激活）、一次性真实下载留证（独立脚本，非 ci）、`pnpm ci:all` 全绿、台账 + 证据落 `.omo/evidence/m2-builtin-browser/` | ~180MB 真实下载不进 ci:all |
+| B1 ✅(9457d77) | `browser/builtin.ts`：URL 组装、双 pin 常量、流式哈希、原子落盘（临时目录→rename）、幂等安装检测（已存在且哈希匹配→跳过）、磁盘预检；单测全假注入 | 纯增量不接线，不动 detect/doctor |
+| B2 ✅(5e41a51) | 接线：detect 顺序变更为 user-setting → built-in → chrome → edge、下载进度 IPC（channels/schemas/ipc-core 三面镜像）、设置 UI（下载按钮+进度+优先级开关）、doctor 输出内置状态、openPlatform 下载引导 | 待 todo 13 收口后动工 |
+| B3 ✅(c87d432) | 文档与合规：ADR 定稿、01 §7.5 / 02 §5.1 授权段落变更走 tm101-diff-check 白名单流程、EULA 与文案 PC-12 复查、「仅驱动用户自有浏览器」表述重新锚定、pilot-runbook 更新 | 02 改动未过门禁不得合入 |
+| B4 ✅ | 验收：fixture e2e（下载→校验→哈希不符拒绝→重下→激活）、一次性真实下载留证（独立脚本，非 ci）、`pnpm ci:all` 全绿、台账 + 证据落 `.omo/evidence/m2-builtin-browser/` | ~180MB 真实下载不进 ci:all |
 
 ## 3. 风险
 

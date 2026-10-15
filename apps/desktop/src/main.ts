@@ -168,7 +168,9 @@ if (!gotLock) {
             writeFile: async (p, content) => {
               await writeFile(p, content);
             },
-            download: nodeDownload,
+            download: (url, dest, onProgress) =>
+              // dev/e2e seam：XINGLIAN_BUILTIN_SNAPSHOT_URL 覆盖下载源（哈希不符拒绝路径的 fixture 测试用）
+              nodeDownload(process.env.XINGLIAN_BUILTIN_SNAPSHOT_URL ?? url, dest, onProgress),
             sha256File: nodeSha256File,
             extractZip: tarZipExtractor,
             diskFreeBytes: nodeDiskFreeBytes,
