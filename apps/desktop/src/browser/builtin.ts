@@ -63,6 +63,7 @@ export type BuiltinFailureCode =
   | 'E-BUILTIN-DISK-INSUFFICIENT'
   | 'E-BUILTIN-DISK-UNKNOWN'
   | 'E-BUILTIN-HASH-MISMATCH'
+  | 'E-BUILTIN-EXTRACT-FAILED'
   | 'E-BUILTIN-EXTRACT-INCOMPLETE';
 
 export interface BuiltinDeps {
@@ -142,6 +143,8 @@ export async function installBuiltinBrowser(
     return { status: 'already-installed', exePath };
   }
 
+  // 先建根目录再测磁盘（首次安装时 browsers/ 尚不存在，statfs 打空路径会 ENOENT）
+  await deps.mkdir(browsersRoot);
   try {
     const freeBytes = await deps.diskFreeBytes(browsersRoot);
     if (freeBytes < BUILTIN_CHROMIUM_ZIP_BYTES * BUILTIN_DISK_HEADROOM) {
@@ -171,9 +174,20 @@ export async function installBuiltinBrowser(
     await deps.download(builtinZipUrl(), zipTmp, onProgress);
     const hash = await deps.sha256File(zipTmp);
     if (hash === BUILTIN_CHROMIUM_SHA256) {
-      // 解压 → 布局完整性 → 原子落位
+      // 解压 → 布局完整性 → 原子落位（解压失败：清临时产物后快速失败，不重下 344MB）
       await deps.mkdir(extractTmp);
-      await deps.extractZip(zipTmp, extractTmp);
+      try {
+        await deps.extractZip(zipTmp, extractTmp);
+      } catch (error) {
+        await deps.rmPath(extractTmp);
+        await deps.rmPath(zipTmp);
+        return {
+          status: 'failed',
+          code: 'E-BUILTIN-EXTRACT-FAILED',
+          attempts: attempt,
+          message: String(error).slice(0, 200),
+        };
+      }
       if (!deps.fileExists(`${extractTmp}\\${BUILTIN_EXE_RELATIVE}`)) {
         await deps.rmPath(extractTmp);
         await deps.rmPath(zipTmp);
@@ -241,11 +255,12 @@ export async function nodeDownload(url: string, destPath: string, onProgress?: (
   await pipeline(nodeStream, createWriteStream(destPath));
 }
 
-/** 生产解压：Windows 自带 tar（Win10 1803+ 支持 zip；不新增 zip 运行时依赖——plan §1） */
+/** 生产解压：Windows 自带 bsdtar（Win10 1803+；绝对路径避免 PATH 解析到 MSYS GNU tar——其把 C: 当远程主机） */
 export async function tarZipExtractor(zipPath: string, destDir: string): Promise<void> {
   const { execFile } = await import('node:child_process');
+  const tarExe = process.platform === 'win32' ? `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\tar.exe` : 'tar';
   await new Promise<void>((resolve, reject) => {
-    execFile('tar', ['-xf', zipPath, '-C', destDir], { windowsHide: true, timeout: 10 * 60_000 }, (error, _stdout, stderr) => {
+    execFile(tarExe, ['-xf', zipPath, '-C', destDir], { windowsHide: true, timeout: 10 * 60_000 }, (error, _stdout, stderr) => {
       if (error) reject(new Error(`E-BUILTIN-EXTRACT-FAILED: tar 解压失败（${String(stderr).slice(0, 160)}）`));
       else resolve();
     });

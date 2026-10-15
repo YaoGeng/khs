@@ -411,19 +411,30 @@ if (!gotLock) {
 
     // pilot 脚本化采集 seam（XINGLIAN_PILOT_AUTOCOLLECT，env 门控；仅联调窗口设置，生产不设）：
     // JSON = {action:'collect', payload:<collect:start 入参>} | {action:'resume', taskId}
-    //      | {action:'confirm-gate', taskId}（无头确认闸门，等价 gate:confirm 通道）。
+    //      | {action:'confirm-gate', taskId}（无头确认闸门，等价 gate:confirm 通道）
+    //      | {action:'install-builtin'}（触发内置 Chromium 真实安装，B4 验收用）。
     // 与手动流程同路径：接管 xhs 平台浏览器（登录态在专用 Profile，保持 FR-3.1 不碰账密）→
     // prepare 自动化 → start（新任务）/ resumeTask（检查点续跑，等价 tasks:resume 通道）。
     const pilotAutoRaw = process.env.XINGLIAN_PILOT_AUTOCOLLECT;
     if (pilotAutoRaw) {
+      // B4 验收助手：轮询内置安装到终态（2s 间隔，进度行打 stdout）
+      const waitBuiltinTerminal = async (): Promise<void> => {
+        for (;;) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          const info = (await browserService?.status())?.builtinInstall;
+          console.log('[pilot-autocollect] builtin-install', info?.state, info?.receivedBytes ?? 0);
+          if (info?.state === 'installed' || info?.state === 'failed') return;
+        }
+      };
       setTimeout(() => {
         void (async () => {
           try {
             const spec = JSON.parse(pilotAutoRaw) as
               | { action: 'collect'; payload: unknown }
               | { action: 'resume'; taskId: string }
-              | { action: 'confirm-gate'; taskId: string };
-            if (spec.action !== 'confirm-gate') {
+              | { action: 'confirm-gate'; taskId: string }
+              | { action: 'install-builtin' };
+            if (spec.action !== 'confirm-gate' && spec.action !== 'install-builtin') {
               await browserService?.openPlatform({ platform: 'xhs' });
             }
             if (spec.action === 'collect') {
@@ -438,6 +449,10 @@ if (!gotLock) {
                 throw new Error(`E-PILOT-AUTO-INVALID: confirm-gate 入参不合法（${parsed.error.issues[0]?.message ?? 'schema'}）`);
               }
               console.log('[pilot-autocollect] gate-confirmed', JSON.stringify(await reportService!.confirmGate((parsed.data as { taskId: string }).taskId)));
+            } else if (spec.action === 'install-builtin') {
+              console.log('[pilot-autocollect] builtin-install kicked', JSON.stringify(await browserService?.installBuiltin()));
+              // 轮询到终态再让编排继续（B4 验收：进程内观察真实下载/解压/校验全程）
+              await waitBuiltinTerminal();
             } else {
               await collectBinding?.prepare();
               console.log('[pilot-autocollect] resumed', JSON.stringify(await storeService!.ipc.resumeTask(spec.taskId)));
