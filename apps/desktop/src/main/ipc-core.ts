@@ -7,6 +7,7 @@ import { E_EULA_LOCKED, IPC_CHANNELS, IPC_ERRORS, type IpcChannel } from '../sha
 import {
   AppInfoResultSchema,
   BrowserDisconnectResultSchema,
+  BrowserInstallBuiltinResultSchema,
   BrowserOpenPlatformResultSchema,
   BrowserStatusResultSchema,
   channelParamsSchemas,
@@ -41,6 +42,7 @@ import {
   UsageSummaryResultSchema,
   type AppInfoResult,
   type BrowserDisconnectResult,
+  type BrowserInstallBuiltinResult,
   type BrowserOpenPlatformParams,
   type BrowserOpenPlatformResult,
   type BrowserStatusResult,
@@ -122,6 +124,8 @@ export interface BrowserIpcDeps {
   readonly status: () => Promise<BrowserStatusResult>;
   readonly openPlatform: (params: BrowserOpenPlatformParams) => Promise<BrowserOpenPlatformResult>;
   readonly disconnect: () => Promise<BrowserDisconnectResult>;
+  /** M2 B2：内置便携 Chromium 按需安装（未装配时通道显式报未就绪） */
+  readonly installBuiltin?: () => Promise<BrowserInstallBuiltinResult>;
 }
 
 /** 采集/熔断链路依赖注入面（todo 7 = T-M1-04；main binding 在 main/collect-binding.ts） */
@@ -287,6 +291,21 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
         handle: async () => {
           const result = await deps.browser.disconnect();
           return validateExit(BrowserDisconnectResultSchema, result, 'browser:disconnect');
+        },
+      },
+    ],
+    [
+      'browser:installBuiltin',
+      {
+        paramsSchema: channelParamsSchemas['browser:installBuiltin'],
+        // M2 B2：安装动作不受 EULA 锁约束（与 browser:status 同性质的基础设施动作）；
+        // 进度经 browser:status.builtinInstall 1s 轮询回流（渲染层既有轮询，无推送面扩张）
+        handle: async () => {
+          if (!deps.browser.installBuiltin) {
+            throw new Error(`${IPC_ERRORS.UNKNOWN_CHANNEL}: browser:installBuiltin 未装配（内置浏览器链路未启用）`);
+          }
+          const result = await deps.browser.installBuiltin();
+          return validateExit(BrowserInstallBuiltinResultSchema, result, 'browser:installBuiltin');
         },
       },
     ],

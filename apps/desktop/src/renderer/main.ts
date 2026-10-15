@@ -357,6 +357,13 @@ interface BrowserStatusView {
   browserPid: number | null;
   openTabs: { targetId: string; url: string }[] | null;
   lastError: string | null;
+  builtinInstall: {
+    state: 'idle' | 'downloading' | 'extracting' | 'installed' | 'failed';
+    receivedBytes: number;
+    totalBytes: number;
+    attempts: number;
+    error: string | null;
+  } | null;
 }
 
 const browserChip = document.getElementById('browser-state-chip');
@@ -380,6 +387,7 @@ function applyBrowserStatus(status: BrowserStatusView): void {
     browserChip.textContent = BROWSER_STATE_TEXT[status.state];
     browserChip.title = status.browserVersion ? `CDP: ${status.browserVersion}` : '';
   }
+  applyBuiltinInstallView(status.builtinInstall);
   if (yieldChip) yieldChip.hidden = !status.yielded;
   if (loginBanner) loginBanner.hidden = status.state !== 'login-expired';
   if (disconnectBtn) disconnectBtn.disabled = status.state === 'detached';
@@ -437,6 +445,55 @@ disconnectBtn?.addEventListener('click', () => {
       root.dataset.browserDisconnect = 'failed';
       console.warn('[renderer] browser:disconnect failed:', error);
     })
+    .finally(() => refreshBrowserStatus());
+});
+
+/* ============================== 内置浏览器（M2 B2） ==============================
+ * 安装面板：进度经 browser:status.builtinInstall 1s 轮询回流（无推送面扩张）；html data 标记为 e2e 断言面。
+ */
+const builtinInstallBtn = document.getElementById('builtin-install-btn') as HTMLButtonElement | null;
+const builtinInstallStatus = document.getElementById('builtin-install-status');
+const builtinProgressTrack = document.getElementById('builtin-progress-track');
+const builtinProgressBar = document.getElementById('builtin-progress-bar');
+
+const BUILTIN_STATE_TEXT: Record<NonNullable<BrowserStatusView['builtinInstall']>['state'], string> = {
+  idle: '内置浏览器：未安装（可按需下载）',
+  downloading: '内置浏览器：下载中…',
+  extracting: '内置浏览器：解压校验中…',
+  installed: '内置浏览器：已安装（采集默认使用）',
+  failed: '内置浏览器：安装失败',
+};
+
+function applyBuiltinInstallView(info: BrowserStatusView['builtinInstall']): void {
+  if (!builtinInstallStatus) return;
+  if (!info) {
+    builtinInstallStatus.textContent = '内置浏览器：本构建未包含内置浏览器链路';
+    if (builtinInstallBtn) builtinInstallBtn.disabled = true;
+    return;
+  }
+  const pct = info.totalBytes > 0 ? Math.min(100, Math.round((info.receivedBytes / info.totalBytes) * 100)) : 0;
+  if (info.state === 'downloading') {
+    builtinInstallStatus.textContent = `内置浏览器：下载中 ${pct}%（${(info.receivedBytes / 1048576).toFixed(1)} / ${(info.totalBytes / 1048576).toFixed(0)} MB）`;
+  } else {
+    builtinInstallStatus.textContent =
+      BUILTIN_STATE_TEXT[info.state] + (info.state === 'failed' && info.error ? `（${info.error.slice(0, 80)}）` : '');
+  }
+  if (builtinInstallBtn) {
+    builtinInstallBtn.disabled = info.state === 'downloading' || info.state === 'extracting' || info.state === 'installed';
+  }
+  if (builtinProgressTrack && builtinProgressBar) {
+    builtinProgressTrack.hidden = info.state !== 'downloading' && info.state !== 'extracting';
+    builtinProgressBar.style.width = `${pct}%`;
+  }
+  root.dataset.builtinInstall = info.state;
+}
+
+builtinInstallBtn?.addEventListener('click', () => {
+  if (!bridge) return;
+  builtinInstallBtn.disabled = true;
+  bridge
+    .invoke('browser:installBuiltin', {})
+    .catch((error: unknown) => console.warn('[renderer] browser:installBuiltin failed:', error))
     .finally(() => refreshBrowserStatus());
 });
 

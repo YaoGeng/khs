@@ -8,6 +8,8 @@
  */
 import { app, BrowserWindow, Notification } from 'electron';
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { EULA_LOCKED_VIEWS, CONTRACT_VERSION } from './shared/channels';
 import { channelParamsSchemas, type CollectStartParams } from './shared/schemas';
 import { registerIpcHandlers } from './main/ipc';
@@ -28,6 +30,15 @@ import type { StoreClient } from './store';
 import { createWordlistService, type WordlistService } from './compliance/wordlist-service';
 import { BrowserService } from './browser/browser-service';
 import { resolveProfileRoot } from './browser/profiles';
+import {
+  builtinBrowsersRoot,
+  installBuiltinBrowser,
+  nodeDiskFreeBytes,
+  nodeDownload,
+  nodeSha256File,
+  probeBuiltinBrowser,
+  tarZipExtractor,
+} from './browser/builtin';
 
 /** 冷启动计时起点：main 入口被求值的时刻（spawn 后第一个可测点） */
 const T0 = process.hrtime.bigint();
@@ -121,6 +132,23 @@ if (!gotLock) {
 
     // todo 10：受控浏览器服务（FR-3；崩溃联动 → T11 runner 挂起；Profile 根目录：
     // %LOCALAPPDATA%/xinglian-workbench/cdp-profiles，e2e 经 XINGLIAN_CDP_PROFILE_ROOT 隔离）
+    // M2 B2：内置便携 Chromium 链路装配（探测顺序 user-setting → builtin → chrome → edge；
+    // 存储根与 cdp-profiles 同根，XINGLIAN_BUILTIN_BROWSER_ROOT 为 dev/e2e seam）
+    const builtinBrowsersRootPath = builtinBrowsersRoot(
+      process.env.LOCALAPPDATA ?? app.getPath('userData'),
+      process.env.XINGLIAN_BUILTIN_BROWSER_ROOT ?? null,
+    );
+    const readTextOrNull = async (p: string): Promise<string | null> => {
+      try {
+        return await readFile(p, 'utf8');
+      } catch {
+        return null;
+      }
+    };
+    const builtinProbeDeps = {
+      fileExists: (p: string) => existsSync(p),
+      readFile: readTextOrNull,
+    };
     browserService = new BrowserService({
       logger: storeService.logger,
       profileRoot: resolveProfileRoot({
@@ -132,6 +160,30 @@ if (!gotLock) {
       // e2e/dev seam：健康检测周期覆盖（默认 10s；FR-3.4）
       healthIntervalMs: Number(process.env.XINGLIAN_BROWSER_HEALTH_MS) || undefined,
       userSettingPath: process.env.XINGLIAN_BROWSER_PATH ?? null,
+      builtin: {
+        probe: () => probeBuiltinBrowser(builtinBrowsersRootPath, builtinProbeDeps),
+        install: (onProgress) =>
+          installBuiltinBrowser(builtinBrowsersRootPath, {
+            ...builtinProbeDeps,
+            writeFile: async (p, content) => {
+              await writeFile(p, content);
+            },
+            download: nodeDownload,
+            sha256File: nodeSha256File,
+            extractZip: tarZipExtractor,
+            diskFreeBytes: nodeDiskFreeBytes,
+            rmPath: async (p) => {
+              await rm(p, { recursive: true, force: true });
+            },
+            rename: async (src, dest) => {
+              await rename(src, dest);
+            },
+            mkdir: async (p) => {
+              await mkdir(p, { recursive: true });
+            },
+            nowIso: () => new Date().toISOString(),
+          }, onProgress),
+      },
       suspendRunningTasks: async (reason) => {
         if (!storeService) return [];
         const running = await storeService.store.listTasks('running');
@@ -265,10 +317,12 @@ if (!gotLock) {
       // todo 9：EULA 首启确认门 + 遥测 opt-in
       consent: complianceService.ipc,
       // todo 10：受控浏览器接管（browser:status / browser:openPlatform / browser:disconnect）
+      // M2 B2：+ browser:installBuiltin（内置便携 Chromium 按需安装）
       browser: {
         status: () => browserService?.status() ?? Promise.reject(new Error('browser service 未就绪')),
         openPlatform: (params) => browserService?.openPlatform(params) ?? Promise.reject(new Error('browser service 未就绪')),
         disconnect: () => browserService?.disconnect() ?? Promise.reject(new Error('browser service 未就绪')),
+        installBuiltin: () => browserService?.installBuiltin() ?? Promise.reject(new Error('browser service 未就绪')),
       },
       // todo 7：采集管道 + 熔断联动（collect:start / collect:remainders / collect:stats / circuit:*）
       collect: {

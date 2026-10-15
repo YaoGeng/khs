@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import { BrowserService } from './browser-service';
+import type { BuiltinInstallResult } from './builtin';
 import { encodeCdpFrame, type CdpMessage } from './cdp';
 import type { Logger } from '@xinglian/logger';
 
@@ -254,5 +255,107 @@ describe('BrowserService（真实 CDP 层 + 假进程面）', () => {
     status = await service.status();
     expect(status.yielded).toBe(false);
     expect(service.resumeFromYield()).toBe(false);
+  });
+});
+
+describe('BrowserService：内置便携 Chromium（M2 B2）', () => {
+  const BUILTIN_EXE = 'C:\\browsers\\chromium-1710741\\chrome-win\\chrome.exe';
+
+  function makeBuiltinService(installResult: 'installed' | 'failed' = 'installed') {
+    let installCalls = 0;
+    let progressSink: ((received: number) => void) | null = null;
+    let resolveInstall: ((result: BuiltinInstallResult) => void) | null = null;
+    const service = new BrowserService({
+      logger: silentLogger,
+      profileRoot: mkdtempSync(path.join(tmpdir(), 'xhs-browser-svc-builtin-')),
+      healthIntervalMs: 3600_000,
+      spawnImpl: vi.fn(() => createFakeBrowser(43001).child) as unknown as typeof import('node:child_process').spawn,
+      suspendRunningTasks: async () => [],
+      detect: {
+        registryQuery: async (key) => (key.includes('chrome.exe') ? CHROME_EXE : null),
+        fileExists: (p) => p === CHROME_EXE,
+      },
+      builtin: {
+        probe: async () => null, // 初始未安装
+        install: (onProgress) => {
+          installCalls += 1;
+          progressSink = onProgress;
+          // 手工控制 resolve：让测试能在 downloading 中间态做断言
+          return new Promise<BuiltinInstallResult>((resolve) => {
+            resolveInstall = resolve;
+          });
+        },
+      },
+    });
+    const finishInstall = (): void => {
+      resolveInstall?.(
+        installResult === 'installed'
+          ? { status: 'installed', exePath: BUILTIN_EXE, sha256: 'a'.repeat(64) }
+          : { status: 'failed', code: 'E-BUILTIN-HASH-MISMATCH', attempts: 3, message: 'x' },
+      );
+    };
+    return { service, getInstallCalls: () => installCalls, emitProgress: (n: number) => progressSink?.(n), finishInstall };
+  }
+
+  it('未装配 builtin → status.builtinInstall 为 null', async () => {
+    const { service } = makeService();
+    expect((await service.status()).builtinInstall).toBeNull();
+  });
+
+  it('安装触发 → 状态机 downloading→installed，进度字节回流，重复触发不重入', async () => {
+    const { service, emitProgress, finishInstall, getInstallCalls } = makeBuiltinService();
+    expect((await service.status()).builtinInstall).toMatchObject({ state: 'idle' });
+
+    const started = await service.installBuiltin();
+    expect(started).toEqual({ started: true, state: 'downloading' });
+    emitProgress(1234);
+    expect((await service.status()).builtinInstall).toMatchObject({ state: 'downloading', receivedBytes: 1234 });
+
+    // 安装中重复触发：不重入
+    const again = await service.installBuiltin();
+    expect(again.started).toBe(false);
+
+    finishInstall();
+    await vi.waitFor(async () => {
+      expect((await service.status()).builtinInstall).toMatchObject({ state: 'installed', receivedBytes: 360101018 });
+    }, { timeout: 1000, interval: 20 });
+    expect(getInstallCalls()).toBe(1);
+  });
+
+  it('安装失败 → failed + 错误留痕，不改变既有探测面', async () => {
+    const { service, finishInstall } = makeBuiltinService('failed');
+    await service.installBuiltin();
+    finishInstall();
+    await vi.waitFor(async () => {
+      expect((await service.status()).builtinInstall).toMatchObject({ state: 'failed', attempts: 3 });
+    }, { timeout: 1000, interval: 20 });
+  });
+
+  it('探测链经 deps.builtin.probe 命中内置（openPlatform 拉起的是探测返回的 exe）', async () => {
+    const spawnedExe: string[] = [];
+    const service = new BrowserService({
+      logger: silentLogger,
+      profileRoot: mkdtempSync(path.join(tmpdir(), 'xhs-browser-svc-builtin2-')),
+      healthIntervalMs: 3600_000,
+      spawnImpl: vi.fn((exePath: string) => {
+        spawnedExe.push(exePath);
+        return createFakeBrowser(44001).child;
+      }) as unknown as typeof import('node:child_process').spawn,
+      suspendRunningTasks: async () => [],
+      detect: {
+        registryQuery: async (key) => (key.includes('chrome.exe') ? CHROME_EXE : null),
+        fileExists: (p) => p === CHROME_EXE,
+      },
+      builtin: {
+        // assertExecutableAvailable 用真实 existsSync 预检——probe 返回真实存在的 exe 路径
+        probe: async () => ({ exePath: CHROME_EXE }),
+        install: () => Promise.resolve({ status: 'already-installed', exePath: CHROME_EXE }),
+      },
+    });
+    await service.openPlatform({ platform: 'xhs' });
+    expect(spawnedExe[0]).toBe(CHROME_EXE);
+    const status = await service.status();
+    expect(status.browserSource).toBe('builtin');
+    expect(status.browserPath).toBe(CHROME_EXE);
   });
 });

@@ -1,18 +1,18 @@
 /**
- * 浏览器探测纯函数（todo 10 = T-M0-08；FR-3.1 自动探测本机 Chrome/Edge）。
+ * 浏览器探测纯函数（todo 10 = T-M0-08；FR-3.1；M2 B2 内置优先接入）。
  *
- * 探测顺序（02 §5.1 第 1 步）：用户设置 → Chrome（注册表 → 常见路径）→ Edge（同法）
- * → 都没有则返回 null（调用方记录降级：便携 Chromium 下载分支 M0 只记录不做，
- * 见 docs/adr/notes-browser-m0.md §6）。
+ * 探测顺序（02 §5.1 第 1 步 + m2-builtin-browser-plan B2）：用户设置 → 内置便携 Chromium
+ * （deps.probeBuiltin，未装配/未安装返回 null）→ Chrome（注册表 → 常见路径）→ Edge（同法）
+ * → 全空返回 null（调用方记录降级并引导内置下载，见 browser-service）。
  *
  * 本模块 electron-free 且 node-free（注册表/文件系统经 deps 注入），vitest 以 mock 直测。
  */
 
 export type BrowserKind = 'chrome' | 'edge';
-export type DetectSource = 'user-setting' | 'registry' | 'path-probe';
+export type DetectSource = 'user-setting' | 'builtin' | 'registry' | 'path-probe';
 
 export interface DetectedBrowser {
-  readonly kind: BrowserKind;
+  readonly kind: BrowserKind | 'builtin';
   readonly path: string;
   readonly source: DetectSource;
 }
@@ -26,6 +26,8 @@ export interface DetectDeps {
   readonly fileExists: (path: string) => boolean;
   /** 常见安装根目录（注入便于测试；生产 = process.env 展开） */
   readonly roots: DetectRoots;
+  /** M2 B2：内置便携 Chromium 探测（marker+exe 校验；未装配/未安装 → null）。优先级在用户设置之后、Chrome 之前 */
+  readonly probeBuiltin?: () => Promise<DetectedBrowser | null>;
 }
 
 export interface DetectRoots {
@@ -83,15 +85,20 @@ async function detectKind(kind: BrowserKind, deps: DetectDeps): Promise<Detected
 }
 
 /**
- * 完整探测链（FR-3.1）：
+ * 完整探测链（FR-3.1 + M2 B2）：
  * 1. 用户设置（显式路径必须存在且是 .exe，否则继续往下探测——坏设置不阻断自动探测）；
- * 2. Chrome → 3. Edge；全空返回 null。
+ * 2. 内置便携 Chromium（deps.probeBuiltin 未装配则跳过）；
+ * 3. Chrome → 4. Edge；全空返回 null。
  */
 export async function detectBrowser(deps: DetectDeps): Promise<DetectedBrowser | null> {
   if (deps.userSettingPath && isFileCandidate(deps.userSettingPath) && deps.fileExists(deps.userSettingPath)) {
     const lower = deps.userSettingPath.toLowerCase();
     const kind: BrowserKind = lower.includes('msedge') ? 'edge' : 'chrome';
     return { kind, path: deps.userSettingPath, source: 'user-setting' };
+  }
+  if (deps.probeBuiltin) {
+    const builtin = await deps.probeBuiltin();
+    if (builtin) return builtin;
   }
   for (const kind of ['chrome', 'edge'] as const) {
     const found = await detectKind(kind, deps);

@@ -54,6 +54,7 @@ const browserStub = {
     openTabs: null,
     attachedAt: null,
     lastError: null,
+    builtinInstall: null,
   }),
   openPlatform: async (params: { platform: string }) => ({
     ok: true as const,

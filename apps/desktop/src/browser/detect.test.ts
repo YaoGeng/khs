@@ -78,7 +78,53 @@ describe('探测顺序（FR-3.1：设置 > 注册表 > 常见路径；Chrome > E
     expect(found).toEqual({ kind: 'edge', path: EDGE_EXE, source: 'registry' });
   });
 
-  it('4. 全部未命中 → null（降级分支：M0 只记录不做便携 Chromium）', async () => {
+  it('4. 全部未命中 → null（降级分支：引导内置下载，见 browser-service B2）', async () => {
+    expect(await detectBrowser(makeDeps())).toBeNull();
+  });
+});
+
+describe('探测顺序 M2 B2：内置便携 Chromium（user-setting > builtin > chrome > edge）', () => {
+  const BUILTIN = { kind: 'builtin' as const, path: 'C:\\browsers\\chromium-1710741\\chrome-win\\chrome.exe', source: 'builtin' as const };
+
+  it('1c. 内置命中 → 优先于 Chrome/Edge', async () => {
+    const found = await detectBrowser(
+      makeDeps({
+        registryQuery: async (key) => (key === APP_PATHS_KEYS.chrome[0] ? CHROME_EXE : null),
+        fileExists: (p) => p === CHROME_EXE,
+        probeBuiltin: async () => BUILTIN,
+      }),
+    );
+    expect(found).toEqual(BUILTIN);
+  });
+
+  it('1d. 用户设置仍压过内置（显式选择优先）', async () => {
+    let probeCalls = 0;
+    const found = await detectBrowser(
+      makeDeps({
+        userSettingPath: 'D:\\portable\\chrome.exe',
+        fileExists: (p) => p === 'D:\\portable\\chrome.exe',
+        probeBuiltin: async () => {
+          probeCalls += 1;
+          return BUILTIN;
+        },
+      }),
+    );
+    expect(found).toMatchObject({ source: 'user-setting' });
+    expect(probeCalls).toBe(0);
+  });
+
+  it('1e. 内置未安装（probe 返回 null）→ 落到 Chrome', async () => {
+    const found = await detectBrowser(
+      makeDeps({
+        registryQuery: async (key) => (key === APP_PATHS_KEYS.chrome[0] ? CHROME_EXE : null),
+        fileExists: (p) => p === CHROME_EXE,
+        probeBuiltin: async () => null,
+      }),
+    );
+    expect(found).toMatchObject({ source: 'registry', kind: 'chrome' });
+  });
+
+  it('1f. 未装配 probeBuiltin（undefined）→ 行为与 M0 完全一致', async () => {
     expect(await detectBrowser(makeDeps())).toBeNull();
   });
 });

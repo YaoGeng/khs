@@ -282,6 +282,7 @@ export type LicenseStatusResult = z.infer<typeof LicenseStatusResultSchema>;
 
 export type BrowserSessionState = z.infer<typeof BrowserStatusResultSchema>['state'];
 export type BrowserStatusResult = z.infer<typeof BrowserStatusResultSchema>;
+export type BrowserInstallBuiltinResult = z.infer<typeof BrowserInstallBuiltinResultSchema>;
 export type BrowserOpenPlatformParams = z.infer<typeof BrowserOpenPlatformParamsSchema>;
 export type BrowserOpenPlatformResult = z.infer<typeof BrowserOpenPlatformResultSchema>;
 export type BrowserDisconnectResult = z.infer<typeof BrowserDisconnectResultSchema>;
@@ -333,13 +334,32 @@ export const BrowserStatusResultSchema = z.object({
   browserVersion: z.string().nullable(),
   browserPid: z.number().int().nullable(),
   browserPath: z.string().nullable(),
-  browserSource: z.enum(['user-setting', 'registry', 'path-probe']).nullable(),
+  /** M2 B2：内置便携 Chromium 为探测链第二优先（user-setting → builtin → chrome → edge） */
+  browserSource: z.enum(['user-setting', 'builtin', 'registry', 'path-probe']).nullable(),
   profileDir: z.string(),
   currentPlatform: z.enum(BROWSER_PLATFORMS).nullable(),
   /** 最近一次 Target.getTargets 真实往返的 page 目标（「已接管」断言证据面） */
   openTabs: z.array(z.object({ targetId: z.string(), url: z.string() })).nullable(),
   attachedAt: z.string().nullable(),
   lastError: z.string().nullable(),
+  /** M2 B2：内置浏览器安装状态（进度经 1s 轮询回流；主进程未装配内置链路时为 null） */
+  builtinInstall: z
+    .object({
+      state: z.enum(['idle', 'downloading', 'extracting', 'installed', 'failed']),
+      receivedBytes: z.number().int().nonnegative(),
+      totalBytes: z.number().int().nonnegative(),
+      attempts: z.number().int().nonnegative(),
+      error: z.string().nullable(),
+    })
+    .nullable(),
+});
+
+export const BrowserInstallBuiltinParamsSchema = z.strictObject({});
+
+export const BrowserInstallBuiltinResultSchema = z.strictObject({
+  /** true = 本次调用已触发安装；false = 已在安装中/已安装（state 给出现状） */
+  started: z.boolean(),
+  state: z.enum(['idle', 'downloading', 'extracting', 'installed', 'failed']),
 });
 
 export const BrowserOpenPlatformParamsSchema = z.strictObject({ platform: z.enum(BROWSER_PLATFORMS) });
@@ -651,6 +671,7 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'app:info': AppInfoParamsSchema,
   'app:navigate': NavigateParamsSchema,
   'browser:disconnect': BrowserDisconnectParamsSchema,
+  'browser:installBuiltin': BrowserInstallBuiltinParamsSchema,
   'browser:openPlatform': BrowserOpenPlatformParamsSchema,
   'browser:status': BrowserStatusParamsSchema,
   'circuit:status': CircuitStatusParamsSchema,

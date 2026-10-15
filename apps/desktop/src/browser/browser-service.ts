@@ -35,6 +35,7 @@ import { assertExecutableAvailable, launchPipeBrowser, type CdpTransportMode, ty
 import { resolvePlatformProfileDir } from './profiles';
 import { detectBrowser } from './detect';
 import { registryQueryAppPaths } from './detect-node';
+import { BUILTIN_CHROMIUM_ZIP_BYTES, type BuiltinInstallResult } from './builtin';
 import { launchPortFallbackBrowser } from './port-fallback-launch';
 import { isLoginExpiredUrl, resolveSessionTransition, YieldFlag, type BrowserSessionEvent, type BrowserSessionState } from './session';
 
@@ -56,6 +57,14 @@ export interface BrowserServiceDeps {
   };
   /** 进程拉起注入（单测假进程；生产 = node child_process.spawn） */
   readonly spawnImpl?: typeof spawn;
+  /**
+   * M2 B2：内置便携 Chromium 链路（未装配 = 探测跳过内置 + 安装通道报未就绪）。
+   * probe：marker+exe 校验（builtin.probeBuiltinBrowser 生产实现）；install：B1 编排 + 生产适配器。
+   */
+  readonly builtin?: {
+    readonly probe: () => Promise<{ readonly exePath: string } | null>;
+    readonly install: (onProgress: (receivedBytes: number) => void) => Promise<BuiltinInstallResult>;
+  };
   /** 崩溃联动：把当前全部 running 任务置 suspended（T11 runner；02 §9.1 running→suspended） */
   readonly suspendRunningTasks: (reason: string) => Promise<string[]>;
   readonly now?: () => Date;
@@ -100,12 +109,18 @@ export class BrowserService {
   private shuttingDown = false;
   private lossHandling = false;
   private readonly now: () => Date;
+  /** M2 B2：内置安装状态（进度经 status 轮询回流）；未装配内置链路时恒为 null */
+  private builtinInstall: BrowserStatusResult['builtinInstall'] = null;
+  private builtinInstalling = false;
 
   constructor(deps: BrowserServiceDeps) {
     this.deps = deps;
     this.logger = deps.logger;
     this.transportMode = deps.transportMode ?? 'pipe';
     this.now = deps.now ?? (() => new Date());
+    if (deps.builtin) {
+      this.builtinInstall = { state: 'idle', receivedBytes: 0, totalBytes: BUILTIN_CHROMIUM_ZIP_BYTES, attempts: 0, error: null };
+    }
   }
 
   /* ------------------------------ 查询（FR-3.5 UI 轮询面） ------------------------------ */
@@ -126,7 +141,52 @@ export class BrowserService {
       openTabs: this.openTabs,
       attachedAt: this.attachedAt,
       lastError: this.lastError,
+      builtinInstall: this.builtinInstall,
     };
+  }
+
+  /**
+   * M2 B2：内置便携 Chromium 按需安装（设置页触发；进度经 status 1s 轮询回流）。
+   * 幂等：安装中/已安装时返回 started:false 不重复触发；完成后清探测缓存，
+   * 下一次 openPlatform 探测链（user-setting → builtin → chrome → edge）即命中内置。
+   */
+  async installBuiltin(): Promise<{ started: boolean; state: NonNullable<BrowserStatusResult['builtinInstall']>['state'] }> {
+    if (!this.deps.builtin) {
+      throw new Error('E-BROWSER-BUILTIN-UNAVAILABLE: 内置浏览器链路未装配');
+    }
+    const current = this.builtinInstall?.state ?? 'idle';
+    if (this.builtinInstalling || current === 'installed') {
+      return { started: false, state: current };
+    }
+    this.builtinInstalling = true;
+    this.builtinInstall = { state: 'downloading', receivedBytes: 0, totalBytes: BUILTIN_CHROMIUM_ZIP_BYTES, attempts: 0, error: null };
+    void this.deps.builtin
+      .install((receivedBytes) => {
+        if (this.builtinInstall?.state === 'downloading') {
+          this.builtinInstall = { ...this.builtinInstall, receivedBytes };
+        }
+      })
+      .then((result) => {
+        if (result.status === 'installed') {
+          this.builtinInstall = { state: 'installed', receivedBytes: BUILTIN_CHROMIUM_ZIP_BYTES, totalBytes: BUILTIN_CHROMIUM_ZIP_BYTES, attempts: 0, error: null };
+          // 清探测缓存：下一次 resolveBrowserOrThrow 走 builtin 分支
+          this.detectedPath = null;
+          this.detectedSource = null;
+        } else if (result.status === 'already-installed') {
+          this.builtinInstall = { state: 'installed', receivedBytes: 0, totalBytes: BUILTIN_CHROMIUM_ZIP_BYTES, attempts: 0, error: null };
+        } else {
+          this.builtinInstall = { state: 'failed', receivedBytes: 0, totalBytes: BUILTIN_CHROMIUM_ZIP_BYTES, attempts: result.attempts, error: `${result.code}: ${result.message}` };
+          this.logger.systemError('browser-builtin-install-failed', { code: result.code, attempts: result.attempts });
+        }
+      })
+      .catch((error: unknown) => {
+        this.builtinInstall = { state: 'failed', receivedBytes: 0, totalBytes: BUILTIN_CHROMIUM_ZIP_BYTES, attempts: 0, error: String(error).slice(0, 200) };
+        this.logger.systemError('browser-builtin-install-failed', { note: String(error).slice(0, 160) });
+      })
+      .finally(() => {
+        this.builtinInstalling = false;
+      });
+    return { started: true, state: 'downloading' };
   }
 
   /* ------------------------------ 接管与快捷入口（FR-3.1/3.2） ------------------------------ */
@@ -253,13 +313,21 @@ export class BrowserService {
     return launched;
   }
 
-  /** FR-3.1 探测链（缓存；未命中 → E-BROWSER-NOT-FOUND + 降级记录） */
+  /** FR-3.1 探测链（缓存；M2 B2 顺序 = user-setting → builtin → chrome → edge；未命中 → E-BROWSER-NOT-FOUND + 降级记录） */
   private async resolveBrowserOrThrow(): Promise<{ path: string; source: BrowserStatusResult['browserSource'] }> {
     if (this.detectedPath) return { path: this.detectedPath, source: this.detectedSource };
     const found = await detectBrowser({
       userSettingPath: this.deps.userSettingPath ?? null,
       registryQuery: this.deps.detect?.registryQuery ?? registryQueryAppPaths,
       fileExists: this.deps.detect?.fileExists ?? ((p) => existsSync(p)),
+      ...(this.deps.builtin
+        ? {
+            probeBuiltin: async () => {
+              const probe = await this.deps.builtin!.probe();
+              return probe ? { kind: 'builtin' as const, path: probe.exePath, source: 'builtin' as const } : null;
+            },
+          }
+        : {}),
       roots: {
         programFiles: process.env.ProgramFiles ?? 'C:\\Program Files',
         programFilesX86: process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)',
@@ -267,8 +335,8 @@ export class BrowserService {
       },
     });
     if (!found) {
-      this.lastError = `${BROWSER_ERRORS.NOT_FOUND}: 未探测到本机 Chrome/Edge（便携 Chromium 降级分支 M0 只记录不实现，见 docs/adr/notes-browser-m0.md §6）`;
-      this.logger.systemError('browser-detect-degraded', { note: '无 Chrome/Edge：M0 记录降级，不做便携 Chromium 下载' });
+      this.lastError = `${BROWSER_ERRORS.NOT_FOUND}: 未探测到内置 Chromium 与本机 Chrome/Edge——可在设置页下载内置浏览器后重试，或安装 Chrome/Edge`;
+      this.logger.systemError('browser-detect-degraded', { note: '探测全空：降级记录 + 引导内置下载（设置页）' });
       throw new Error(this.lastError);
     }
     assertExecutableAvailable(found.path);

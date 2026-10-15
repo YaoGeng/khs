@@ -718,3 +718,19 @@ body {
   }
   .print-md { white-space: pre-wrap; font-family: "Microsoft YaHei", sans-serif; font-size: 12px; }
 }
+
+/* ============================== M2 B2：内置浏览器安装面板 ============================== */
+.builtin-progress-track {
+  height: 6px;
+  background: #e3e6ea;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 8px 0 4px;
+}
+
+.builtin-progress-bar {
+  height: 100%;
+  width: 0;
+  background: #2563eb;
+  transition: width 0.4s ease;
+}

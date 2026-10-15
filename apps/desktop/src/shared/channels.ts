@@ -20,11 +20,14 @@
  * M1（m1 todo 12 = FR-2.4~2.6）：usage:* 三通道入白名单——usage:summary（llm_calls 聚合+
  * 自填单价估算+探测档展示，01:130/04:63）、usage:setPricing（自填单价表）、usage:setRpm
  * （FR-2.6 全局 RPM，0=不限流）。
+ * M2（m2-builtin-browser-plan B2）：browser:installBuiltin 入白名单——内置便携 Chromium
+ * 按需下载安装触发（进度经 browser:status.builtinInstall 轮询回流，不另设推送通道）。
  */
 export const IPC_CHANNELS = [
   'app:info',
   'app:navigate',
   'browser:disconnect',
+  'browser:installBuiltin',
   'browser:openPlatform',
   'browser:status',
   'circuit:status',

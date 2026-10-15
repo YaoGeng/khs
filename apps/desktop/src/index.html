@@ -228,6 +228,19 @@
           <section class="view" id="view-settings" data-view="settings">
             <h2>设置</h2>
             <p class="placeholder">M0 占位视图：仅导航骨架。设置项随各里程碑逐步开放。</p>
+            <!-- M2 B2：内置便携 Chromium（内置优先、用户浏览器兜底；进度经 browser:status 1s 轮询回流） -->
+            <section class="settings-card" id="builtin-browser-card">
+              <h3>内置浏览器</h3>
+              <p class="placeholder">
+                应用自带便携版 Chromium（按需下载，SHA-256 校验后启用）；已安装时采集默认使用它，本机 Chrome/Edge 保留为兜底。
+                登录仍由你本人在可见浏览器窗口完成，应用不读取、不存储平台账号密码。
+              </p>
+              <button class="btn btn-primary" id="builtin-install-btn" type="button">下载并安装内置浏览器</button>
+              <p class="builtin-install-status" id="builtin-install-status">内置浏览器：检测中…</p>
+              <div class="builtin-progress-track" id="builtin-progress-track" hidden>
+                <div class="builtin-progress-bar" id="builtin-progress-bar"></div>
+              </div>
+            </section>
             <!-- todo 8（FR-1.4/1.5）：激活流 UI 占位——M0 走本地注入 license + 离线验签路径（不联网，联网流归 M5） -->
             <section class="settings-card" id="license-card">
               <h3>激活 / License</h3>

@@ -79,6 +79,11 @@ function doctor() {
   checks.push(['适配包 dsl.json', existsSync(join(pkgDir, 'dsl.json')), 'node apps/desktop/scripts/pilot-real-collect.mjs stage']);
   checks.push(['active.json', existsSync(join(adaptersRoot, 'active.json')), 'stage 命令自动写入']);
   checks.push(['本机 Chrome/Edge', ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'].some((p) => existsSync(p)), '安装 Chrome/Edge（FR-3.1 探测链）']);
+  // M2 B2：内置便携 Chromium 状态（informational，不阻断——探测顺序 builtin 优先，Chrome/Edge 兜底）
+  const builtinRoot = process.env.XINGLIAN_BUILTIN_BROWSER_ROOT
+    ?? join(process.env.LOCALAPPDATA ?? '', 'xinglian-workbench', 'browsers');
+  const builtinExe = join(builtinRoot, `chromium-1710741`, 'chrome-win', 'chrome.exe');
+  checks.push([`内置 Chromium（1710741）${existsSync(builtinExe) ? '已安装' : '未安装（兜底可用即可跑）'}`, true, '设置页「内置浏览器」下载，或忽略走本机浏览器']);
   let failed = 0;
   for (const [label, ok, fix] of checks) {
     console.log(`[pilot] ${ok ? 'OK  ' : 'MISS'} ${label}${ok ? '' : `  → ${fix}`}`);
