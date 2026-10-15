@@ -74,6 +74,8 @@ const EVAL_TIMEOUT_DEFAULT = 10_000;
 const POLL_DEFAULT = 200;
 /** 详情轮询上限：压在单条读预算（NFR-1 ≤8s）内，给导航耗时留余量 */
 const DETAIL_POLL_CAP = 5_000;
+/** 平台 origin（宿主预热/导航兜底共用；搜索与详情 URL 的同源基座） */
+export const XHS_ORIGIN = 'https://www.xiaohongshu.com';
 
 export class CdpAutomation {
   private readonly deps: CdpAutomationDeps;

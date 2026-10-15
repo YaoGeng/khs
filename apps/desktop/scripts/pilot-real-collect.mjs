@@ -7,6 +7,9 @@
  *   node apps/desktop/scripts/pilot-real-collect.mjs stage     # 适配包签名落盘到 <userData>/adapters/xhs/1.0.0 + 写 active.json（loader 每次启动仍全链复验）
  *   node apps/desktop/scripts/pilot-real-collect.mjs doctor    # 前置体检（浏览器/公钥/适配包/配额 env）
  *   node apps/desktop/scripts/pilot-real-collect.mjs launch    # 以真实模式（无 fixture）+ 保守配额 ≤50/日 启动桌面端
+ *   node apps/desktop/scripts/pilot-real-collect.mjs run --terms 冰丝防晒衣,防晒口罩 --target 50 --limit 100
+ *   node apps/desktop/scripts/pilot-real-collect.mjs run --resume <taskId> --limit 100
+ *     # run = launch + XINGLIAN_PILOT_AUTOCOLLECT 自动采集 seam（启动后自动接管平台浏览器并开始采集）
  *
  * 红线（02:321）：不做任何风控绕过；触熔断立即停窗并记录升级。
  */
@@ -81,7 +84,7 @@ function doctor() {
     console.log(`[pilot] ${ok ? 'OK  ' : 'MISS'} ${label}${ok ? '' : `  → ${fix}`}`);
     if (!ok) failed += 1;
   }
-  console.log(`[pilot] 配额口径：XINGLIAN_COLLECT_DAILY_LIMIT=${process.env.XINGLIAN_COLLECT_DAILY_LIMIT ?? '(未设，默认 300 硬上限；联调须 ≤50)'}`);
+  console.log(`[pilot] 配额口径：XINGLIAN_COLLECT_DAILY_LIMIT=${process.env.XINGLIAN_COLLECT_DAILY_LIMIT ?? '(未设，默认 300 硬上限；launch 默认 ≤50，run 可 --limit 调整 ≤300)'}`);
   if (failed > 0) {
     console.error(`[pilot] ${failed} 项前置缺失，先补齐再 launch`);
     process.exit(1);
@@ -89,12 +92,13 @@ function doctor() {
   console.log('[pilot] 前置齐备；操作步骤见 .omo/evidence/m1-insight-plan/pilot-runbook.md');
 }
 
-function launch() {
+function launch(extraEnv = {}) {
   doctor();
   const env = {
     ...process.env,
     XINGLIAN_COLLECT_DAILY_LIMIT: process.env.XINGLIAN_COLLECT_DAILY_LIMIT ?? '50',
     XINGLIAN_COLLECT_PACING_SCALE: process.env.XINGLIAN_COLLECT_PACING_SCALE ?? '1',
+    ...extraEnv,
   };
   delete env.XINGLIAN_COLLECT_FIXTURE; // 真实模式：绝无 fixture 后门
   console.log('[pilot] 启动桌面端（真实 CDP 模式；触熔断立即停窗——02:321 红线）');
@@ -102,11 +106,57 @@ function launch() {
   child.on('exit', (code) => process.exit(code ?? 0));
 }
 
-const [, , cmd] = process.argv;
+/** run = launch + 自动采集 seam：--terms a,b,c（1~5 词 or 组合）或 --resume <taskId>；--limit 覆盖日配额 */
+function run(args) {
+  const opts = { terms: null, target: '50', topic: 'pilot-1', limit: null, resume: null };
+  for (let i = 0; i < args.length; i += 2) {
+    const key = args[i];
+    const value = args[i + 1];
+    if (key === '--terms') opts.terms = value;
+    else if (key === '--target') opts.target = value;
+    else if (key === '--topic') opts.topic = value;
+    else if (key === '--limit') opts.limit = value;
+    else if (key === '--resume') opts.resume = value;
+    else {
+      console.error(`[pilot] run 未知参数 ${key}（支持 --terms/--target/--topic/--limit/--resume）`);
+      process.exit(1);
+    }
+  }
+  let auto;
+  if (opts.resume) {
+    auto = { action: 'resume', taskId: String(opts.resume) };
+  } else {
+    if (!opts.terms) {
+      console.error('[pilot] run 需要 --terms 词1,词2,…（1~5 词）或 --resume <taskId>');
+      process.exit(1);
+    }
+    const terms = String(opts.terms).split(',').map((s) => s.trim()).filter(Boolean);
+    if (terms.length === 0 || terms.length > 5) {
+      console.error('[pilot] --terms 须为 1~5 个逗号分隔词');
+      process.exit(1);
+    }
+    const payload = terms.length === 1
+      ? { inputType: 'keyword', keyword: terms[0], topicId: opts.topic, targetTotal: Number(opts.target) }
+      : { inputType: 'keyword', terms, operator: 'or', topicId: opts.topic, targetTotal: Number(opts.target) };
+    auto = { action: 'collect', payload };
+  }
+  if (opts.limit !== null && process.env.XINGLIAN_COLLECT_DAILY_LIMIT) {
+    console.error('[pilot] --limit 与外部 XINGLIAN_COLLECT_DAILY_LIMIT 同时设置，以 --limit 为准');
+  }
+  const extraEnv = {
+    XINGLIAN_PILOT_AUTOCOLLECT: JSON.stringify(auto),
+    ...(opts.limit !== null ? { XINGLIAN_COLLECT_DAILY_LIMIT: String(opts.limit) } : {}),
+  };
+  console.log(`[pilot] 自动采集指令：${extraEnv.XINGLIAN_PILOT_AUTOCOLLECT}`);
+  launch(extraEnv);
+}
+
+const [, , cmd, ...rest] = process.argv;
 if (cmd === 'stage') await stage();
 else if (cmd === 'doctor') doctor();
 else if (cmd === 'launch') launch();
+else if (cmd === 'run') run(rest);
 else {
-  console.log('用法: node apps/desktop/scripts/pilot-real-collect.mjs <stage|doctor|launch>');
+  console.log('用法: node apps/desktop/scripts/pilot-real-collect.mjs <stage|doctor|launch|run>');
   process.exit(cmd === undefined ? 0 : 1);
 }

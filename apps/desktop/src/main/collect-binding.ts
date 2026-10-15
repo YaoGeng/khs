@@ -36,6 +36,7 @@ import type { ComplianceService } from '../compliance/compliance-service';
 import type { CollectStatsResult } from '../shared/schemas';
 import {
   CdpAutomation,
+  XHS_ORIGIN,
   createFixtureAutomation,
   parseFixtureScenario,
   startYieldMonitor,
@@ -86,6 +87,8 @@ export interface CollectBinding {
   /** fixture 模式句柄（e2e/调试后门：simulateUserInput 等）；真实 CDP 模式为 null */
   readonly fixture: FixtureAutomation | null;
   start(params: CollectStartParams): Promise<{ taskId: string }>;
+  /** 真实 CDP 自动化惰性建立（resume 路径前置：自动化会话不随 start 自动准备） */
+  prepare(): Promise<void>;
   scanRemainders(): Promise<Array<{ taskId: string; topicId: string; remaining: number; dayKey: string; pausedAt: string; reason: string }>>;
   stats(runId: string, topicId?: string): Promise<{
     stats: Awaited<ReturnType<StoreClient['getCollectRunStats']>>;
@@ -245,6 +248,16 @@ export function createCollectBinding(deps: CollectBindingDeps): CollectBinding {
       waitForTimeoutMs: Number(process.env.XINGLIAN_COLLECT_WAIT_MS) || 10_000,
     });
     startYieldMonitorFor();
+    // 冷会话预热（pilot 实测：恢复续跑首条详情在冷会话上导航 9.9s > NFR-1 单条预算 8s，任务被
+    // 预算护栏打失败）：先开平台首页建立 DNS/TLS/连接，只开首页、不触碰任何采集动作。
+    // 预热失败不阻断（采集步骤自带重试与降级路径）。
+    try {
+      await realAutomation.navigate(XHS_ORIGIN);
+      await realAutomation.waitForFeature('body', 1);
+      deps.logger.networkMeta('collect:warmup-ok', { origin: XHS_ORIGIN });
+    } catch (error) {
+      deps.logger.networkMeta('collect:warmup-skipped', { note: '预热失败不阻断', error: String(error).slice(0, 160) });
+    }
   }
 
   /** FR-4.5 让位监视：窗口外输入 → yielded；静默 3s → resume（驱动循环不重启，动作续跑） */
@@ -305,6 +318,7 @@ export function createCollectBinding(deps: CollectBindingDeps): CollectBinding {
       activeCollectTaskId = taskId;
       return { taskId };
     },
+    prepare: prepareRealAutomation,
     scanRemainders: () => service.scanRemainders(),
     async stats(runId, topicId) {
       const base = await service.getStats(runId);

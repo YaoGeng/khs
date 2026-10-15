@@ -9,6 +9,7 @@
 import { app, BrowserWindow, Notification } from 'electron';
 import { join } from 'node:path';
 import { EULA_LOCKED_VIEWS, CONTRACT_VERSION } from './shared/channels';
+import { channelParamsSchemas, type CollectStartParams } from './shared/schemas';
 import { registerIpcHandlers } from './main/ipc';
 import { createComplianceService, type ComplianceService } from './compliance/compliance-service';
 import { resolveEulaVersion } from './compliance/eula';
@@ -353,6 +354,36 @@ if (!gotLock) {
         }
       },
     });
+
+    // pilot 脚本化采集 seam（XINGLIAN_PILOT_AUTOCOLLECT，env 门控；仅联调窗口设置，生产不设）：
+    // JSON = {action:'collect', payload:<collect:start 入参>} | {action:'resume', taskId}。
+    // 与手动流程同路径：接管 xhs 平台浏览器（登录态在专用 Profile，保持 FR-3.1 不碰账密）→
+    // prepare 自动化 → start（新任务）/ resumeTask（检查点续跑，等价 tasks:resume 通道）。
+    const pilotAutoRaw = process.env.XINGLIAN_PILOT_AUTOCOLLECT;
+    if (pilotAutoRaw) {
+      setTimeout(() => {
+        void (async () => {
+          try {
+            const spec = JSON.parse(pilotAutoRaw) as
+              | { action: 'collect'; payload: unknown }
+              | { action: 'resume'; taskId: string };
+            await browserService?.openPlatform({ platform: 'xhs' });
+            if (spec.action === 'collect') {
+              const parsed = channelParamsSchemas['collect:start'].safeParse(spec.payload);
+              if (!parsed.success) {
+                throw new Error(`E-PILOT-AUTO-INVALID: collect 入参不合法（${parsed.error.issues[0]?.message ?? 'schema'}）`);
+              }
+              console.log('[pilot-autocollect] started', JSON.stringify(await collectBinding?.start(parsed.data as CollectStartParams)));
+            } else {
+              await collectBinding?.prepare();
+              console.log('[pilot-autocollect] resumed', JSON.stringify(await storeService!.ipc.resumeTask(spec.taskId)));
+            }
+          } catch (error) {
+            console.error('[pilot-autocollect] failed', error);
+          }
+        })();
+      }, 3000);
+    }
   });
 
   app.on('activate', () => {
