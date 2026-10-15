@@ -356,7 +356,8 @@ if (!gotLock) {
     });
 
     // pilot 脚本化采集 seam（XINGLIAN_PILOT_AUTOCOLLECT，env 门控；仅联调窗口设置，生产不设）：
-    // JSON = {action:'collect', payload:<collect:start 入参>} | {action:'resume', taskId}。
+    // JSON = {action:'collect', payload:<collect:start 入参>} | {action:'resume', taskId}
+    //      | {action:'confirm-gate', taskId}（无头确认闸门，等价 gate:confirm 通道）。
     // 与手动流程同路径：接管 xhs 平台浏览器（登录态在专用 Profile，保持 FR-3.1 不碰账密）→
     // prepare 自动化 → start（新任务）/ resumeTask（检查点续跑，等价 tasks:resume 通道）。
     const pilotAutoRaw = process.env.XINGLIAN_PILOT_AUTOCOLLECT;
@@ -366,14 +367,23 @@ if (!gotLock) {
           try {
             const spec = JSON.parse(pilotAutoRaw) as
               | { action: 'collect'; payload: unknown }
-              | { action: 'resume'; taskId: string };
-            await browserService?.openPlatform({ platform: 'xhs' });
+              | { action: 'resume'; taskId: string }
+              | { action: 'confirm-gate'; taskId: string };
+            if (spec.action !== 'confirm-gate') {
+              await browserService?.openPlatform({ platform: 'xhs' });
+            }
             if (spec.action === 'collect') {
               const parsed = channelParamsSchemas['collect:start'].safeParse(spec.payload);
               if (!parsed.success) {
                 throw new Error(`E-PILOT-AUTO-INVALID: collect 入参不合法（${parsed.error.issues[0]?.message ?? 'schema'}）`);
               }
               console.log('[pilot-autocollect] started', JSON.stringify(await collectBinding?.start(parsed.data as CollectStartParams)));
+            } else if (spec.action === 'confirm-gate') {
+              const parsed = channelParamsSchemas['gate:confirm'].safeParse({ taskId: spec.taskId });
+              if (!parsed.success) {
+                throw new Error(`E-PILOT-AUTO-INVALID: confirm-gate 入参不合法（${parsed.error.issues[0]?.message ?? 'schema'}）`);
+              }
+              console.log('[pilot-autocollect] gate-confirmed', JSON.stringify(await reportService!.confirmGate((parsed.data as { taskId: string }).taskId)));
             } else {
               await collectBinding?.prepare();
               console.log('[pilot-autocollect] resumed', JSON.stringify(await storeService!.ipc.resumeTask(spec.taskId)));
