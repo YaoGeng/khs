@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
  * tm101-diff-check.mjs — 白名单校验：02-系统架构设计.md 相对基准（默认 HEAD）的 diff
- * 仅允许触碰 T-M1-01 的六处授权区（05:87 授权；书面复审依据 04:118）：
+ * 仅允许触碰 T-M1-01 的六处授权区 + M2-B3 追加的 §5.1（05:87 授权；书面复审依据 04:118）：
  *
  *   1. 版本头/变更记录（文件头 → §1 标题前）
  *   2. §4.2 主进程模块清单（llm-gateway 去标识化行，PC-03）
- *   3. §6.2 三大工作流 DAG（发布 DAG 三道闸节点，PC-05）
- *   4. §7.5 平台适配层（DSL v1.1 + 规范参数表，S2/S10/B-4）
- *   5. §12.1 服务划分（遥测 consent / event 枚举 / anon_user_hash，PC-02）
- *   6. §13 接口设计（telemetry/events 行，PC-02）
+ *   3. §5.1 拉起与接管流程（内置 Chromium 探测顺序，M2-B3——授权链见 ZONE_SPECS 注释）
+ *   4. §6.2 三大工作流 DAG（发布 DAG 三道闸节点，PC-05）
+ *   5. §7.5 平台适配层（DSL v1.1 + 规范参数表，S2/S10/B-4）
+ *   6. §12.1 服务划分（遥测 consent / event 枚举 / anon_user_hash，PC-02）
+ *   7. §13 接口设计（telemetry/events 行，PC-02）
  *
  * 机制：授权区按节标题行号【动态定位】（不硬编码行号常量），对 base 版与工作区版
  * 各计算一遍区间；git diff --unified=0 的每个 hunk 的旧行号域与新行号域都必须
@@ -29,7 +30,7 @@ const DOC = 'docs/02-系统架构设计.md';
 function usage() {
   console.log(`用法: node scripts/tm101-diff-check.mjs [--base <ref>] [--help]
 
-校验 ${DOC} 相对基准的 diff 仅触 T-M1-01 六处授权区
+校验 ${DOC} 相对基准的 diff 仅触 T-M1-01 授权区 + M2-B3 追加 §5.1
 （版本头 / §4.2 / §6.2 / §7.5 / §12.1 / §13），越区即退出码 1。
 
 选项:
@@ -77,6 +78,9 @@ try {
 }
 
 // ---- 授权区动态定位 ----
+// M2-B3 追加（2026-10-16）：§5.1 拉起与接管流程——内置便携 Chromium 切换的探测顺序修订，
+// 授权链：用户决策「整体调整为内置浏览器」（2026-10-15）→ docs/adr/notes-browser-builtin.md →
+// .omo/plans/m2-builtin-browser-plan.md B3 卡（01 §7.5 / 02 §5.1 白名单流程）。
 const headLevel = (s) => {
   const m = /^(#+) /.exec(s);
   return m ? m[1].length : 0;
@@ -86,6 +90,7 @@ const headLevel = (s) => {
 const ZONE_SPECS = [
   { name: '版本头/变更记录（文件头→§1 前）', fromDocStart: true, minLevel: 2 },
   { name: '§4.2 主进程模块清单', heading: /^### 4\.2 /, minLevel: 3 },
+  { name: '§5.1 拉起与接管流程（M2-B3 授权：内置 Chromium 探测顺序）', heading: /^### 5\.1 /, minLevel: 3 },
   { name: '§6.2 三大工作流 DAG', heading: /^### 6\.2 /, minLevel: 3 },
   { name: '§7.5 平台适配层（DSL v1.1）', heading: /^### 7\.5 /, minLevel: 3 },
   { name: '§12.1 服务划分', heading: /^### 12\.1 /, minLevel: 3 },
@@ -169,7 +174,7 @@ while ((m = hunkRe.exec(diff)) !== null) {
 }
 
 if (violations.length > 0) {
-  console.error(`\n[tm101-diff-check] 失败：${DOC} 相对 ${base} 的 diff 有 ${violations.length}/${total} 个 hunk 落在六处授权区之外（退出码 1）\n`);
+  console.error(`\n[tm101-diff-check] 失败：${DOC} 相对 ${base} 的 diff 有 ${violations.length}/${total} 个 hunk 落在授权区之外（退出码 1）\n`);
   for (const v of violations) {
     console.error(`  [越区] @@ -${v.oldStart},${v.oldCount} +${v.newStart},${v.newCount} @@`);
     if (!v.oldOk && v.oldCount > 0) {
@@ -187,7 +192,7 @@ if (violations.length > 0) {
   process.exit(1);
 }
 
-console.log(`\n[tm101-diff-check] 通过：${total} 个 hunk 全部落在六处授权区内（相对 ${base}，退出码 0）`);
+console.log(`\n[tm101-diff-check] 通过：${total} 个 hunk 全部落在授权区内（相对 ${base}，退出码 0）`);
 console.log('授权区清单（按节标题动态定位，工作区版行号）:');
 for (const z of newZones.zones) console.log(`  - ${z.name}: 行 ${z.start}..${z.end}`);
 process.exit(0);

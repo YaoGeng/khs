@@ -1,7 +1,7 @@
 /**
  * builtin 单测（B1）：全假注入，无网络无磁盘依赖（plan §2 B1 边界：单测全假注入）。
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   BUILTIN_CHROMIUM_REVISION,
   BUILTIN_CHROMIUM_SHA256,
