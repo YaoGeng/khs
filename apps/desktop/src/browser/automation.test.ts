@@ -373,6 +373,27 @@ describe('真实搜索/详情提取（pilot 修复：SPA 竞态 + href 凭证导
     expect(evalCalls).toBeGreaterThanOrEqual(2);
   });
 
+  it('readDetail：先激活标签页（Page.bringToFront）再导航——后台标签页渲染节流是互动数挂载根因之一', async () => {
+    const empty = { tags: [], author: { name: null }, publishedAt: null, coverUrl: null, imageUrls: [] };
+    const { connection, sent } = fakeConnection((message) =>
+      message.method === 'Runtime.evaluate'
+        ? { result: { value: { noteId: 'n12', title: 'T', content: 'C', likes: 7, collects: 3, comments: 2, ...empty } } }
+        : {},
+    );
+    const automation = new CdpAutomation({
+      connection,
+      sessionId: 's',
+      gate: async () => {},
+      windows: new AutomationWindow(),
+      delay: async () => {},
+      now: () => 1_000,
+    });
+    await automation.readDetail('n12');
+    // 激活必须是 readDetail 动作的首条 CDP 消息（先于任何 evaluate/导航）
+    expect(sent[0]?.method).toBe('Page.bringToFront');
+    expect(sent.some((m) => m.method === 'Runtime.evaluate')).toBe(true);
+  });
+
   it('pollDetail：真实 0 互动笔记在补轮窗口耗尽后有界返回（不死轮）', async () => {
     const empty = { tags: [], author: { name: null }, publishedAt: null, coverUrl: null, imageUrls: [] };
     const { connection } = fakeConnection((message) =>

@@ -29,6 +29,13 @@ describe('buildLaunchArgs（S6 路线 A 配方）', () => {
     expect(args.some((a) => a.startsWith('--headless'))).toBe(false);
   });
 
+  it('渲染节流三禁（occluded/renderer-background/timer-throttling）——遮挡窗 hydration 挂载根因修复', () => {
+    const args = buildLaunchArgs({ profileDir: PROFILE, transport: 'pipe' });
+    expect(args).toContain('--disable-backgrounding-occluded-windows');
+    expect(args).toContain('--disable-renderer-backgrounding');
+    expect(args).toContain('--disable-background-timer-throttling');
+  });
+
   it('stdio 五元组固定（fd3/fd4 = CDP 管道，协议要求）', () => {
     expect(pipeSpawnOptions().stdio).toEqual(['ignore', 'pipe', 'pipe', 'pipe', 'pipe']);
   });

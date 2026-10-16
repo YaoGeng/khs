@@ -30,6 +30,14 @@ export function buildLaunchArgs(options: LaunchArgsOptions): string[] {
     '--no-default-browser-check',
     '--disable-sync',
     '--disable-extensions',
+    // 渲染节流三禁（2026-10-16 实采根因：窗口被应用窗遮挡/未激活时 Chromium 对
+    // occluded window 节流 rAF/定时器，React hydration 拖过补轮窗——133+19 条互动数
+    // 全 0；离屏实验 scripts/out/probe-engagement.json mountTimeline 证实可见窗口
+    // 2.5s 挂载、离屏 10s 不挂载。本浏览器是应用自起的受控实例，渲染策略属工程配置，
+    // 不涉及平台风控绕过；flag 不产生可检测的自动化指纹）
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
+    '--disable-background-timer-throttling',
   ];
   if (options.transport === 'pipe') {
     args.push('--remote-debugging-pipe');

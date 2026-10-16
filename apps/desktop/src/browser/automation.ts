@@ -86,8 +86,9 @@ const EVAL_ROUNDTRIP_CAP = 2_000;
 /** 互动计数补轮窗口：SSR 标题先于 React hydration 的计数渲染（2026-10-16 实采实证：
  *  标题到位即回导致整批计数 0，而同页延时 2.5s 后计数可取——见
  *  .omo/evidence/engagement-selector-fix/）。正文出现后给计数至多这么多毫秒补轮；
- *  真实 0 互动笔记最多多等这一段，仍在单条 8s 预算内。 */
-const ENGAGE_SETTLE_CAP = 2_000;
+ *  真实 0 互动笔记最多多等这一段，仍在单条 8s 预算内。取 3000（> 2.5s 取证值留余量）：
+ *  实采复验（2026-10-16 run-b）2000ms 差半秒等不到挂载，暖页计数/封面仍 0。 */
+const ENGAGE_SETTLE_CAP = 3_000;
 /** 平台 origin（宿主预热/导航兜底共用；搜索与详情 URL 的同源基座） */
 export const XHS_ORIGIN = 'https://www.xiaohongshu.com';
 
@@ -236,6 +237,9 @@ export class CdpAutomation {
 
   async readDetail(noteId: string): Promise<NoteDetail> {
     return this.action('read-detail', async () => {
+      // 标签页激活（2026-10-16 根因链一环）：后台标签页渲染被节流，hydration 挂载
+      // 拖过补轮窗（互动数全 0）；读详情前把标签页带到前台
+      await this.deps.connection.send('Page.bringToFront', {}, this.deps.sessionId);
       // 单条读总目标：从导航/首评起点算（NFR-1 8s 减余量）；轮询被它硬约束，
       // 杜绝「evaluate 阻塞跨过 poll 截止」把整条读拖出预算打死任务。
       const hardDeadlineAt = this.now() + DETAIL_ITEM_TARGET_MS;
