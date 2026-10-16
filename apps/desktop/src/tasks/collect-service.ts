@@ -222,6 +222,12 @@ export interface CollectServiceDeps {
    * 缺省 = 不追加 collect-report 步骤（todo 7 四步管道原样；e2e/dev seam XINGLIAN_REPORT_STEP=off）。
    */
   readonly reportStep?: (ctx: CollectReportStepContext) => Promise<unknown>;
+  /**
+   * 爆款清单步骤钩子（M2 产品卡② = FR-4.7；main/viral-service 注入）：
+   * finalize 之后、report 之前重算主题内确定性热度 TopN 快照（全自动档附送单次 LLM 解读）。
+   * 缺省 = 不追加 collect-viral 步骤（单测/fixture 场景）。
+   */
+  readonly viralStep?: (ctx: CollectReportStepContext) => Promise<unknown>;
   /** 桌面通知（Electron Notification；组合根注入） */
   readonly notify?: (title: string, body: string) => void;
   readonly now?: () => Date;
@@ -330,6 +336,9 @@ export class CollectService {
           { id: 'collect-search', run: () => this.stepSearch(payload, logger) },
           { id: 'collect-detail-batch', run: () => this.stepDetailBatch(taskId, payload, shouldStop, logger) },
           { id: 'collect-finalize', run: () => this.stepFinalize(taskId, logger) },
+          ...(this.deps.viralStep
+            ? [{ id: 'collect-viral', run: () => this.deps.viralStep!({ taskId, payload, logger }) }]
+            : []),
           ...(this.deps.reportStep
             ? [{ id: 'collect-report', run: () => this.deps.reportStep!({ taskId, payload, logger }) }]
             : []),

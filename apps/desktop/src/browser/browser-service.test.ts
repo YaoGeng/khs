@@ -28,6 +28,8 @@ function createFakeBrowser(pid: number) {
   // fd3 = 父进程写命令端（假浏览器消费）；fd4 = 假浏览器写响应端（父进程读）
   const fd3 = new PassThrough();
   const fd4 = new PassThrough();
+  /** 收到的全部 CDP 命令（method + params；镜像测试断言面） */
+  const cdpCalls: Array<{ method: string; params: Record<string, unknown>; sessionId?: string }> = [];
   const child = new EventEmitter() as EventEmitter & { kill: () => boolean; pid?: number; exitCode: number | null; stdio: unknown[] };
   child.pid = pid;
   child.exitCode = null;
@@ -53,6 +55,7 @@ function createFakeBrowser(pid: number) {
       const reply = (result: unknown): void => {
         fd4.write(encodeCdpFrame({ id: message.id, result: result as never }));
       };
+      cdpCalls.push({ method: message.method ?? '', params: (message.params ?? {}) as Record<string, unknown>, ...(message.sessionId ? { sessionId: message.sessionId } : {}) });
       switch (message.method) {
         case 'Browser.getVersion':
           reply({ product: 'Chrome/154.0.8037.98', version: '154.0.8037.98', protocolVersion: '1.3' });
@@ -93,6 +96,17 @@ function createFakeBrowser(pid: number) {
     },
     setUrl: (url: string) => {
       currentUrl = url;
+    },
+    cdpCalls,
+    /** 假浏览器主动推一帧 screencast（sessionId='sess-1' 平台标签 flat 会话） */
+    pushScreencastFrame: (data: string, screencastSessionId: string) => {
+      fd4.write(
+        encodeCdpFrame({
+          method: 'Page.screencastFrame',
+          params: { data, sessionId: screencastSessionId, metadata: { surfaceWidth: 800, surfaceHeight: 600 } },
+          sessionId: 'sess-1',
+        }),
+      );
     },
   };
 }
@@ -357,5 +371,74 @@ describe('BrowserService：内置便携 Chromium（M2 B2）', () => {
     const status = await service.status();
     expect(status.browserSource).toBe('builtin');
     expect(status.browserPath).toBe(CHROME_EXE);
+  });
+});
+
+describe('BrowserService：应用内镜像预览（M2 产品卡①，screencast 只读投流）', () => {
+  it('未接管浏览器 → startMirror 抛 E-BROWSER-CDP-ATTACH-FAILED', async () => {
+    const { service } = makeService();
+    await expect(service.startMirror()).rejects.toThrow('E-BROWSER-CDP-ATTACH-FAILED');
+  });
+
+  it('openPlatform 后 startMirror：attach 平台标签 + Page.startScreencast(jpeg)；帧事件 → ack 回传 + sink 转发', async () => {
+    const { service, fakeBrowsers } = makeService();
+    const frames: Array<{ dataBase64: string; width: number | null; height: number | null }> = [];
+    service.attachMirrorSink((frame) => frames.push(frame));
+    await service.openPlatform({ platform: 'xhs' });
+
+    const result = await service.startMirror();
+    expect(result.started).toBe(true);
+    expect(service.mirrorActive).toBe(true);
+    const fake = fakeBrowsers[0]!;
+    const startCall = fake.cdpCalls.find((c) => c.method === 'Page.startScreencast');
+    expect(startCall?.params).toMatchObject({ format: 'jpeg', maxWidth: 1024 });
+    expect(startCall?.sessionId).toBe('sess-1');
+
+    fake.pushScreencastFrame('aGk=', 'sc-1');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toMatchObject({ dataBase64: 'aGk=', width: 800, height: 600 });
+    // ack 必须带回帧的 screencast sessionId（否则浏览器停止推帧）
+    const ackCall = fake.cdpCalls.find((c) => c.method === 'Page.screencastFrameAck');
+    expect(ackCall?.params).toMatchObject({ sessionId: 'sc-1' });
+    expect(ackCall?.sessionId).toBe('sess-1');
+
+    await service.shutdown();
+  });
+
+  it('帧转发节流：200ms 内的第二帧被丢弃但仍 ack', async () => {
+    const { service, fakeBrowsers } = makeService();
+    const frames: unknown[] = [];
+    service.attachMirrorSink((frame) => frames.push(frame));
+    await service.openPlatform({ platform: 'xhs' });
+    await service.startMirror();
+    const fake = fakeBrowsers[0]!;
+
+    fake.pushScreencastFrame('ZjE=', 'sc-1');
+    fake.pushScreencastFrame('ZjI=', 'sc-2');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(frames).toHaveLength(1);
+    expect((frames[0] as { dataBase64: string }).dataBase64).toBe('ZjE=');
+    expect(fake.cdpCalls.filter((c) => c.method === 'Page.screencastFrameAck')).toHaveLength(2);
+
+    await service.shutdown();
+  });
+
+  it('stopMirror：Page.stopScreencast + 幂等；disconnect 联动清理（再 start 报未接管）', async () => {
+    const { service, fakeBrowsers } = makeService();
+    await service.openPlatform({ platform: 'xhs' });
+    await service.startMirror();
+    const fake = fakeBrowsers[0]!;
+
+    const stop = await service.stopMirror();
+    expect(stop.stopped).toBe(true);
+    expect(service.mirrorActive).toBe(false);
+    expect(fake.cdpCalls.some((c) => c.method === 'Page.stopScreencast')).toBe(true);
+    // 幂等二次停止
+    expect((await service.stopMirror()).stopped).toBe(true);
+
+    // 断开联动：镜像态清空，浏览器关闭后再 start 需重新接管
+    await service.disconnect();
+    await expect(service.startMirror()).rejects.toThrow('E-BROWSER-CDP-ATTACH-FAILED');
   });
 });

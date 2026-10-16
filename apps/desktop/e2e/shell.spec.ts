@@ -50,7 +50,8 @@ test.describe.serial('desktop shell（九视图 + IPC 契约 + 安全基线）',
     await page.waitForSelector('#boot-skeleton', { state: 'detached' });
     await expect(page.locator('#app')).toBeVisible();
     const bridgeKeys = await page.evaluate(() => Object.keys(window.xinglian ?? {}));
-    expect(bridgeKeys.sort()).toEqual(['contractVersion', 'invoke', 'navigate']);
+    // M2 产品卡①：+onPush（PUSH_CHANNELS 白名单推送门面；越权通道 throw，见 preload）
+    expect(bridgeKeys.sort()).toEqual(['contractVersion', 'invoke', 'navigate', 'onPush']);
     expect(await page.evaluate(() => window.xinglian?.contractVersion)).toBe('m0-ipc-1');
   });
 

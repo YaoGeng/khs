@@ -25,9 +25,12 @@ import { SelectionService, createFixtureSearchPortFromFile } from './tasks/selec
 import { createCdpSourcingPort1688 } from './browser/sourcing-port';
 import { createElectronSafeStoragePort } from './main/safe-storage-port';
 import { createGatewayKeyReader, createKeyService, type KeyService, type SafeStoragePort } from './main/key-service';
-import { createReportService, type ReportService } from './main/report-service';
+import { createReportService, type ReportLlmConfig, type ReportService, type StructuredGateway } from './main/report-service';
 import { createUsageService, type UsageService } from './main/usage-service';
 import { createSelectionViewService } from './main/selection-view-service';
+import { createAutomationTierService } from './main/automation-tier';
+import { createViralService, type ViralService } from './main/viral-service';
+import { MIRROR_FRAME_CHANNEL } from './shared/channels';
 import { LlmGateway, TokenBucketLimiter } from '@xinglian/llm-gateway';
 import type { StoreClient } from './store';
 import { createWordlistService, type WordlistService } from './compliance/wordlist-service';
@@ -90,6 +93,12 @@ let keyService: KeyService | null = null;
 
 // m1 todo 12：用量面板 + 全局 RPM（FR-2.5/2.6；llm_calls 聚合 + 自填单价 + 探测档展示）
 let usageService: UsageService | null = null;
+
+// M2 产品卡③：自动化档位（kv 偏好；report 步骤读同一 kv 决定闸门自动确认）
+let automationTierService: ReturnType<typeof createAutomationTierService> | null = null;
+
+// M2 产品卡②：爆款清单 v1（确定性热度分 + 单次 LLM 解读）
+let viralService: ViralService | null = null;
 
 /** 桌面通知（Electron Notification；不可用环境静默降级为日志，e2e/CI 无通知中心） */
 function showDesktopNotification(title: string, body: string): void {
@@ -223,6 +232,41 @@ if (!gotLock) {
     // m1 todo 11：报告组合根服务（T-M1-06 组合接线）——report-agent 真实 Ports：
     // structured = LlmGateway（BYOK 解密 Key），llm_calls sink = store.insertLlmCall，
     // insertReport/kv = store client，telemetry emitter = complianceService 唯一出口。
+    // M2 产品卡②：网关工厂提取为共享面（report 与 viral 解读同配置同 sink 同计量）。
+    const buildGateway = (config: ReportLlmConfig): StructuredGateway =>
+      new LlmGateway({
+        provider: config.provider,
+        baseUrl: config.baseUrl,
+        apiKey: config.apiKey,
+        model: config.model,
+        strategies: ['prompt-embedded-schema', 'regex-extraction-fallback'],
+        maxRetries: 1,
+        timeoutMs: 120_000,
+        maxTokens: 8192,
+        temperature: 0.2,
+        // FR-2.4：主 Key 401/403 → 同 provider 备用 Key 单调轮换；遥测经唯一出口 + 本地日志留痕
+        keyProvider: {
+          list: async () => [config.apiKey, ...config.backupKeys],
+          onFailover: (info) => {
+            void complianceService
+              ?.sendTelemetry({ name: 'key_failover', payload: { provider: info.provider, from: info.failedKeyMasked, to: info.nextKeyMasked, index: info.nextIndex, total: info.total } })
+              .catch(() => {});
+            storeService?.logger.userAction('key:failover', {
+              provider: info.provider,
+              from: info.failedKeyMasked,
+              to: info.nextKeyMasked,
+              index: info.nextIndex,
+              total: info.total,
+              at: info.at,
+            });
+          },
+        },
+        // FR-2.6：全局 RPM 令牌桶（kv llm:rpm-global，0/缺失=不限流；配置解析时读取）
+        ...(config.rpmGlobal > 0 ? { limiter: new TokenBucketLimiter({ rpm: config.rpmGlobal }) } : {}),
+        sink: async (record) => {
+          await storeClient.insertLlmCall(record);
+        },
+      });
     reportService = createReportService({
       store: storeClient,
       runner: storeService.runner,
@@ -231,44 +275,24 @@ if (!gotLock) {
       sendTelemetry: (event) => complianceService!.sendTelemetry(event),
       readKeyEntry: createGatewayKeyReader(storeClient, safeStoragePort),
       salt: `xinglian-report-salt:${app.getPath('userData')}`,
-      createGateway: (config) =>
-        new LlmGateway({
-          provider: config.provider,
-          baseUrl: config.baseUrl,
-          apiKey: config.apiKey,
-          model: config.model,
-          strategies: ['prompt-embedded-schema', 'regex-extraction-fallback'],
-          maxRetries: 1,
-          timeoutMs: 120_000,
-          maxTokens: 8192,
-          temperature: 0.2,
-          // FR-2.4：主 Key 401/403 → 同 provider 备用 Key 单调轮换；遥测经唯一出口 + 本地日志留痕
-          keyProvider: {
-            list: async () => [config.apiKey, ...config.backupKeys],
-            onFailover: (info) => {
-              void complianceService
-                ?.sendTelemetry({ name: 'key_failover', payload: { provider: info.provider, from: info.failedKeyMasked, to: info.nextKeyMasked, index: info.nextIndex, total: info.total } })
-                .catch(() => {});
-              storeService?.logger.userAction('key:failover', {
-                provider: info.provider,
-                from: info.failedKeyMasked,
-                to: info.nextKeyMasked,
-                index: info.nextIndex,
-                total: info.total,
-                at: info.at,
-              });
-            },
-          },
-          // FR-2.6：全局 RPM 令牌桶（kv llm:rpm-global，0/缺失=不限流；report 步骤解析配置时读取）
-          ...(config.rpmGlobal > 0 ? { limiter: new TokenBucketLimiter({ rpm: config.rpmGlobal }) } : {}),
-          sink: async (record) => {
-            await storeClient.insertLlmCall(record);
-          },
-        }),
+      createGateway: buildGateway,
+    });
+
+    // M2 产品卡③：自动化档位（settings 写面 + report 步骤闸门自动确认读面）
+    automationTierService = createAutomationTierService({ store: storeClient, logger: storeService.logger });
+
+    // M2 产品卡②：爆款清单 v1（collect-viral 步骤 + insight 读面 + 单次 LLM 解读）
+    viralService = createViralService({
+      store: storeClient,
+      runner: storeService.runner,
+      logger: storeService.logger,
+      readKeyEntry: createGatewayKeyReader(storeClient, safeStoragePort),
+      createGateway: buildGateway,
     });
 
     // todo 7：采集链路绑定（熔断/配额/适配包/让位监视；fixture seam = XINGLIAN_COLLECT_FIXTURE）。
     // 报告步骤（collect-report）默认接线；e2e/dev seam XINGLIAN_REPORT_STEP=off 回 todo 7 四步管道。
+    // 爆款清单步骤（collect-viral，FR-4.7）确定性零成本，恒接线（fixture 单测不经组合根）。
     const reportStepEnabled = process.env.XINGLIAN_REPORT_STEP !== 'off';
     collectBinding = createCollectBinding({
       store: storeService.store,
@@ -280,6 +304,7 @@ if (!gotLock) {
       ...(reportStepEnabled && reportService
         ? { reportStep: (ctx) => reportService!.runCollectReportStep(ctx) }
         : {}),
+      viralStep: (ctx) => viralService!.runCollectViralStep(ctx),
       browser: {
         prepareAutomationTab: () => browserService!.prepareAutomationTab(),
         whenAutomationAllowed: () => browserService!.whenAutomationAllowed(),
@@ -362,6 +387,9 @@ if (!gotLock) {
         openPlatform: (params) => browserService?.openPlatform(params) ?? Promise.reject(new Error('browser service 未就绪')),
         disconnect: () => browserService?.disconnect() ?? Promise.reject(new Error('browser service 未就绪')),
         installBuiltin: () => browserService?.installBuiltin() ?? Promise.reject(new Error('browser service 未就绪')),
+        // M2 产品卡①：应用内镜像预览（screencast 只读投流；帧经 PUSH_CHANNELS 推送）
+        startMirror: () => browserService?.startMirror() ?? Promise.reject(new Error('browser service 未就绪')),
+        stopMirror: () => browserService?.stopMirror() ?? Promise.reject(new Error('browser service 未就绪')),
       },
       // todo 7：采集管道 + 熔断联动（collect:start / collect:remainders / collect:stats / circuit:*）
       collect: {
@@ -411,6 +439,17 @@ if (!gotLock) {
       },
       // m1 todo 12：用量面板 + 全局 RPM（usage:summary / usage:setPricing / usage:setRpm；FR-2.5/2.6）
       usage: usageService!.ipc,
+      // M2 产品卡③：自动化档位（automation:getTier / automation:setTier；FR-12.7）
+      automation: {
+        getTier: () => automationTierService!.getTier(),
+        setTier: (params) => automationTierService!.setTier(params.tier),
+      },
+      // M2 产品卡②：爆款清单 v1（viral:list / viral:refresh / viral:generateRationale；FR-4.7）
+      viral: {
+        list: (params) => viralService!.listSnapshot(params.topicId),
+        refresh: (params) => viralService!.refresh(params.topicId, params.topN),
+        generateRationale: (params) => viralService!.generateRationale(params.topicId),
+      },
       // 05 T-M2-03：选品候选清单（selection:*；FR-6.2 权重可调/FR-6.3 对比表格）
       selection: {
         list: () => selectionViewService.listSelections(),
@@ -461,6 +500,12 @@ if (!gotLock) {
           setTimeout(() => app.quit(), 150);
         }
       },
+    });
+
+    // M2 产品卡①：镜像帧推送出口（主窗口 webContents；窗口销毁/未建时静默丢弃）
+    browserService?.attachMirrorSink((frame) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win && !win.isDestroyed()) win.webContents.send(MIRROR_FRAME_CHANNEL, frame);
     });
 
     // pilot 脚本化采集 seam（XINGLIAN_PILOT_AUTOCOLLECT，env 门控；仅联调窗口设置，生产不设）：

@@ -113,6 +113,12 @@ export class BrowserService {
   private builtinInstall: BrowserStatusResult['builtinInstall'] = null;
   private builtinInstalling = false;
 
+  /* ---- 应用内镜像预览（M2 产品卡①：CDP screencast 只读投流，无输入派发） ---- */
+  private mirrorSessionId: string | null = null;
+  private mirrorOffEvent: (() => void) | null = null;
+  private mirrorSink: ((frame: { dataBase64: string; width: number | null; height: number | null; at: string }) => void) | null = null;
+  private mirrorLastForwardAt = 0;
+
   constructor(deps: BrowserServiceDeps) {
     this.deps = deps;
     this.logger = deps.logger;
@@ -383,6 +389,7 @@ export class BrowserService {
     this.launched = null;
     this.openTabs = null;
     this.browserVersion = null;
+    this.clearMirrorState();
     if (this.userDisconnected) {
       this.applyEvent({ type: 'DISCONNECT', reason }, 'user');
       return;
@@ -498,6 +505,7 @@ export class BrowserService {
     const browser = this.launched;
     this.userDisconnected = true;
     this.stopHealthLoop();
+    this.clearMirrorState();
     if (this.relaunchTimer) {
       clearTimeout(this.relaunchTimer);
       this.relaunchTimer = null;
@@ -542,9 +550,95 @@ export class BrowserService {
     return true;
   }
 
-  /* ------------------------------ 人工输入让位（FR-4.5 M0 机制桩） ------------------------------ */
+  /* ------------------------------ 应用内镜像预览（M2 产品卡①） ------------------------------ */
 
-  /** 置「人工接管中」：真实输入信号接线归 M1（本方法即测试钩子与未来信号源的统一入口） */
+  /**
+   * 组合根注入帧出口（main.ts → 主窗口 webContents.send）。只读投流：本服务仅
+   * Page.startScreencast/screencastFrameAck，不派发任何鼠标/键盘输入（红线：镜像 ≠ 遥控）。
+   */
+  attachMirrorSink(sink: (frame: { dataBase64: string; width: number | null; height: number | null; at: string }) => void): void {
+    this.mirrorSink = sink;
+  }
+
+  /** 开始镜像：attach 平台标签 flat 会话 → Page.startScreencast（JPEG 60 / 1024 宽 / ≤4fps） */
+  async startMirror(): Promise<{ started: boolean; state: string }> {
+    if (this.mirrorSessionId) return { started: false, state: this.state };
+    const browser = this.launched;
+    if (!browser || browser.connection.isClosed) {
+      throw new Error(`${BROWSER_ERRORS.CDP_ATTACH_FAILED}: 无已接管浏览器可镜像——请先「打开小红书 / 打开 1688」`);
+    }
+    await this.refreshOpenTabs(browser.connection);
+    const tabs = this.openTabs ?? [];
+    const platform = this.currentPlatform;
+    const target = platform ? tabs.find((t) => t.url.includes(this.platformHost(platform))) : undefined;
+    const targetId = target?.targetId ?? tabs[tabs.length - 1]?.targetId ?? null;
+    if (!targetId) throw new Error(`${BROWSER_ERRORS.CDP_ATTACH_FAILED}: 无可用目标页可镜像`);
+    const attached = await browser.connection.send<{ sessionId?: string }>('Target.attachToTarget', { targetId, flatten: true });
+    const sessionId = attached.sessionId ?? '';
+    await browser.connection.send(
+      'Page.startScreencast',
+      { format: 'jpeg', quality: 60, maxWidth: 1024, maxHeight: 768, everyNthFrame: 1, maxFramesPerSecond: 4 },
+      sessionId,
+    );
+    this.mirrorSessionId = sessionId;
+    this.mirrorLastForwardAt = 0;
+    this.mirrorOffEvent = browser.connection.onEvent((event) => this.handleMirrorEvent(event));
+    this.logger.networkMeta('browser:mirror-started', { targetId, note: 'CDP screencast 只读投流（无输入派发）' });
+    return { started: true, state: this.state };
+  }
+
+  /** 停止镜像（幂等；浏览器已断时静默成功——连接关闭本身已停止推流） */
+  async stopMirror(): Promise<{ stopped: boolean }> {
+    const sessionId = this.mirrorSessionId;
+    const browser = this.launched;
+    if (sessionId && browser && !browser.connection.isClosed) {
+      try {
+        await browser.connection.send('Page.stopScreencast', {}, sessionId);
+      } catch {
+        // 会话已随目标页销毁：无需显式停止
+      }
+    }
+    const wasActive = this.clearMirrorState();
+    if (wasActive) this.logger.networkMeta('browser:mirror-stopped', {});
+    return { stopped: true };
+  }
+
+  get mirrorActive(): boolean {
+    return this.mirrorSessionId !== null;
+  }
+
+  /** screencast 帧事件：ack（必须，否则浏览器停止推帧）→ 节流转发（≥200ms 一帧） */
+  private handleMirrorEvent(event: { method: string; params?: unknown; sessionId?: string }): void {
+    if (event.method !== 'Page.screencastFrame' || event.sessionId !== this.mirrorSessionId) return;
+    const params = event.params as { data?: string; sessionId?: string; metadata?: { surfaceWidth?: number; surfaceHeight?: number } };
+    const ackId = params.sessionId;
+    const browser = this.launched;
+    if (browser && !browser.connection.isClosed && this.mirrorSessionId && ackId !== undefined) {
+      void browser.connection.send('Page.screencastFrameAck', { sessionId: ackId }, this.mirrorSessionId).catch(() => {});
+    }
+    const at = this.now().getTime();
+    if (this.mirrorSink && params.data && at - this.mirrorLastForwardAt >= 200) {
+      this.mirrorLastForwardAt = at;
+      this.mirrorSink({
+        dataBase64: params.data,
+        width: params.metadata?.surfaceWidth ?? null,
+        height: params.metadata?.surfaceHeight ?? null,
+        at: new Date(at).toISOString(),
+      });
+    }
+  }
+
+  /** 清理镜像态（断开/崩溃/退出联动）；返回清理前是否在推流 */
+  private clearMirrorState(): boolean {
+    const wasActive = this.mirrorSessionId !== null;
+    this.mirrorSessionId = null;
+    this.mirrorOffEvent?.();
+    this.mirrorOffEvent = null;
+    this.mirrorLastForwardAt = 0;
+    return wasActive;
+  }
+
+  /* ------------------------------ 人工输入让位（FR-4.5 M0 机制桩） ------------------------------ */  /** 置「人工接管中」：真实输入信号接线归 M1（本方法即测试钩子与未来信号源的统一入口） */
   yieldToUser(source: 'user-input' | 'manual' | 'e2e-hook', reason = 'user-activity'): void {
     this.yieldFlag.engage(source, reason, this.now());
     this.logger.userAction('browser:yield-to-user', { source, reason, note: 'M0 机制桩（FR-4.5 简化口径见 ADR §5）' });
@@ -598,6 +692,7 @@ export class BrowserService {
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
     this.stopHealthLoop();
+    this.clearMirrorState();
     if (this.relaunchTimer) {
       clearTimeout(this.relaunchTimer);
       this.relaunchTimer = null;

@@ -27,10 +27,21 @@
  * selection:setWeights / selection:setPinned（偏好写面，FR-6.2 权重可调/FR-6.3 置顶，
  * 与 usage:set* 同为设置性质不设 EULA 门）+ selection:insertFixture（QA 播种，
  * debug 门控装配）。权重重算 = 读时纯算术（库内 rank/total 保留 Agent 原始评分溯源）。
+ * M2 产品三卡（2026-10-15 用户新增需求，docs/01 FR-4.7/FR-12.7）：
+ * - automation:getTier / automation:setTier——自动化档位（semi 默认 / auto 全自动），
+ *   设置性质不设 EULA 门（同 usage:set* 口径）；档位只作用于关键词闸门自动确认，
+ *   收藏/询盘等对外发送前的人工确认不受档位影响（合规红线）；
+ * - mirror:start / mirror:stop——应用内浏览器镜像预览（CDP Page.screencast 只读投流，
+ *   不派发任何输入事件；start 与 browser:openPlatform 同受 EULA 门，stop 为安全动作）；
+ * - viral:list / viral:refresh / viral:generateRationale——爆款清单 v1（确定性热度分
+ *   读时纯算术 + LLM 解读单次调用；refresh/generateRationale 为 insight 业务写面，
+ *   EULA 门与 gate:confirm 同口径）。
  */
 export const IPC_CHANNELS = [
   'app:info',
   'app:navigate',
+  'automation:getTier',
+  'automation:setTier',
   'browser:disconnect',
   'browser:installBuiltin',
   'browser:openPlatform',
@@ -56,6 +67,8 @@ export const IPC_CHANNELS = [
   'logs:query',
   'license:activate',
   'license:status',
+  'mirror:start',
+  'mirror:stop',
   'notes:list',
   'report:chartData',
   'report:exportPdf',
@@ -76,9 +89,22 @@ export const IPC_CHANNELS = [
   'usage:setPricing',
   'usage:setRpm',
   'usage:summary',
+  'viral:generateRationale',
+  'viral:list',
+  'viral:refresh',
 ] as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[number];
+
+/**
+ * main→renderer 推送通道白名单（单向推送，非 invoke 面，不进 IPC_CHANNELS 注册表）。
+ * preload 的 onPush 门面只放行这里的通道；payload 契约见 schemas.ts 对应 *PushSchema。
+ */
+export const MIRROR_FRAME_CHANNEL = 'mirror:frame';
+
+export const PUSH_CHANNELS = [MIRROR_FRAME_CHANNEL] as const;
+
+export type PushChannel = (typeof PUSH_CHANNELS)[number];
 
 /** 契约版本：preload 暴露给渲染进程，主进程回填 app:info，便于后续契约演进对账 */
 export const CONTRACT_VERSION = 'm0-ipc-1';
@@ -174,6 +200,16 @@ export const KEY_ERRORS = {
 export const SELECTION_DIMENSIONS_SCHEMA = ['relevance', 'price', 'sales', 'supplier', 'gallery'] as const;
 
 export type SelectionDimensionId = (typeof SELECTION_DIMENSIONS_SCHEMA)[number];
+
+/**
+ * 自动化档位枚举（M2 产品卡③；docs/01 FR-12.7）：
+ * - semi（默认）：关键词闸门等人工确认点保持用户手动点击；
+ * - auto：报告⑦章关键词闸门自动确认并推进 selection 占位任务（审计事件 gate:auto-confirmed）。
+ * 档位边界（合规红线）：收藏/询盘等对外发送前的人工确认永远保留，不受档位影响。
+ */
+export const AUTOMATION_TIERS = ['semi', 'auto'] as const;
+
+export type AutomationTierId = (typeof AUTOMATION_TIERS)[number];
 
 /**
  * 关键词确认闸门稳定错误码（m1 todo 11 = T-M1-06②；renderer/e2e 据此判定拒绝原因）。

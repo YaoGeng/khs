@@ -104,6 +104,17 @@
             <p class="license-lock-banner" data-license-lock hidden>已锁定：license 缺失或过期（FR-1.6）——工作流执行入口不可用；历史与日志仍可访问。</p>
             <button class="btn btn-primary workflow-entry" type="button" data-write-entry>执行入口（占位）</button>
             <p class="entry-msg" data-entry-msg hidden>M0 占位：工作流引擎随 M1+ 交付。</p>
+            <!-- M2 产品卡①：应用内浏览器镜像预览（CDP screencast 只读投流；交互仍在受控浏览器窗口） -->
+            <section class="dashboard-card" id="mirror-card">
+              <h3>受控浏览器镜像预览（只读）</h3>
+              <div class="mirror-toolbar">
+                <button class="btn btn-primary workflow-entry" type="button" data-write-entry id="mirror-toggle">开始镜像预览</button>
+                <span class="mirror-status" id="mirror-status">未开启。开启后受控浏览器画面将实时投在此处（只读，不能在这里点击操作——交互请在受控浏览器窗口完成）。</span>
+              </div>
+              <div class="mirror-frame-wrap" id="mirror-frame-wrap" hidden>
+                <img id="mirror-frame" alt="受控浏览器实时画面（只读镜像）" />
+              </div>
+            </section>
           </section>
           <section class="view" id="view-insight" data-view="insight">
             <h2>市场洞察</h2>
@@ -113,6 +124,17 @@
               <h3>选品关键词确认闸门（02:274 E 步）</h3>
               <p class="gate-status" id="gate-status">闸门状态：检测中…</p>
               <div id="gate-list"></div>
+            </section>
+            <!-- M2 产品卡②（FR-4.7）：爆款清单 = 确定性热度初筛 TopN + 单次 LLM 逐条解读 -->
+            <section class="insight-card" id="viral-card">
+              <h3>爆款清单（热度初筛 v1）</h3>
+              <div class="viral-toolbar">
+                <button class="btn btn-ghost workflow-entry" type="button" data-write-entry id="viral-refresh">重算热度清单</button>
+                <button class="btn btn-primary workflow-entry" type="button" data-write-entry id="viral-rationale">生成爆款解读（约 1 次 LLM 调用）</button>
+                <span class="viral-status" id="viral-status">加载中…</span>
+              </div>
+              <p class="viral-formula-note" id="viral-formula-note">热度分 = 主题内相对互动分（赞×1 + 藏×5 + 评×3，按最高值归一）× 发布时间衰减（≤7 天 1.0 / ≤30 天 0.9 / ≤90 天 0.75 / 更早 0.5）。采集完成后自动重算；解读为本地确定性计算 + 单次 LLM 调用（仅直连你所配置的 LLM 服务商）。</p>
+              <ol class="viral-list" id="viral-list"></ol>
             </section>
             <!-- m1 todo 11（FR-4.6）：采集列表 + CSV 导出（UTF-8 BOM，Excel 可开；不造假 .xlsx） -->
             <section class="insight-card" id="notes-card">
@@ -323,6 +345,23 @@
               </label>
               <p class="telemetry-status-line" id="telemetry-status-line">遥测状态：检测中…</p>
               <p class="telemetry-anonymization-note" id="telemetry-anonymization-note">【匿名化口径声明（占位文案位，FR-12.6/FR-2.7；终稿 M6 T-M6-02 定稿）】遥测仅包含功能使用事件（如漏斗步骤、熔断计数）与随机安装标识，不含笔记内容、平台账号信息、API Key 等业务数据；所有事件均经匿名化处理。</p>
+            </section>
+            <!-- M2 产品卡③（FR-12.7）：自动化档位——只作用于闸门自动确认；对外发送确认永保留 -->
+            <section class="settings-card" id="automation-card">
+              <h3>自动化档位（FR-12.7）</h3>
+              <p class="placeholder">半自动（默认）：报告建议词经你在「市场洞察」闸门确认后进入选品。全自动：建议词自动确认并推进选品任务（审计事件 gate:auto-confirmed 可查）。</p>
+              <div class="automation-tier-options" id="automation-tier-options">
+                <label class="automation-tier-option">
+                  <input type="radio" name="automation-tier" value="semi" id="automation-tier-semi" checked />
+                  半自动（默认）
+                </label>
+                <label class="automation-tier-option">
+                  <input type="radio" name="automation-tier" value="auto" id="automation-tier-auto" />
+                  全自动（关键词自动确认）
+                </label>
+              </div>
+              <p class="automation-tier-note" id="automation-tier-note">边界（不受档位影响）：收藏、询盘等对外发送前的确认弹窗永远保留人工点击；LLM 爆款解读仍仅直连你所配置的 LLM 服务商。</p>
+              <p class="automation-tier-status" id="automation-tier-status">档位：检测中…</p>
             </section>
             <!-- m1 todo 10（T-M1-08①；FR-2.1/FR-2.7）：BYOK Key 配置——三要素：发送范围固定展示 + 境内外标注 + 调用前确认 modal -->
             <section class="settings-card" id="key-config-card">

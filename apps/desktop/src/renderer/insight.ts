@@ -4,6 +4,8 @@
  * - 闸门卡片：gate:list 轮询渲染 awaiting_user 闸门——keyword_confirm 显示⑦章过滤后
  *   建议词 + 确认/拒绝；llm_key_config 显示「配置 Key 后恢复」引导（恢复 = tasks:resume
  *   重跑 collect-report 步骤）。
+ * - 爆款清单（M2 产品卡② = FR-4.7）：viral:list 读面 + 重算/解读按钮（解读 = 真实
+ *   BYOK 单次调用，按钮文案明示）。
  * - 采集列表：notes:list → 表格 + 导出 CSV（UTF-8 BOM 表头行，禁造假 .xlsx）。
  * html data-* 标记为 e2e 断言面（沿用壳层既有模式）。
  */
@@ -14,6 +16,10 @@ const root = document.documentElement;
 
 const gateStatus = document.getElementById('gate-status');
 const gateList = document.getElementById('gate-list');
+const viralStatus = document.getElementById('viral-status');
+const viralList = document.getElementById('viral-list');
+const viralRefreshBtn = document.getElementById('viral-refresh') as HTMLButtonElement | null;
+const viralRationaleBtn = document.getElementById('viral-rationale') as HTMLButtonElement | null;
 const notesStatus = document.getElementById('notes-status');
 const notesTable = document.getElementById('notes-table');
 const notesTbody = document.getElementById('notes-tbody');
@@ -48,6 +54,27 @@ interface NoteView {
   comments: number;
   publishedAt: string | null;
   collectedAt: string;
+}
+
+interface ViralItemView {
+  noteId: string;
+  title: string | null;
+  likes: number;
+  collects: number;
+  comments: number;
+  publishedAt: string | null;
+  engagement: number;
+  recencyFactor: number;
+  score: number;
+}
+
+interface ViralSnapshotView {
+  topicId: string;
+  generatedAt: string;
+  topN: number;
+  sampleSize: number;
+  items: ViralItemView[];
+  rationale: { notes: Record<string, string>; generatedAt: string; model: string | null } | null;
 }
 
 async function invoke<T>(channel: string, payload?: unknown): Promise<T> {
@@ -212,15 +239,101 @@ notesExportCsv?.addEventListener('click', () => {
   })();
 });
 
-/** 刷新洞察视图两块数据（闸门 + 采集列表）——视图激活时与周期轮询共用 */
+/* ---- 爆款清单（M2 产品卡② = FR-4.7）：读面渲染 + 重算/解读动作 ---- */
+
+function renderViral(snapshot: ViralSnapshotView): void {
+  if (!viralList || !viralStatus) return;
+  viralList.textContent = '';
+  if (snapshot.items.length === 0) {
+    viralStatus.textContent = snapshot.topicId
+      ? `暂无爆款清单（主题 ${snapshot.topicId} 采集样本 ${snapshot.sampleSize} 条，热度分全 0 或未采集）。`
+      : '暂无爆款清单（尚无采集任务）。';
+  } else {
+    const covered = snapshot.rationale ? Object.keys(snapshot.rationale.notes).length : 0;
+    viralStatus.textContent =
+      `主题 ${snapshot.topicId} · 样本 ${snapshot.sampleSize} 条 · Top ${snapshot.items.length}` +
+      (snapshot.rationale ? ` · 解读 ${covered} 条（${snapshot.rationale.generatedAt.slice(0, 16).replace('T', ' ')}）` : ' · 未生成解读');
+  }
+  for (const [index, item] of snapshot.items.entries()) {
+    const li = document.createElement('li');
+    li.className = 'viral-item';
+    li.dataset.noteId = item.noteId;
+    li.dataset.score = String(item.score);
+    const head = document.createElement('p');
+    head.className = 'viral-item-head';
+    const scoreChip = document.createElement('span');
+    scoreChip.className = 'viral-score-chip';
+    scoreChip.textContent = `热度 ${item.score}`;
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'viral-item-title';
+    titleSpan.textContent = `${index + 1}. ${item.title ?? '（无标题）'}`;
+    head.append(scoreChip, titleSpan);
+    li.appendChild(head);
+    const meta = document.createElement('p');
+    meta.className = 'viral-item-meta';
+    meta.textContent = `赞 ${item.likes} · 藏 ${item.collects} · 评 ${item.comments} · 互动加权 ${item.engagement} · 衰减 ×${item.recencyFactor} · 发布 ${item.publishedAt ?? '未知'}`;
+    li.appendChild(meta);
+    const reason = snapshot.rationale?.notes[item.noteId];
+    if (reason) {
+      const reasonEl = document.createElement('p');
+      reasonEl.className = 'viral-item-reason';
+      reasonEl.textContent = `为什么会爆：${reason}`;
+      li.appendChild(reasonEl);
+    }
+    viralList.appendChild(li);
+  }
+  root.dataset.viralLoaded = '1';
+  root.dataset.viralCount = String(snapshot.items.length);
+  root.dataset.viralTopic = snapshot.topicId;
+}
+
+async function refreshViral(): Promise<void> {
+  if (!bridge || !viralStatus) return;
+  try {
+    const result = await invoke<{ snapshot: ViralSnapshotView }>('viral:list', {});
+    renderViral(result.snapshot);
+  } catch (error) {
+    viralStatus.textContent = `爆款清单读取失败：${String((error as Error).message).slice(0, 120)}`;
+    root.dataset.viralLoaded = 'error';
+  }
+}
+
+async function runViralAction(button: HTMLButtonElement, channel: 'viral:refresh' | 'viral:generateRationale'): Promise<void> {
+  if (!bridge || !viralStatus) return;
+  button.disabled = true;
+  root.dataset.viralAction = `pending:${channel}`;
+  try {
+    const result = await invoke<{ snapshot: ViralSnapshotView; llmCall?: boolean; reason?: string | null }>(channel, {});
+    renderViral(result.snapshot);
+    root.dataset.viralAction = `done:${channel}`;
+    if (channel === 'viral:generateRationale') {
+      root.dataset.viralLlmCall = String(result.llmCall ?? false);
+      if (result.reason) viralStatus.textContent += `（${result.reason}）`;
+    }
+  } catch (error) {
+    root.dataset.viralAction = `failed:${channel}`;
+    root.dataset.viralActionError = String((error as Error).message).slice(0, 160);
+    viralStatus.textContent = `${channel === 'viral:refresh' ? '重算' : '解读'}失败：${String((error as Error).message).slice(0, 140)}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+viralRefreshBtn?.addEventListener('click', () => void runViralAction(viralRefreshBtn, 'viral:refresh'));
+viralRationaleBtn?.addEventListener('click', () => void runViralAction(viralRationaleBtn, 'viral:generateRationale'));
+
+/** 刷新洞察视图三块数据（闸门 + 爆款清单 + 采集列表）——视图激活时与周期轮询共用 */
 export function refreshInsightView(): void {
   void refreshGates();
+  void refreshViral();
   void refreshNotes();
 }
 
 export function initInsightView(): void {
   refreshInsightView();
-  /* 采集在后台推进时列表/闸门需自行跟上（无推送通道；gates 2s 先例，notes 同轮询） */
+  /* 采集在后台推进时列表/闸门需自行跟上（无推送通道；gates 2s 先例，notes 同轮询）；
+     爆款快照在 collect-viral 步骤后更新，8s 轮询足够跟上且不与重算动作打架 */
   setInterval(() => void refreshGates(), 2000);
+  setInterval(() => void refreshViral(), 8000);
   setInterval(() => void refreshNotes(), 3000);
 }

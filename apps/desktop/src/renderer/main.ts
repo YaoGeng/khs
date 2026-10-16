@@ -47,8 +47,11 @@ function switchView(view: string, title: string): void {
   if (view === 'insight') refreshInsightView();
   /* 选品视图每次激活即刷新（候选/任务可能已被后台选品管道推进） */
   if (view === 'sourcing') void refreshSourcingView();
-  /* 设置视图激活即刷新用量面板（报告跑完回来看消耗） */
-  if (view === 'settings') refreshUsagePanel();
+  /* 设置视图激活即刷新用量面板（报告跑完回来看消耗）+ 自动化档位回显 */
+  if (view === 'settings') {
+    refreshUsagePanel();
+    void refreshAutomationTierPanel();
+  }
 }
 
 function localFallback(view: string): void {
@@ -164,8 +167,10 @@ function applyLicenseStatus(status: LicenseStatusView): void {
     const viewId = view.dataset.view ?? '';
     if (!(WORKFLOW_WRITE_VIEWS as readonly string[]).includes(viewId)) continue;
     view.dataset.entryLocked = String(locked);
-    const entry = view.querySelector<HTMLButtonElement>('.workflow-entry[data-write-entry]');
-    if (entry) entry.disabled = locked;
+    // 全量置灰/恢复（M2 产品三卡后 dashboard/insight 各有多个写入口按钮）
+    for (const entry of Array.from(view.querySelectorAll<HTMLButtonElement>('.workflow-entry[data-write-entry]'))) {
+      entry.disabled = locked;
+    }
     const banner = view.querySelector<HTMLElement>('[data-license-lock]');
     if (banner) banner.hidden = !locked;
   }
@@ -1138,6 +1143,114 @@ try {
   initUsageView();
 } catch (error) {
   console.warn('[renderer] usage view init failed:', error);
+}
+
+/* ============================== 自动化档位（M2 产品卡③ = FR-12.7） ============================== */
+
+const automationTierStatus = document.getElementById('automation-tier-status');
+const automationTierRadios = Array.from(
+  document.querySelectorAll<HTMLInputElement>('input[name="automation-tier"]'),
+);
+
+async function refreshAutomationTierPanel(): Promise<void> {
+  if (!bridge || !automationTierStatus) return;
+  try {
+    const result = (await bridge.invoke('automation:getTier', {})) as { tier: 'semi' | 'auto' };
+    const radio = automationTierRadios.find((r) => r.value === result.tier);
+    if (radio) radio.checked = true;
+    automationTierStatus.textContent =
+      result.tier === 'auto'
+        ? '档位：全自动（关键词闸门将自动确认；收藏/询盘发送前人工确认保留）'
+        : '档位：半自动（默认——闸门需人工确认）';
+    root.dataset.automationTier = result.tier;
+  } catch (error) {
+    automationTierStatus.textContent = `档位读取失败：${String((error as Error).message).slice(0, 120)}`;
+    root.dataset.automationTier = 'error';
+  }
+}
+
+for (const radio of automationTierRadios) {
+  radio.addEventListener('change', () => {
+    if (!bridge || !radio.checked) return;
+    root.dataset.automationTierSet = `pending:${radio.value}`;
+    bridge
+      .invoke('automation:setTier', { tier: radio.value })
+      .then(() => {
+        root.dataset.automationTierSet = `done:${radio.value}`;
+        void refreshAutomationTierPanel();
+      })
+      .catch((error: unknown) => {
+        root.dataset.automationTierSet = `failed:${radio.value}`;
+        if (automationTierStatus) {
+          automationTierStatus.textContent = `档位保存失败：${String((error as Error).message).slice(0, 140)}`;
+        }
+        void refreshAutomationTierPanel();
+      });
+  });
+}
+
+/* ============================== 受控浏览器镜像预览（M2 产品卡①） ============================== */
+
+const mirrorToggle = document.getElementById('mirror-toggle') as HTMLButtonElement | null;
+const mirrorStatus = document.getElementById('mirror-status');
+const mirrorFrameWrap = document.getElementById('mirror-frame-wrap');
+const mirrorFrameImg = document.getElementById('mirror-frame') as HTMLImageElement | null;
+
+void refreshAutomationTierPanel();
+
+let mirrorOn = false;
+
+function setMirrorUi(on: boolean): void {
+  mirrorOn = on;
+  if (mirrorToggle) mirrorToggle.textContent = on ? '停止镜像预览' : '开始镜像预览';
+  if (mirrorFrameWrap) mirrorFrameWrap.hidden = !on;
+  root.dataset.mirrorActive = on ? '1' : '0';
+}
+
+mirrorToggle?.addEventListener('click', () => {
+  if (!bridge) return;
+  mirrorToggle.disabled = true;
+  root.dataset.mirrorAction = mirrorOn ? 'stop:pending' : 'start:pending';
+  const call = mirrorOn
+    ? bridge.invoke('mirror:stop', {}).then(() => {
+        setMirrorUi(false);
+        if (mirrorStatus) mirrorStatus.textContent = '镜像已停止。';
+      })
+    : bridge
+        .invoke('mirror:start', {})
+        .then(() => {
+          setMirrorUi(true);
+          if (mirrorStatus) {
+            mirrorStatus.textContent =
+              '镜像中（只读）。交互请在受控浏览器窗口完成——本面板不转发任何点击/输入。';
+          }
+        });
+  call
+    .catch((error: unknown) => {
+      root.dataset.mirrorAction = `${mirrorOn ? 'stop' : 'start'}:failed`;
+      root.dataset.mirrorActionError = String((error as Error).message).slice(0, 160);
+      if (mirrorStatus) {
+        mirrorStatus.textContent = `镜像操作失败：${String((error as Error).message).slice(0, 140)}`;
+      }
+    })
+    .finally(() => {
+      mirrorToggle.disabled = false;
+    });
+});
+
+// 帧订阅（推送面）：仅更新 <img> src，无 DOM 重建；浏览器断开时主进程停流，画面停留在末帧
+if (bridge && mirrorFrameImg) {
+  try {
+    bridge.onPush('mirror:frame', (payload) => {
+      const frame = payload as { dataBase64: string; at: string };
+      if (typeof frame.dataBase64 === 'string' && frame.dataBase64.length > 0) {
+        mirrorFrameImg.src = `data:image/jpeg;base64,${frame.dataBase64}`;
+        root.dataset.mirrorLastFrameAt = frame.at;
+      }
+    });
+  } catch (error) {
+    console.warn('[renderer] mirror frame subscribe failed:', error);
+  }
 }
 
 if (bridge) {

@@ -3,7 +3,7 @@
  * 通道即契约，入参用 zod 校验——preload 侧与 ipcMain.handle 侧共用本文件）。
  */
 import { z } from 'zod';
-import { BROWSER_PLATFORMS, KEY_PROVIDER_IDS, NAV_VIEWS, SELECTION_DIMENSIONS_SCHEMA, type IpcChannel } from './channels';
+import { AUTOMATION_TIERS, BROWSER_PLATFORMS, KEY_PROVIDER_IDS, NAV_VIEWS, SELECTION_DIMENSIONS_SCHEMA, type IpcChannel } from './channels';
 
 /* app:info —— 壳层运行时信息（M0 唯一"数据"通道，无业务含义） */
 export const AppInfoParamsSchema = z.strictObject({});
@@ -797,10 +797,121 @@ export type UsageSetPricingResult = z.infer<typeof UsageSetPricingResultSchema>;
 export type UsageSetRpmParams = z.infer<typeof UsageSetRpmParamsSchema>;
 export type UsageSetRpmResult = z.infer<typeof UsageSetRpmResultSchema>;
 
+/* automation:* —— 自动化档位（M2 产品卡③；FR-12.7：档位只作用于闸门自动确认，对外发送确认永保留） */
+
+export const AutomationGetTierParamsSchema = z.strictObject({});
+
+export const AutomationTierResultSchema = z.object({ tier: z.enum(AUTOMATION_TIERS) });
+
+export const AutomationSetTierParamsSchema = z.strictObject({
+  tier: z.enum(AUTOMATION_TIERS),
+});
+
+export type AutomationGetTierResult = z.infer<typeof AutomationTierResultSchema>;
+export type AutomationSetTierParams = z.infer<typeof AutomationSetTierParamsSchema>;
+export type AutomationSetTierResult = z.infer<typeof AutomationTierResultSchema>;
+
+/* mirror:* —— 应用内浏览器镜像预览（M2 产品卡①；CDP screencast 只读投流，无输入派发） */
+
+export const MirrorStartParamsSchema = z.strictObject({});
+
+export const MirrorStartResultSchema = z.object({
+  /** 本次调用是否真正发起了 screencast（已在推流时幂等返回 false） */
+  started: z.boolean(),
+  state: z.string(),
+});
+
+export const MirrorStopParamsSchema = z.strictObject({});
+
+export const MirrorStopResultSchema = z.object({ stopped: z.boolean() });
+
+/** mirror:frame 推送 payload 契约（main→renderer 单向；非 invoke 面） */
+export const MirrorFramePushSchema = z.object({
+  /** JPEG 帧的 base64（CDP Page.screencastFrame.data 原样） */
+  dataBase64: z.string().min(1),
+  width: z.number().nullable(),
+  height: z.number().nullable(),
+  at: z.string(),
+});
+
+export type MirrorStartResult = z.infer<typeof MirrorStartResultSchema>;
+export type MirrorStopResult = z.infer<typeof MirrorStopResultSchema>;
+export type MirrorFramePush = z.infer<typeof MirrorFramePushSchema>;
+
+/* viral:* —— 爆款清单 v1（M2 产品卡②；FR-4.7 确定性热度初筛 + 单次 LLM 解读） */
+
+export const ViralListParamsSchema = z.strictObject({
+  /** 缺省 = 最近一次 collect 任务的主题 */
+  topicId: z.string().min(1).max(120).optional(),
+});
+
+export const ViralItemSchema = z.object({
+  noteId: z.string(),
+  title: z.string().nullable(),
+  likes: z.number().int().nonnegative(),
+  collects: z.number().int().nonnegative(),
+  comments: z.number().int().nonnegative(),
+  publishedAt: z.string().nullable(),
+  /** 互动加权值（赞×1 + 藏×5 + 评×3；审计可回放） */
+  engagement: z.number().int().nonnegative(),
+  /** 发布时间衰减系数（≤7d 1.0 / ≤30d 0.9 / ≤90d 0.75 / 更早 0.5 / 未知 0.75） */
+  recencyFactor: z.number(),
+  /** 相对热度分（0-100，主题内按最高互动归一 × 衰减系数） */
+  score: z.number().int().min(0).max(100),
+});
+
+export const ViralRationaleSchema = z.object({
+  /** noteId → 一句话解读（≤160 字；LLM 单次调用产物） */
+  notes: z.record(z.string(), z.string()),
+  generatedAt: z.string(),
+  model: z.string().nullable(),
+});
+
+export const ViralSnapshotSchema = z.object({
+  topicId: z.string(),
+  generatedAt: z.string(),
+  topN: z.number().int().min(1).max(50),
+  sampleSize: z.number().int().nonnegative(),
+  items: z.array(ViralItemSchema),
+  rationale: ViralRationaleSchema.nullable(),
+});
+
+export const ViralListResultSchema = z.object({ snapshot: ViralSnapshotSchema });
+
+export const ViralRefreshParamsSchema = z.strictObject({
+  topicId: z.string().min(1).max(120).optional(),
+  topN: z.number().int().min(1).max(50).optional(),
+});
+
+export const ViralRefreshResultSchema = z.object({ snapshot: ViralSnapshotSchema });
+
+export const ViralGenerateRationaleParamsSchema = z.strictObject({
+  topicId: z.string().min(1).max(120).optional(),
+});
+
+export const ViralGenerateRationaleResultSchema = z.object({
+  snapshot: ViralSnapshotSchema,
+  /** 是否真实发生 LLM 调用（无候选/解析失败为 false + reason） */
+  llmCall: z.boolean(),
+  reason: z.string().nullable(),
+});
+
+export type ViralListParams = z.infer<typeof ViralListParamsSchema>;
+export type ViralItem = z.infer<typeof ViralItemSchema>;
+export type ViralRationale = z.infer<typeof ViralRationaleSchema>;
+export type ViralSnapshot = z.infer<typeof ViralSnapshotSchema>;
+export type ViralListResult = z.infer<typeof ViralListResultSchema>;
+export type ViralRefreshParams = z.infer<typeof ViralRefreshParamsSchema>;
+export type ViralRefreshResult = z.infer<typeof ViralRefreshResultSchema>;
+export type ViralGenerateRationaleParams = z.infer<typeof ViralGenerateRationaleParamsSchema>;
+export type ViralGenerateRationaleResult = z.infer<typeof ViralGenerateRationaleResultSchema>;
+
 /** 通道 → 入参 schema。preload 与 main 侧都从这里取，保证两侧校验一致。 */
 export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'app:info': AppInfoParamsSchema,
   'app:navigate': NavigateParamsSchema,
+  'automation:getTier': AutomationGetTierParamsSchema,
+  'automation:setTier': AutomationSetTierParamsSchema,
   'browser:disconnect': BrowserDisconnectParamsSchema,
   'browser:installBuiltin': BrowserInstallBuiltinParamsSchema,
   'browser:openPlatform': BrowserOpenPlatformParamsSchema,
@@ -823,6 +934,8 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'logs:query': LogsQueryParamsSchema,
   'license:activate': LicenseActivateParamsSchema,
   'license:status': LicenseStatusParamsSchema,
+  'mirror:start': MirrorStartParamsSchema,
+  'mirror:stop': MirrorStopParamsSchema,
   'notes:list': NotesListParamsSchema,
   'report:chartData': ReportChartDataParamsSchema,
   'report:exportPdf': ReportExportPdfParamsSchema,
@@ -846,4 +959,7 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'usage:setPricing': UsageSetPricingParamsSchema,
   'usage:setRpm': UsageSetRpmParamsSchema,
   'usage:summary': UsageSummaryParamsSchema,
+  'viral:generateRationale': ViralGenerateRationaleParamsSchema,
+  'viral:list': ViralListParamsSchema,
+  'viral:refresh': ViralRefreshParamsSchema,
 };

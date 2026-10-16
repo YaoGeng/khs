@@ -20,6 +20,7 @@ import {
 import type { TaskRowView } from '../store';
 import type { TaskRunner } from '../tasks';
 import { CollectReportGateSignal, type CollectReportStepContext } from '../tasks/collect-service';
+import { KV_AUTOMATION_TIER } from './automation-tier';
 
 interface FakeStoreHandle {
   kv: Map<string, string | Buffer>;
@@ -409,5 +410,53 @@ describe('读面（gates/reports/chartData/fixture）', () => {
     await handle.deps.store.insertReport({ topic: 't', report: { chapters: {} } });
     const existing = await service.getReportView(1);
     expect(existing.report).toEqual({ chapters: {} });
+  });
+});
+
+describe('全自动档闸门自动确认（M2 产品卡③ = FR-12.7）', () => {
+  it('tier=auto：报告闸门自动确认——selection 占位已建、任务 resume 收口、TASK_ENQUEUE reason=keyword-gate-auto-confirmed', async () => {
+    const handle = makeDeps({ tasks: [{ id: 'task-1' }], notes: notesFixture() });
+    handle.kv.set(KV_AUTOMATION_TIER, 'auto');
+    const service = createReportService(handle.deps);
+    const result = await service.runCollectReportStep(ctxBase);
+
+    expect(result.gate).toBe(GATE_KEYWORD_CONFIRM);
+    expect(result.autoConfirmed).toBe(true);
+    expect(result.selectionTaskId).toBeTruthy();
+    expect(handle.createdTasks).toHaveLength(1);
+    expect(handle.createdTasks[0]?.kind).toBe('selection');
+    expect(handle.runner.resume).toHaveBeenCalledWith('task-1');
+    expect(handle.kv.has(gatePendingKey('task-1'))).toBe(false);
+    const enqueue = handle.taskEvents.find((e) => e.type === 'TASK_ENQUEUE');
+    expect((enqueue?.payload as { reason?: string })?.reason).toBe('keyword-gate-auto-confirmed');
+  });
+
+  it('tier=semi（默认）：闸门等待人工——无 selection 任务、resume 未调用、挂起指针保留', async () => {
+    const handle = makeDeps({ tasks: [{ id: 'task-1' }], notes: notesFixture() });
+    const service = createReportService(handle.deps);
+    const result = await service.runCollectReportStep(ctxBase);
+    expect(result.autoConfirmed).toBeUndefined();
+    expect(handle.createdTasks).toHaveLength(0);
+    expect(handle.runner.resume).not.toHaveBeenCalled();
+    expect(handle.kv.has(gatePendingKey('task-1'))).toBe(true);
+  });
+
+  it('tier=auto 不影响 llm_key_config 闸门：Key 缺失仍转人工配置（永不自动确认）', async () => {
+    const handle = makeDeps({ tasks: [{ id: 'task-1' }], notes: notesFixture(), withKey: false });
+    handle.kv.set(KV_AUTOMATION_TIER, 'auto');
+    const service = createReportService(handle.deps);
+    await expect(service.runCollectReportStep(ctxBase)).rejects.toBeInstanceOf(CollectReportGateSignal);
+    expect(handle.createdTasks).toHaveLength(0);
+    expect(handle.runner.resume).not.toHaveBeenCalled();
+    expect(handle.kv.has(gatePendingKey('task-1'))).toBe(true);
+  });
+
+  it('tier 损坏值回落 semi（不误触发自动确认）', async () => {
+    const handle = makeDeps({ tasks: [{ id: 'task-1' }], notes: notesFixture() });
+    handle.kv.set(KV_AUTOMATION_TIER, '{"tier":"auto"}');
+    const service = createReportService(handle.deps);
+    const result = await service.runCollectReportStep(ctxBase);
+    expect(result.autoConfirmed).toBeUndefined();
+    expect(handle.createdTasks).toHaveLength(0);
   });
 });

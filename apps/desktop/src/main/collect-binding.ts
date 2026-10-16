@@ -67,6 +67,8 @@ export interface CollectBindingDeps {
    * 缺省 = todo 7 四步管道原样（e2e/dev seam XINGLIAN_REPORT_STEP=off 时组合根不传）。
    */
   readonly reportStep?: (ctx: CollectReportStepContext) => Promise<unknown>;
+  /** 爆款清单步骤钩子（M2 产品卡②；main/viral-service 提供）：finalize 后重算热度 TopN 快照 */
+  readonly viralStep?: (ctx: CollectReportStepContext) => Promise<unknown>;
 }
 
 export interface CollectStartParams {
@@ -300,6 +302,7 @@ export function createCollectBinding(deps: CollectBindingDeps): CollectBinding {
     ...(deps.compliance ? { sendTelemetry: (event: { name: string; payload?: unknown }) => deps.compliance!.sendTelemetry(event) } : {}),
     ...(deps.notify ? { notify: deps.notify } : {}),
     ...(deps.reportStep ? { reportStep: deps.reportStep } : {}),
+    ...(deps.viralStep ? { viralStep: deps.viralStep } : {}),
     now,
     pacingScale,
   });

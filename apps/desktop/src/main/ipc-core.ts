@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { E_EULA_LOCKED, IPC_CHANNELS, IPC_ERRORS, type IpcChannel } from '../shared/channels';
 import {
   AppInfoResultSchema,
+  AutomationTierResultSchema,
   BrowserDisconnectResultSchema,
   BrowserInstallBuiltinResultSchema,
   BrowserOpenPlatformResultSchema,
@@ -28,6 +29,8 @@ import {
   KeysTestResultSchema,
   LicenseStatusResultSchema,
   LogsQueryResultSchema,
+  MirrorStartResultSchema,
+  MirrorStopResultSchema,
   NotesListResultSchema,
   ReportChartDataResultSchema,
   ReportExportPdfResultSchema,
@@ -46,7 +49,13 @@ import {
   UsageSetPricingResultSchema,
   UsageSetRpmResultSchema,
   UsageSummaryResultSchema,
+  ViralGenerateRationaleResultSchema,
+  ViralListResultSchema,
+  ViralRefreshResultSchema,
   type AppInfoResult,
+  type AutomationGetTierResult,
+  type AutomationSetTierParams,
+  type AutomationSetTierResult,
   type BrowserDisconnectResult,
   type BrowserInstallBuiltinResult,
   type BrowserOpenPlatformParams,
@@ -99,6 +108,12 @@ import {
   type UsageSetRpmResult,
   type UsageSummaryParams,
   type UsageSummaryResult,
+  type ViralGenerateRationaleParams,
+  type ViralGenerateRationaleResult,
+  type ViralListParams,
+  type ViralListResult,
+  type ViralRefreshParams,
+  type ViralRefreshResult,
 } from '../shared/schemas';
 import { isChannelAllowed } from './security';
 
@@ -142,6 +157,22 @@ export interface BrowserIpcDeps {
   readonly disconnect: () => Promise<BrowserDisconnectResult>;
   /** M2 B2：内置便携 Chromium 按需安装（未装配时通道显式报未就绪） */
   readonly installBuiltin?: () => Promise<BrowserInstallBuiltinResult>;
+  /** M2 产品卡①：应用内镜像预览（screencast 只读投流） */
+  readonly startMirror?: () => Promise<{ started: boolean; state: string }>;
+  readonly stopMirror?: () => Promise<{ stopped: boolean }>;
+}
+
+/** 自动化档位链路依赖注入面（M2 产品卡③；main binding 在 main/automation-tier.ts） */
+export interface AutomationIpcDeps {
+  readonly getTier: () => Promise<AutomationGetTierResult>;
+  readonly setTier: (params: AutomationSetTierParams) => Promise<AutomationSetTierResult>;
+}
+
+/** 爆款清单链路依赖注入面（M2 产品卡②；main binding 在 main/viral-service.ts） */
+export interface ViralIpcDeps {
+  readonly list: (params: ViralListParams) => Promise<ViralListResult>;
+  readonly refresh: (params: ViralRefreshParams) => Promise<ViralRefreshResult>;
+  readonly generateRationale: (params: ViralGenerateRationaleParams) => Promise<ViralGenerateRationaleResult>;
 }
 
 /** 采集/熔断链路依赖注入面（todo 7 = T-M1-04；main binding 在 main/collect-binding.ts） */
@@ -207,6 +238,10 @@ export interface AppInfoDeps {
   readonly usage?: UsageIpcDeps;
   /** 05 T-M2-03：选品候选清单（FR-6.2/6.3）依赖；未装配时 selection: 通道显式报未就绪 */
   readonly selection?: SelectionIpcDeps;
+  /** M2 产品卡③：自动化档位依赖；未装配时 automation: 通道显式报未就绪 */
+  readonly automation?: AutomationIpcDeps;
+  /** M2 产品卡②：爆款清单依赖；未装配时 viral: 通道显式报未就绪 */
+  readonly viral?: ViralIpcDeps;
 }
 
 /**
@@ -289,6 +324,53 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
             );
           }
           return { ok: true as const, view: payload.view };
+        },
+      },
+    ],
+    [
+      'automation:getTier',
+      {
+        paramsSchema: channelParamsSchemas['automation:getTier'],
+        // 设置性质读面（FR-12.7）：与 usage:summary 同口径不设 EULA 门
+        handle: async () => {
+          if (!deps.automation) throw new Error('E-IPC-DEP-MISSING: automation 链路未装配');
+          return validateExit(AutomationTierResultSchema, await deps.automation.getTier(), 'automation:getTier');
+        },
+      },
+    ],
+    [
+      'automation:setTier',
+      {
+        paramsSchema: channelParamsSchemas['automation:setTier'],
+        // 设置性质写面：与 usage:set* 同口径不设 EULA 门；档位不改变对外发送人工确认红线
+        handle: async (payload: AutomationSetTierParams) => {
+          if (!deps.automation) throw new Error('E-IPC-DEP-MISSING: automation 链路未装配');
+          return validateExit(AutomationTierResultSchema, await deps.automation.setTier(payload), 'automation:setTier');
+        },
+      },
+    ],
+    [
+      'mirror:start',
+      {
+        paramsSchema: channelParamsSchemas['mirror:start'],
+        // 镜像依附于受控浏览器接管：EULA 门语义与 browser:openPlatform 一致（FR-1.9）
+        handle: async () => {
+          if (!deps.consent.isViewAllowed('dashboard')) {
+            throw new Error(`${E_EULA_LOCKED}: 浏览器镜像已被 EULA 首启确认门锁定（FR-1.9）——请先完成协议确认`);
+          }
+          if (!deps.browser.startMirror) throw new Error('E-IPC-DEP-MISSING: mirror 链路未装配');
+          return validateExit(MirrorStartResultSchema, await deps.browser.startMirror(), 'mirror:start');
+        },
+      },
+    ],
+    [
+      'mirror:stop',
+      {
+        paramsSchema: channelParamsSchemas['mirror:stop'],
+        // 停止是安全动作（回归纯外部窗口浏览），与 browser:disconnect 同口径不设门
+        handle: async () => {
+          if (!deps.browser.stopMirror) throw new Error('E-IPC-DEP-MISSING: mirror 链路未装配');
+          return validateExit(MirrorStopResultSchema, await deps.browser.stopMirror(), 'mirror:stop');
         },
       },
     ],
@@ -848,6 +930,45 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
         handle: async (payload: UsageSetRpmParams) => {
           if (!deps.usage) throw new Error('E-IPC-DEP-MISSING: usage 链路未装配');
           return validateExit(UsageSetRpmResultSchema, await deps.usage.setRpm(payload), 'usage:setRpm');
+        },
+      },
+    ],
+    [
+      'viral:list',
+      {
+        paramsSchema: channelParamsSchemas['viral:list'],
+        // 只读面（FR-4.7 爆款清单数据源）：不设 EULA 门（历史数据可访问语义一致）
+        handle: async (payload: ViralListParams) => {
+          if (!deps.viral) throw new Error('E-IPC-DEP-MISSING: viral 链路未装配');
+          return validateExit(ViralListResultSchema, await deps.viral.list(payload), 'viral:list');
+        },
+      },
+    ],
+    [
+      'viral:refresh',
+      {
+        paramsSchema: channelParamsSchemas['viral:refresh'],
+        // 业务写面（重算快照）：EULA 门与 gate:confirm 同口径（insight 视图业务入口）
+        handle: async (payload: ViralRefreshParams) => {
+          if (!deps.consent.isViewAllowed('insight')) {
+            throw new Error(`${E_EULA_LOCKED}: 爆款清单重算已被 EULA 首启确认门锁定（FR-1.9）——请先完成协议确认`);
+          }
+          if (!deps.viral) throw new Error('E-IPC-DEP-MISSING: viral 链路未装配');
+          return validateExit(ViralRefreshResultSchema, await deps.viral.refresh(payload), 'viral:refresh');
+        },
+      },
+    ],
+    [
+      'viral:generateRationale',
+      {
+        paramsSchema: channelParamsSchemas['viral:generateRationale'],
+        // 业务写面 + 真实 BYOK 外呼（单次）：EULA 门与 gate:confirm 同口径
+        handle: async (payload: ViralGenerateRationaleParams) => {
+          if (!deps.consent.isViewAllowed('insight')) {
+            throw new Error(`${E_EULA_LOCKED}: 爆款解读已被 EULA 首启确认门锁定（FR-1.9）——请先完成协议确认`);
+          }
+          if (!deps.viral) throw new Error('E-IPC-DEP-MISSING: viral 链路未装配');
+          return validateExit(ViralGenerateRationaleResultSchema, await deps.viral.generateRationale(payload), 'viral:generateRationale');
         },
       },
     ],

@@ -15,6 +15,11 @@ export interface XinglianBridge {
   invoke(channel: string, payload?: unknown): Promise<unknown>;
   /** 九视图导航便捷封装 = invoke('app:navigate', { view }) */
   navigate(view: ViewId): Promise<NavigateResult>;
+  /**
+   * 订阅 main→renderer 推送通道（仅 PUSH_CHANNELS 白名单；越权通道直接 throw）。
+   * 返回取消订阅函数（renderer 切面板时调用，停止帧转发）。
+   */
+  onPush(channel: string, listener: (payload: unknown) => void): () => void;
 }
 
 export type { AppInfoResult, NavigateResult, ViewId };

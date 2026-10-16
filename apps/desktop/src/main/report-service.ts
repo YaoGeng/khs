@@ -31,6 +31,7 @@ import type { TaskRunner } from '../tasks';
 import { CollectReportGateSignal, type CollectReportStepContext } from '../tasks/collect-service';
 import type { WordlistScanFacade } from './key-service';
 import { GATE_ERRORS } from '../shared/channels';
+import { KV_AUTOMATION_TIER, parseAutomationTier } from './automation-tier';
 import type {
   GateConfirmResult,
   GateListResult,
@@ -123,11 +124,20 @@ export interface ReportServiceDeps {
 
 export interface ReportService {
   /** collect 管道第 5 步（collect-report）主体；注入 CollectService.reportStep */
-  runCollectReportStep(ctx: CollectReportStepContext): Promise<{ gate: GateType; reportId: number | null }>;
+  runCollectReportStep(ctx: CollectReportStepContext): Promise<{
+    gate: GateType;
+    reportId: number | null;
+    /** 全自动档：闸门已自动确认（selection 占位已建、任务已收口） */
+    autoConfirmed?: boolean;
+    selectionTaskId?: string;
+  }>;
   /** 闸门读面（awaiting_user 任务 × gate:pending kv） */
   listGates(): Promise<GateListResult>;
-  /** 确认闸门：selection 占位任务（queued + idempotency_key）；重复确认幂等 no-op */
-  confirmGate(taskId: string): Promise<GateConfirmResult>;
+  /**
+   * 确认闸门：selection 占位任务（queued + idempotency_key）；重复确认幂等 no-op。
+   * source=user 走 UI 点击；source=auto 由全自动档在闸门挂起后自动调用（审计双轨）。
+   */
+  confirmGate(taskId: string, source?: 'user' | 'auto'): Promise<GateConfirmResult>;
   /** 拒绝闸门：collect 任务 cancelled */
   rejectGate(taskId: string): Promise<GateRejectResult>;
   /** 报告索引（report:index kv，新→旧） */
@@ -251,39 +261,48 @@ interface ReportIndexEntry {
 /** BYOK provider 解析顺序：custom（D11 dev 真实网关）优先，其余按预设序 */
 const PROVIDER_PREFERENCE = ['custom', 'deepseek', 'tongyi', 'zhipu', 'siliconflow', 'openai'] as const;
 
+/**
+ * BYOK LLM 配置解析（导出供 viral-service 复用同一口径）：按偏好序读第一个已配置
+ * provider 的解密明文（仅主进程内存），并附带 FR-2.6 全局 RPM。
+ */
+export async function resolveReportLlmConfig(
+  store: Pick<ReportServiceDeps['store'], 'kvGet'>,
+  readKeyEntry: ReportServiceDeps['readKeyEntry'],
+): Promise<ReportLlmConfig | null> {
+  const override = process.env.XINGLIAN_REPORT_PROVIDER?.trim();
+  const order = override ? [override, ...PROVIDER_PREFERENCE.filter((p) => p !== override)] : [...PROVIDER_PREFERENCE];
+  for (const provider of order) {
+    const entry = await readKeyEntry(provider);
+    if (entry) {
+      // FR-2.6：全局 RPM 随解析一并读取（kv 读经 store worker；改设置后下一次调用生效）
+      const rpmRaw = await store.kvGet(KV_LLM_RPM_GLOBAL);
+      const rpm = typeof rpmRaw === 'string' ? Number(rpmRaw) : 0;
+      return {
+        provider: entry.provider,
+        baseUrl: entry.baseUrl,
+        apiKey: entry.apiKey,
+        backupKeys: entry.backupKeys,
+        model: entry.model,
+        rpmGlobal: Number.isFinite(rpm) && rpm > 0 ? Math.floor(rpm) : 0,
+      };
+    }
+  }
+  return null;
+}
+
 export function createReportService(deps: ReportServiceDeps): ReportService {
   const now = deps.now ?? (() => new Date());
   const seed = deps.seed ?? 20261013;
+  const resolveLlmConfig = () => resolveReportLlmConfig(deps.store, deps.readKeyEntry);
 
-  async function resolveLlmConfig(): Promise<ReportLlmConfig | null> {
-    const override = process.env.XINGLIAN_REPORT_PROVIDER?.trim();
-    const order = override ? [override, ...PROVIDER_PREFERENCE.filter((p) => p !== override)] : [...PROVIDER_PREFERENCE];
-    for (const provider of order) {
-      const entry = await deps.readKeyEntry(provider);
-      if (entry) {
-        // FR-2.6：全局 RPM 随解析一并读取（kv 读经 store worker；改设置后下一次报告步骤生效）
-        const rpmRaw = await deps.store.kvGet(KV_LLM_RPM_GLOBAL);
-        const rpm = typeof rpmRaw === 'string' ? Number(rpmRaw) : 0;
-        return {
-          provider: entry.provider,
-          baseUrl: entry.baseUrl,
-          apiKey: entry.apiKey,
-          backupKeys: entry.backupKeys,
-          model: entry.model,
-          rpmGlobal: Number.isFinite(rpm) && rpm > 0 ? Math.floor(rpm) : 0,
-        };
-      }
-    }
-    return null;
-  }
-
-  async function appendReportIndex(entry: ReportIndexEntry): Promise<void> {
+  const appendReportIndex = async (entry: ReportIndexEntry): Promise<void> => {
     const index = (await readKvJson<ReportIndexEntry[]>(deps.store, KV_REPORT_INDEX)) ?? [];
     const next = [entry, ...index.filter((e) => e.id !== entry.id)].slice(0, 50);
     await deps.store.kvSet(KV_REPORT_INDEX, JSON.stringify(next));
-  }
+  };
 
-  return {
+  // 命名引用：runCollectReportStep 的全自动档路径要回调 confirmGate（同一服务对象）
+  const api: ReportService = {
     async runCollectReportStep(ctx) {
       const { taskId, payload } = ctx;
       const llm = await resolveLlmConfig();
@@ -377,6 +396,14 @@ export function createReportService(deps: ReportServiceDeps): ReportService {
       });
       await deps.runner.awaitUser(taskId, 'keyword-confirm-gate（请在「市场洞察」确认选品关键词，02:274 E 步）');
       ctx.logger.automationStep('collect:report-gate-set', { taskId, reportId: outcome.reportId, gate: GATE_KEYWORD_CONFIRM });
+
+      // 全自动档（FR-12.7）：关键词闸门自动确认并推进 selection 占位（审计 gate:auto-confirmed）。
+      // 边界：仅 keyword_confirm 自动确认；收藏/询盘等对外发送前的人工确认不受档位影响。
+      const tier = parseAutomationTier(await deps.store.kvGet(KV_AUTOMATION_TIER));
+      if (tier === 'auto') {
+        const confirmed = await api.confirmGate(taskId, 'auto');
+        return { gate: GATE_KEYWORD_CONFIRM, reportId: outcome.reportId, autoConfirmed: true, selectionTaskId: confirmed.selectionTaskId ?? undefined };
+      }
       return { gate: GATE_KEYWORD_CONFIRM, reportId: outcome.reportId };
     },
 
@@ -406,7 +433,7 @@ export function createReportService(deps: ReportServiceDeps): ReportService {
       return { gates };
     },
 
-    async confirmGate(taskId): Promise<GateConfirmResult> {
+    async confirmGate(taskId, source = 'user'): Promise<GateConfirmResult> {
       await deps.store.whenReady();
       const resolution = await readKvJson<GateResolutionRecord>(deps.store, gateResolutionKey(taskId));
 
@@ -462,7 +489,12 @@ export function createReportService(deps: ReportServiceDeps): ReportService {
         type: 'TASK_ENQUEUE',
         fromState: 'idle',
         toState: 'queued',
-        payload: { reason: 'keyword-gate-confirmed', reportId: pending.reportId, idempotencyKey },
+        payload: {
+          reason: source === 'auto' ? 'keyword-gate-auto-confirmed' : 'keyword-gate-confirmed',
+          reportId: pending.reportId,
+          idempotencyKey,
+          ...(source === 'auto' ? { automationTier: 'auto' } : {}),
+        },
       });
       await deps.store.kvSet(
         gateResolutionKey(taskId),
@@ -472,7 +504,13 @@ export function createReportService(deps: ReportServiceDeps): ReportService {
 
       // collect 任务收口：awaiting_user → running（检查点全完成）→ completed
       await deps.runner.resume(taskId);
-      deps.logger.userAction('gate:keyword-confirmed', { taskId, reportId: pending.reportId, selectionTaskId, idempotencyKey });
+      deps.logger.userAction(source === 'auto' ? 'gate:auto-confirmed' : 'gate:keyword-confirmed', {
+        taskId,
+        reportId: pending.reportId,
+        selectionTaskId,
+        idempotencyKey,
+        ...(source === 'auto' ? { automationTier: 'auto', note: '全自动档自动确认（FR-12.7）；收藏/询盘发送前人工确认不受档位影响' } : {}),
+      });
       return { created: true, selectionTaskId, idempotencyKey };
     },
 
@@ -583,4 +621,5 @@ export function createReportService(deps: ReportServiceDeps): ReportService {
       return { id };
     },
   };
+  return api;
 }
