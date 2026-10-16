@@ -291,7 +291,6 @@ describe('真实搜索/详情提取（pilot 修复：SPA 竞态 + href 凭证导
   });
 
   it('readDetailSource：现代互动条（engage-bar 作用域 + wrapper）优先，不被评论区同名 wrapper 干扰', () => {
-    const metaHtml = [{ getAttribute: (k: string) => (k === 'content' ? 'https://img.xhscdn.com/cover.jpg' : null) }];
     // 2026-10-16 真页形态：笔记级 .engage-bar .like-wrapper .count 恰 1 个；
     // 评论区另有同名 .like-wrapper（文档序在前也不允许取到）
     const bySel: Record<string, string> = {
@@ -301,17 +300,30 @@ describe('真实搜索/详情提取（pilot 修复：SPA 竞态 + href 凭证导
       '.engage-bar .chat-wrapper .count': '31',
       '.like-wrapper .count': '1',
     };
+    // 2026-10-16 真页取证：正文图宿主 sns-webpic-*（无专属容器），头像/图标/重复图必须滤掉
+    const img = (src: string) => ({ src, currentSrc: src });
+    const imgs = [
+      img('https://sns-avatar-qc.xhscdn.com/avatar/abc.jpg?imageView2/2/w/60/format/webp'),
+      img('https://sns-webpic-qc.xhscdn.com/20261016/aaa/1040g00832409lo5cover!nd_dft_wgth_webp_3'),
+      img('https://fe-platform.xhscdn.com/platform/icon.png'),
+      img('https://sns-webpic-qc.xhscdn.com/20261016/bbb/1040g00832409lo5slide2!nd_dft_wgth_webp_3'),
+      img('https://sns-webpic-qc.xhscdn.com/20261016/aaa/1040g00832409lo5cover!nd_dft_wgth_webp_3'),
+    ];
     const stub = {
       querySelector: (sel: string) => (bySel[sel] ? { textContent: bySel[sel] } : null),
-      querySelectorAll: (sel: string) => (sel === 'meta[property="og:image"], meta[name="og:image"]' ? metaHtml : []),
+      querySelectorAll: (sel: string) => (sel === 'img' ? imgs : []),
     };
     (globalThis as { document?: unknown }).document = stub;
     try {
-      const detail = new Function(`return ${readDetailSource(JSON.stringify('n2'))}`)() as { likes: number; collects: number; comments: number; imageUrls: string[] };
+      const detail = new Function(`return ${readDetailSource(JSON.stringify('n2'))}`)() as { likes: number; collects: number; comments: number; coverUrl: string | null; imageUrls: string[] };
       expect(detail.likes).toBe(43);
       expect(detail.collects).toBe(14);
       expect(detail.comments).toBe(31);
-      expect(detail.imageUrls).toEqual(['https://img.xhscdn.com/cover.jpg']);
+      expect(detail.coverUrl).toContain('sns-webpic-qc.xhscdn.com/20261016/aaa/');
+      expect(detail.imageUrls).toEqual([
+        'https://sns-webpic-qc.xhscdn.com/20261016/aaa/1040g00832409lo5cover!nd_dft_wgth_webp_3',
+        'https://sns-webpic-qc.xhscdn.com/20261016/bbb/1040g00832409lo5slide2!nd_dft_wgth_webp_3',
+      ]);
     } finally {
       delete (globalThis as { document?: unknown }).document;
     }

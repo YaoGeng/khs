@@ -56,7 +56,10 @@ const DIAG_SOURCE = `(function () {
     '.interact-container', '.like-wrapper .count', '.collect-wrapper .count', '.chat-wrapper .count',
     '.like-wrapper', '.collect-wrapper', '.chat-wrapper',
     '[class*="engage"]', '[class*="interact"]',
-    'meta[property="og:image"]', 'meta[name="og:image"]', 'meta[property="og:title"]'
+    'meta[property="og:image"]', 'meta[name="og:image"]', 'meta[property="og:title"]',
+    '.note-content img', '.media-container img', '.swiper-slide img', 'img.note-slider-img',
+    '[class*="swiper"] img', '[class*="slider"] img', '[class*="carousel"] img',
+    '.img-container img', '.image-container img', '.note-detail img', 'div[class*="media"] img'
   ];
   var counts = {};
   for (var i = 0; i < sels.length; i++) {
@@ -64,6 +67,14 @@ const DIAG_SOURCE = `(function () {
   }
   var interactEl = document.querySelector('.engage-bar') || document.querySelector('[class*="interact"]') || document.querySelector('.note-content');
   var countText = function (el) { return el ? (el.textContent || '').trim() : null; };
+  var imgSamples = Array.prototype.slice.call(document.querySelectorAll('img')).slice(0, 14).map(function (img) {
+    return {
+      src: (img.currentSrc || img.src || '').slice(0, 120),
+      cls: (img.className || '').slice(0, 70),
+      w: img.naturalWidth,
+      parentCls: (img.parentElement && img.parentElement.className || '').slice(0, 70)
+    };
+  });
   return {
     url: location.href,
     title: countText(document.querySelector('#detail-title')),
@@ -74,7 +85,8 @@ const DIAG_SOURCE = `(function () {
       return el ? el.outerHTML.slice(0, 600) : null;
     })(),
     ogImageProperty: (document.querySelector('meta[property="og:image"]') || {}).content || null,
-    ogImageName: (document.querySelector('meta[name="og:image"]') || {}).content || null
+    ogImageName: (document.querySelector('meta[name="og:image"]') || {}).content || null,
+    imgSamples: imgSamples
   };
 })()`;
 
@@ -137,15 +149,26 @@ async function main() {
       var count = function (sel) {
         var el = document.querySelector(sel);
         if (!el) return 0;
-        var m = /([\\d.]+)\\s*(万|w|k)?/i.exec((el.textContent || '').trim());
+        var m = /[\\d.]+\\s*(万|w|k)?/i.exec((el.textContent || '').trim());
         if (!m) return 0;
         var u = (m[2] || '').toLowerCase();
         return Math.round(parseFloat(m[1]) * (u === '万' || u === 'w' ? 10000 : u === 'k' ? 1000 : 1));
       };
+      var srcs = function (sel) {
+        return Array.prototype.slice.call(document.querySelectorAll(sel)).map(function (img) {
+          return (img.currentSrc || img.src || '').slice(0, 110);
+        }).filter(Boolean).slice(0, 6);
+      };
       return {
         legacy: { likes: count('.engage-bar .like .count'), collects: count('.engage-bar .collect .count'), comments: count('.engage-bar .chat .count') },
         modern: { likes: count('.like-wrapper .count'), collects: count('.collect-wrapper .count'), comments: count('.chat-wrapper .count') },
-        scoped: { likes: count('.engage-bar .like-wrapper .count'), collects: count('.engage-bar .collect-wrapper .count'), comments: count('.engage-bar .chat-wrapper .count') }
+        scoped: { likes: count('.engage-bar .like-wrapper .count'), collects: count('.engage-bar .collect-wrapper .count'), comments: count('.engage-bar .chat-wrapper .count') },
+        coverTrials: {
+          mediaContainer: srcs('.media-container img'),
+          swiperSlide: srcs('.swiper-slide img'),
+          noteSliderImg: srcs('img.note-slider-img'),
+          noteContentImg: srcs('.note-content img')
+        }
       };
     })()`);
 

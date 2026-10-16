@@ -323,8 +323,9 @@ export function extractNoteLinksSource(): string {
  *  (.like-wrapper/.collect-wrapper/.chat-wrapper .count)——必须用 engage-bar 作用域：
  *  详情页评论区每条评论各有同名 wrapper（实测 31~48 个），裸 .like-wrapper .count 会取到
  *  评论的赞；旧链 `.engage-bar .like .count`（wrapper 换代前结构）与裸链只作兜底。
- *  图片 og:image 在 property 属性（name= 恒 0），但注意 xhs 全站 og:image 是通用分享图
- *  （fe-platform 默认 PNG），非笔记封面——封面提取待后续从 .note-content img 取。 */
+ *  封面/图集（同日取证）：正文图**无专属容器**（.media-container/.swiper-slide/.note-content img
+ *  全 0 命中），稳定签名是 img 宿主 `sns-webpic-*`（头像在 sns-avatar、图标在 fe-platform/data:，
+ *  父层 .cover mask ld 轮播位仅作旁证）；og:image 是全站通用分享图，不再充当封面兜底（宁缺毋滥）。 */
 export function readDetailSource(noteIdJson: string): string {
   return `(function () {
   var noteId = ${noteIdJson};
@@ -355,9 +356,14 @@ export function readDetailSource(noteIdJson: string): string {
       return (el.textContent || '').trim();
     }).filter(Boolean);
   };
-  var images = Array.prototype.slice.call(document.querySelectorAll('meta[property="og:image"], meta[name="og:image"]')).map(function (m) {
-    return m.getAttribute('content') || '';
-  }).filter(Boolean);
+  var seen = {};
+  var images = Array.prototype.slice.call(document.querySelectorAll('img')).map(function (img) {
+    return img.currentSrc || img.src || '';
+  }).filter(function (src) {
+    if (src.indexOf('sns-webpic') < 0 || seen[src]) return false;
+    seen[src] = 1;
+    return true;
+  });
   return {
     noteId: noteId,
     title: text('#detail-title'),
