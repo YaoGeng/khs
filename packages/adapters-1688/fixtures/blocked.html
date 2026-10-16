@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>1688 - 登录墙/风控（fixture：blockedFeatures 命中验证）</title>
+</head>
+<body>
+  <!-- fixture 页面：登录墙 + 阿里系滑块容器的组合形态，仅用于 blockedFeatures 离线验证 -->
+  <div class="login-dialog">
+    <div class="login-panel">
+      <p>登录后查看更多货源</p>
+      <iframe src="https://login.1688.com/member/signin.htm" title="登录"></iframe>
+    </div>
+  </div>
+  <div id="nc_1_wrapper">
+    <div class="nc-container">
+      <span>请按住滑块，拖动到最右边</span>
+    </div>
+  </div>
+  <div class="punish-panel" id="captcha">
+    <p>访问异常验证</p>
+  </div>
+</body>
+</html>

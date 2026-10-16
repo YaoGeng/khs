@@ -4,6 +4,11 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "pnpm --filter @xinglian/protocol build && vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@xinglian/protocol": "workspace:*",
+    "linkedom": "^0.18.13"
   }
 }
