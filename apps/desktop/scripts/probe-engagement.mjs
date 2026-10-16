@@ -23,6 +23,9 @@ const BUILTIN_EXE = path.join(
 );
 const KEYWORD = process.argv[2] ?? '防晒衣推荐';
 const HOME = 'https://www.xiaohongshu.com';
+// KHS_PROBE_PROFILE=<dir>：复用真实登录态 profile 跑「登录态搜索详情」取证
+// （须先退出应用释放 profile 锁）；默认一次性临时 profile 走匿名路径。
+const PROFILE_OVERRIDE = process.env.KHS_PROBE_PROFILE ?? '';
 
 const require = createRequire(path.join(DESKTOP, 'package.json'));
 const { chromium } = require('@playwright/test');
@@ -47,7 +50,9 @@ async function waitForDevToolsPort(profileDir, timeoutMs = 20_000) {
 const DIAG_SOURCE = `(function () {
   var sels = [
     '#detail-title', '#detail-desc', '.author-container .username', '.date', 'a.tag',
-    '.engage-bar', '.engage-bar .like .count', '.engage-bar .collect .count', '.engage-bar .chat .count',
+    '.engage-bar', '.engage-bar .like .count', '.engage-bar .like-wrapper', '.engage-bar .like-wrapper .count',
+    '.engage-bar .collect-wrapper', '.engage-bar .collect-wrapper .count',
+    '.engage-bar .chat-wrapper', '.engage-bar .chat-wrapper .count',
     '.interact-container', '.like-wrapper .count', '.collect-wrapper .count', '.chat-wrapper .count',
     '.like-wrapper', '.collect-wrapper', '.chat-wrapper',
     '[class*="engage"]', '[class*="interact"]',
@@ -57,13 +62,17 @@ const DIAG_SOURCE = `(function () {
   for (var i = 0; i < sels.length; i++) {
     try { counts[sels[i]] = document.querySelectorAll(sels[i]).length; } catch (e) { counts[sels[i]] = -1; }
   }
-  var interactEl = document.querySelector('[class*="interact"]') || document.querySelector('.engage-bar') || document.querySelector('.note-content');
+  var interactEl = document.querySelector('.engage-bar') || document.querySelector('[class*="interact"]') || document.querySelector('.note-content');
   var countText = function (el) { return el ? (el.textContent || '').trim() : null; };
   return {
     url: location.href,
     title: countText(document.querySelector('#detail-title')),
     counts: counts,
-    interactHTML: interactEl ? interactEl.outerHTML.slice(0, 1800) : null,
+    interactHTML: interactEl ? interactEl.outerHTML.slice(0, 2500) : null,
+    chatWrapperHTML: (function () {
+      var el = document.querySelector('.engage-bar .chat-wrapper') || document.querySelector('.chat-wrapper');
+      return el ? el.outerHTML.slice(0, 600) : null;
+    })(),
     ogImageProperty: (document.querySelector('meta[property="og:image"]') || {}).content || null,
     ogImageName: (document.querySelector('meta[name="og:image"]') || {}).content || null
   };
@@ -75,7 +84,10 @@ async function main() {
     process.exit(1);
   }
   await mkdir(OUT_DIR, { recursive: true });
-  const profile = await mkdtemp(path.join(tmpdir(), 'khs-probe-eng-'));
+  const profile = PROFILE_OVERRIDE || (await mkdtemp(path.join(tmpdir(), 'khs-probe-eng-')));
+  const keepProfile = Boolean(PROFILE_OVERRIDE);
+  // 复用 profile 时上次的 DevToolsActivePort 可能残留（陈旧端口），先删再等新文件
+  if (keepProfile) await rm(path.join(profile, 'DevToolsActivePort'), { force: true }).catch(() => {});
   const child = spawn(BUILTIN_EXE, [
     '--remote-debugging-port=0',
     `--user-data-dir=${profile}`,
@@ -132,7 +144,8 @@ async function main() {
       };
       return {
         legacy: { likes: count('.engage-bar .like .count'), collects: count('.engage-bar .collect .count'), comments: count('.engage-bar .chat .count') },
-        modern: { likes: count('.like-wrapper .count'), collects: count('.collect-wrapper .count'), comments: count('.chat-wrapper .count') }
+        modern: { likes: count('.like-wrapper .count'), collects: count('.collect-wrapper .count'), comments: count('.chat-wrapper .count') },
+        scoped: { likes: count('.engage-bar .like-wrapper .count'), collects: count('.engage-bar .collect-wrapper .count'), comments: count('.engage-bar .chat-wrapper .count') }
       };
     })()`);
 
@@ -148,7 +161,7 @@ async function main() {
   } finally {
     if (!child.killed) { try { child.kill(); } catch { /* 忽略 */ } }
     await sleep(1_500);
-    await rm(profile, { recursive: true, force: true }).catch(() => {});
+    if (!keepProfile) await rm(profile, { recursive: true, force: true }).catch(() => {});
   }
 }
 

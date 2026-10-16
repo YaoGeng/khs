@@ -74,6 +74,11 @@ const EVAL_TIMEOUT_DEFAULT = 10_000;
 const POLL_DEFAULT = 200;
 /** 详情轮询上限：压在单条读预算（NFR-1 ≤8s）内，给导航耗时留余量 */
 const DETAIL_POLL_CAP = 5_000;
+/** 互动计数补轮窗口：SSR 标题先于 React hydration 的计数渲染（2026-10-16 实采实证：
+ *  标题到位即回导致整批计数 0，而同页延时 2.5s 后计数可取——见
+ *  .omo/evidence/engagement-selector-fix/）。正文出现后给计数至多这么多毫秒补轮；
+ *  真实 0 互动笔记最多多等这一段，仍在单条 8s 预算内。 */
+const ENGAGE_SETTLE_CAP = 2_000;
 /** 平台 origin（宿主预热/导航兜底共用；搜索与详情 URL 的同源基座） */
 export const XHS_ORIGIN = 'https://www.xiaohongshu.com';
 
@@ -233,12 +238,14 @@ export class CdpAutomation {
     });
   }
 
-  /** 详情轮询提取：标题或正文出现即回；期间 evaluate 异常按空结果重试；
+  /** 详情轮询提取：标题或正文出现后，若互动计数为 0 再给 ENGAGE_SETTLE_CAP 补轮
+   *  （hydration 计数晚于 SSR 标题挂载）；期间 evaluate 异常按空结果重试；
    *  deadline 兜底返回空字段对象（由上层空详情护栏计 noResult，不入库）。 */
   private async pollDetail(noteId: string): Promise<NoteDetail> {
     const interval = this.deps.pollIntervalMs ?? POLL_DEFAULT;
     const timeout = Math.min(this.deps.waitForTimeoutMs ?? EVAL_TIMEOUT_DEFAULT, DETAIL_POLL_CAP);
     const deadline = this.now() + timeout;
+    let settleDeadline = 0;
     for (;;) {
       let detail: NoteDetail | null = null;
       try {
@@ -247,7 +254,14 @@ export class CdpAutomation {
         // 页面跳转/上下文重建中：下个周期重试
       }
       const current = detail ?? { noteId, title: null, content: null, likes: 0, collects: 0, comments: 0, tags: [], author: { name: null }, publishedAt: null, coverUrl: null, imageUrls: [] };
-      if (current.title !== null || current.content !== null || this.now() + interval > deadline) return current;
+      if (current.title !== null || current.content !== null) {
+        if (current.likes + current.collects + current.comments > 0) return current;
+        // 正文已到位而计数为 0：要么真 0，要么计数未挂载——补轮窗口内再取，超窗即回
+        if (settleDeadline === 0) settleDeadline = Math.min(this.now() + ENGAGE_SETTLE_CAP, deadline);
+        if (this.now() + interval > settleDeadline) return current;
+      } else if (this.now() + interval > deadline) {
+        return current;
+      }
       await this.deps.delay(interval);
     }
   }
@@ -304,10 +318,13 @@ export function extractNoteLinksSource(): string {
 
 /** 笔记详情提取（页面侧表达式；导出供单测以 stub document 直评源码）。
  *  选择器对应笔记详情上下文（/explore/<id> 或搜索态详情视图），必须在导航到位后 evaluate。
- *  互动数走双链：2026-10 真页取证（scripts/probe-engagement.mjs）详情互动区为
- *  .like-wrapper/.collect-wrapper/.chat-wrapper .count，旧 .engage-bar 家族已全站消失
- *  （[class*="engage"] 命中 0），保留旧链兜底；图片 og:image 在 property 属性
- *  （meta[name="og:image"] 真页命中恒 0，是历史图片全空的根因），双属性兼容。 */
+ *  互动数走三链（2026-10-16 登录态真页取证，scripts/probe-engagement.mjs）：笔记级互动条是
+ *  `.engage-bar`（element class="interactions engage-bar"）内套**现代 wrapper**
+ *  (.like-wrapper/.collect-wrapper/.chat-wrapper .count)——必须用 engage-bar 作用域：
+ *  详情页评论区每条评论各有同名 wrapper（实测 31~48 个），裸 .like-wrapper .count 会取到
+ *  评论的赞；旧链 `.engage-bar .like .count`（wrapper 换代前结构）与裸链只作兜底。
+ *  图片 og:image 在 property 属性（name= 恒 0），但注意 xhs 全站 og:image 是通用分享图
+ *  （fe-platform 默认 PNG），非笔记封面——封面提取待后续从 .note-content img 取。 */
 export function readDetailSource(noteIdJson: string): string {
   return `(function () {
   var noteId = ${noteIdJson};
@@ -345,9 +362,9 @@ export function readDetailSource(noteIdJson: string): string {
     noteId: noteId,
     title: text('#detail-title'),
     content: text('#detail-desc'),
-    likes: countOf(['.like-wrapper .count', '.engage-bar .like .count']),
-    collects: countOf(['.collect-wrapper .count', '.engage-bar .collect .count']),
-    comments: countOf(['.chat-wrapper .count', '.engage-bar .chat .count']),
+    likes: countOf(['.engage-bar .like-wrapper .count', '.engage-bar .like .count', '.like-wrapper .count']),
+    collects: countOf(['.engage-bar .collect-wrapper .count', '.engage-bar .collect .count', '.collect-wrapper .count']),
+    comments: countOf(['.engage-bar .chat-wrapper .count', '.engage-bar .chat .count', '.chat-wrapper .count']),
     tags: list('#detail-desc a.tag'),
     author: { name: text('.author-container .username') },
     publishedAt: text('.date') || null,

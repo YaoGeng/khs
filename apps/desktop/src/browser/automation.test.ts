@@ -290,30 +290,96 @@ describe('真实搜索/详情提取（pilot 修复：SPA 竞态 + href 凭证导
     }
   });
 
-  it('readDetailSource：现代互动区选择器（2026-10 真页取证 .like/.collect/.chat-wrapper）与 og:image property 属性', () => {
+  it('readDetailSource：现代互动条（engage-bar 作用域 + wrapper）优先，不被评论区同名 wrapper 干扰', () => {
     const metaHtml = [{ getAttribute: (k: string) => (k === 'content' ? 'https://img.xhscdn.com/cover.jpg' : null) }];
+    // 2026-10-16 真页形态：笔记级 .engage-bar .like-wrapper .count 恰 1 个；
+    // 评论区另有同名 .like-wrapper（文档序在前也不允许取到）
+    const bySel: Record<string, string> = {
+      '#detail-title': '标题',
+      '.engage-bar .like-wrapper .count': '43',
+      '.engage-bar .collect-wrapper .count': '14',
+      '.engage-bar .chat-wrapper .count': '31',
+      '.like-wrapper .count': '1',
+    };
     const stub = {
-      querySelector: (sel: string) => {
-        const bySel: Record<string, string> = {
-          '#detail-title': '标题',
-          '.like-wrapper .count': '87',
-          '.collect-wrapper .count': '2310',
-          '.chat-wrapper .count': '456',
-        };
-        return bySel[sel] ? { textContent: bySel[sel] } : null;
-      },
+      querySelector: (sel: string) => (bySel[sel] ? { textContent: bySel[sel] } : null),
       querySelectorAll: (sel: string) => (sel === 'meta[property="og:image"], meta[name="og:image"]' ? metaHtml : []),
     };
     (globalThis as { document?: unknown }).document = stub;
     try {
       const detail = new Function(`return ${readDetailSource(JSON.stringify('n2'))}`)() as { likes: number; collects: number; comments: number; imageUrls: string[] };
-      expect(detail.likes).toBe(87);
-      expect(detail.collects).toBe(2310);
-      expect(detail.comments).toBe(456);
+      expect(detail.likes).toBe(43);
+      expect(detail.collects).toBe(14);
+      expect(detail.comments).toBe(31);
       expect(detail.imageUrls).toEqual(['https://img.xhscdn.com/cover.jpg']);
     } finally {
       delete (globalThis as { document?: unknown }).document;
     }
+  });
+
+  it('readDetailSource：engage-bar 缺席时回退裸 wrapper 链（无评论区干扰的 surface）', () => {
+    const bySel: Record<string, string> = {
+      '.like-wrapper .count': '87',
+      '.collect-wrapper .count': '2310',
+      '.chat-wrapper .count': '456',
+    };
+    const stub = {
+      querySelector: (sel: string) => (bySel[sel] ? { textContent: bySel[sel] } : null),
+      querySelectorAll: () => [],
+    };
+    (globalThis as { document?: unknown }).document = stub;
+    try {
+      const detail = new Function(`return ${readDetailSource(JSON.stringify('n3'))}`)() as { likes: number; collects: number; comments: number };
+      expect(detail.likes).toBe(87);
+      expect(detail.collects).toBe(2310);
+      expect(detail.comments).toBe(456);
+    } finally {
+      delete (globalThis as { document?: unknown }).document;
+    }
+  });
+
+  it('pollDetail：正文到位后计数为 0 不即回，补轮取到 hydration 挂载的互动数', async () => {
+    let evalCalls = 0;
+    const empty = { tags: [], author: { name: null }, publishedAt: null, coverUrl: null, imageUrls: [] };
+    const { connection } = fakeConnection((message) => {
+      if (message.method !== 'Runtime.evaluate') return {};
+      evalCalls += 1;
+      const counts = evalCalls === 1 ? { likes: 0, collects: 0, comments: 0 } : { likes: 43, collects: 14, comments: 31 };
+      return { result: { value: { noteId: 'n9', title: 'T', content: 'C', ...counts, ...empty } } };
+    });
+    const automation = new CdpAutomation({
+      connection,
+      sessionId: 's',
+      gate: async () => {},
+      windows: new AutomationWindow(),
+      delay: async () => {},
+      now: () => 1_000,
+    });
+    const detail = await automation.readDetail('n9');
+    expect(detail.likes).toBe(43);
+    expect(detail.comments).toBe(31);
+    expect(evalCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it('pollDetail：真实 0 互动笔记在补轮窗口耗尽后有界返回（不死轮）', async () => {
+    const empty = { tags: [], author: { name: null }, publishedAt: null, coverUrl: null, imageUrls: [] };
+    const { connection } = fakeConnection((message) =>
+      message.method === 'Runtime.evaluate'
+        ? { result: { value: { noteId: 'n9', title: 'T', content: 'C', likes: 0, collects: 0, comments: 0, ...empty } } }
+        : {},
+    );
+    let tick = 0;
+    const automation = new CdpAutomation({
+      connection,
+      sessionId: 's',
+      gate: async () => {},
+      windows: new AutomationWindow(),
+      delay: async () => {},
+      now: () => (tick += 250),
+    });
+    const detail = await automation.readDetail('n9');
+    expect(detail.likes).toBe(0);
+    expect(detail.title).toBe('T');
   });
 });
 
