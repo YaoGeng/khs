@@ -55,6 +55,24 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   });
 
   return async () => {
-    await pg.stop();
+    try {
+      await pg.stop();
+    } catch (error) {
+      // persistent:false 在 stop() 内部删数据目录；Windows 下 postgres 句柄异步释放
+      // 偶发 EBUSY（进程已停、纯目录清理竞态）——不该让拆库竞态红掉整套测试。
+      // 非 EBUSY 的真实停库失败照抛。
+      const msg = String(error);
+      if (!msg.includes('EBUSY') && !msg.includes('resource busy')) throw error;
+      console.warn('[pg-teardown] stop() 目录清理 EBUSY（进程已停），转入重试清理');
+    }
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        rmSync(DATA_DIR, { recursive: true, force: true });
+        return;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
+    console.warn(`[pg-teardown] 数据目录残留（下次运行启动期自清）：${DATA_DIR}`);
   };
 }
