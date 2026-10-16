@@ -181,7 +181,17 @@ importers:
         specifier: ^0.18.13
         version: 0.18.13
 
-  packages/adapters-1688: {}
+  packages/adapters-1688:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.43
+        version: 20.19.43
+      '@xinglian/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      linkedom:
+        specifier: ^0.18.13
+        version: 0.18.13
 
   packages/adapters-xhs:
     devDependencies:
