@@ -74,6 +74,15 @@ const EVAL_TIMEOUT_DEFAULT = 10_000;
 const POLL_DEFAULT = 200;
 /** 详情轮询上限：压在单条读预算（NFR-1 ≤8s）内，给导航耗时留余量 */
 const DETAIL_POLL_CAP = 5_000;
+/** 单条详情读取总目标（导航起点算起）：压在 NFR-1 8s 预算内，留 action 外壳/账本开销余量。
+ *  实采教训（2026-10-16 两次任务被 10.2s 打死）：冷会话首条 Runtime.evaluate 可阻塞数秒，
+ *  而 poll 截止只在 evaluate 之间检查——跨截止的单次往返把整条读拖出预算，任务 failed
+ *  （不可恢复）且已读数据被丢弃。故轮询必须被绝对截止硬约束。 */
+const DETAIL_ITEM_TARGET_MS = 7_600;
+/** 单次 evaluate 往返竞速上限：页面忙（hydration/编译）时可阻塞数秒；竞速上限随剩余
+ *  预算收缩，保证任何一次往返都跑不出截止。竞速输掉的往返按跳转中处理（下周期重试）；
+ *  迟到的响应解析到已放弃的 promise 上，无副作用。 */
+const EVAL_ROUNDTRIP_CAP = 2_000;
 /** 互动计数补轮窗口：SSR 标题先于 React hydration 的计数渲染（2026-10-16 实采实证：
  *  标题到位即回导致整批计数 0，而同页延时 2.5s 后计数可取——见
  *  .omo/evidence/engagement-selector-fix/）。正文出现后给计数至多这么多毫秒补轮；
@@ -81,6 +90,11 @@ const DETAIL_POLL_CAP = 5_000;
 const ENGAGE_SETTLE_CAP = 2_000;
 /** 平台 origin（宿主预热/导航兜底共用；搜索与详情 URL 的同源基座） */
 export const XHS_ORIGIN = 'https://www.xiaohongshu.com';
+
+/** 空详情占位（pollDetail 轮询失败/硬停的兜底形状） */
+function emptyDetail(noteId: string): NoteDetail {
+  return { noteId, title: null, content: null, likes: 0, collects: 0, comments: 0, tags: [], author: { name: null }, publishedAt: null, coverUrl: null, imageUrls: [] };
+}
 
 export class CdpAutomation {
   private readonly deps: CdpAutomationDeps;
@@ -222,38 +236,56 @@ export class CdpAutomation {
 
   async readDetail(noteId: string): Promise<NoteDetail> {
     return this.action('read-detail', async () => {
+      // 单条读总目标：从导航/首评起点算（NFR-1 8s 减余量）；轮询被它硬约束，
+      // 杜绝「evaluate 阻塞跨过 poll 截止」把整条读拖出预算打死任务。
+      const hardDeadlineAt = this.now() + DETAIL_ITEM_TARGET_MS;
       const stored = this.noteHrefs.get(noteId);
       if (stored) {
         // 关键词路由：详情必须在笔记上下文读（pilot 实测在搜索结果页 evaluate 详情选择器恒空），
         // 用带 xsec_token 的完整 href 导航后再轮询提取。
         const target = new URL(stored, 'https://www.xiaohongshu.com').toString();
         await this.deps.connection.send('Page.navigate', { url: target }, this.deps.sessionId);
-        return this.pollDetail(noteId);
+        return this.pollDetail(noteId, hardDeadlineAt);
       }
       // note/user 路由：服务层已把页面导航到目标，先试当前页；无详情再兜底裸 /explore/<id>。
-      const direct = await this.pollDetail(noteId);
+      const direct = await this.pollDetail(noteId, hardDeadlineAt);
       if (direct.title !== null || direct.content !== null) return direct;
       await this.deps.connection.send('Page.navigate', { url: `https://www.xiaohongshu.com/explore/${noteId}` }, this.deps.sessionId);
-      return this.pollDetail(noteId);
+      return this.pollDetail(noteId, hardDeadlineAt);
     });
   }
 
   /** 详情轮询提取：标题或正文出现后，若互动计数为 0 再给 ENGAGE_SETTLE_CAP 补轮
-   *  （hydration 计数晚于 SSR 标题挂载）；期间 evaluate 异常按空结果重试；
-   *  deadline 兜底返回空字段对象（由上层空详情护栏计 noResult，不入库）。 */
-  private async pollDetail(noteId: string): Promise<NoteDetail> {
+   *  （hydration 计数晚于 SSR 标题挂载）；期间 evaluate 异常/竞速超时按跳转中重试；
+   *  deadline 兜底返回空字段对象（由上层空详情护栏计 noResult，不入库）。
+   *  硬约束（2026-10-16 实采教训）：poll 截止只在 evaluate 之间检查时，冷会话单次
+   *  往返阻塞可跨过截止（10.2s > 8s 任务被打死）——故每次 evaluate 都带不超出剩余
+   *  预算的竞速上限，且循环入口硬检查截止；硬停时返回最后已见数据（标题可能已到、
+   *  计数未挂载——宁返回部分数据也不丢弃）。 */
+  private async pollDetail(noteId: string, hardDeadlineAt: number = Number.POSITIVE_INFINITY): Promise<NoteDetail> {
     const interval = this.deps.pollIntervalMs ?? POLL_DEFAULT;
     const timeout = Math.min(this.deps.waitForTimeoutMs ?? EVAL_TIMEOUT_DEFAULT, DETAIL_POLL_CAP);
-    const deadline = this.now() + timeout;
+    const deadline = Math.min(this.now() + timeout, hardDeadlineAt);
     let settleDeadline = 0;
+    let lastKnown: NoteDetail | null = null;
     for (;;) {
+      const active = settleDeadline > 0 ? settleDeadline : deadline;
+      // 竞速上限随剩余预算收缩：任何一次往返都跑不出截止；无剩余即硬停
+      const raceCap = Math.min(EVAL_ROUNDTRIP_CAP, active - this.now());
+      if (raceCap <= 0) {
+        return lastKnown ?? emptyDetail(noteId);
+      }
       let detail: NoteDetail | null = null;
       try {
-        detail = await this.evaluate<NoteDetail>(readDetailSource(JSON.stringify(noteId)));
+        detail = await Promise.race([
+          this.evaluate<NoteDetail>(readDetailSource(JSON.stringify(noteId))),
+          this.deps.delay(raceCap).then(() => null),
+        ]);
       } catch {
         // 页面跳转/上下文重建中：下个周期重试
       }
-      const current = detail ?? { noteId, title: null, content: null, likes: 0, collects: 0, comments: 0, tags: [], author: { name: null }, publishedAt: null, coverUrl: null, imageUrls: [] };
+      if (detail !== null) lastKnown = detail;
+      const current = detail ?? emptyDetail(noteId);
       if (current.title !== null || current.content !== null) {
         if (current.likes + current.collects + current.comments > 0) return current;
         // 正文已到位而计数为 0：要么真 0，要么计数未挂载——补轮窗口内再取，超窗即回

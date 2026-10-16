@@ -393,6 +393,76 @@ describe('真实搜索/详情提取（pilot 修复：SPA 竞态 + href 凭证导
     expect(detail.likes).toBe(0);
     expect(detail.title).toBe('T');
   });
+
+  it('pollDetail：时钟跨过预算后立即有界退出——不再追加 evaluate，已读数据不丢弃'
+    + '（2026-10-16 实采回归：冷会话首条 10.2s > 8s 曾把整任务打死并丢弃已读数据）', async () => {
+    let evalCalls = 0;
+    const empty = { tags: [], author: { name: null }, publishedAt: null, coverUrl: null, imageUrls: [] };
+    const { connection } = fakeConnection((message) => {
+      if (message.method !== 'Runtime.evaluate') return {};
+      evalCalls += 1;
+      return { result: { value: { noteId: 'n10', title: '冷页', content: 'C', likes: 0, collects: 0, comments: 0, ...empty } } };
+    });
+    let tick = 1_000;
+    const jumps: Array<{ after: number; to: number }> = [{ after: 1, to: 99_999 }];
+    const automation = new CdpAutomation({
+      connection,
+      sessionId: 's',
+      gate: async () => {},
+      windows: new AutomationWindow(),
+      delay: async () => {},
+      now: () => {
+        const jump = jumps.find((j) => j.after === evalCalls && tick < j.to);
+        if (jump) tick = jump.to;
+        else tick += 10;
+        return tick;
+      },
+    });
+    const detail = await automation.readDetail('n10');
+    // 第一次 evaluate 取到标题（计数 0）；此后时钟跳到 99_999（远超一切截止）→
+    // 下一轮窗口判定立即退出：无第二次 evaluate，已读标题保留（计数按 0 落口径）
+    expect(evalCalls).toBe(1);
+    expect(detail.title).toBe('冷页');
+    expect(detail.likes).toBe(0);
+  });
+
+  it('pollDetail：单次 evaluate 阻塞超过竞速上限——按跳转中重试且整体有界（不跨出截止）', async () => {
+    // 延迟回包连接：evaluate 响应推迟 20ms（远慢于即时 delay 的微任务）→ 每次 race 必输
+    const sent: CdpMessage[] = [];
+    let evalCalls = 0;
+    let chunkSink: ((chunk: Buffer) => void) | null = null;
+    const connection = new CdpConnection({
+      write: (frame) => {
+        for (const part of frame.toString('utf8').split('\0')) {
+          if (!part) continue;
+          const message = JSON.parse(part) as CdpMessage;
+          sent.push(message);
+          if (message.method === 'Runtime.evaluate') evalCalls += 1;
+          const response = JSON.stringify({ id: message.id, result: {} }) + '\0';
+          setTimeout(() => chunkSink?.(Buffer.from(response, 'utf8')), 20);
+        }
+      },
+      onData: (cb) => { chunkSink = cb; },
+      onClose: () => {},
+      onError: () => {},
+      end: () => {},
+    });
+    let tick = 1_000;
+    const automation = new CdpAutomation({
+      connection,
+      sessionId: 's',
+      gate: async () => {},
+      windows: new AutomationWindow(),
+      delay: async () => {},
+      now: () => (tick += 1_000),
+    });
+    const detail = await automation.readDetail('n11');
+    // 竞速全输：始终拿不到数据，循环按截止有界退出（空详情，上层计 noResult）；
+    // 关键回归点：竞速输掉不抛错、不死等慢往返，任务存活
+    expect(detail.title).toBeNull();
+    expect(evalCalls).toBeGreaterThanOrEqual(2);
+    expect(evalCalls).toBeLessThan(10);
+  });
 });
 
 describe('mock CDP（fixture）+ 让位监视器', () => {
