@@ -7,7 +7,7 @@
  * 事务粒度（ADR-8 §7.2）：insertLogs 分片 ≤100 行/事务；其余单行写各自成事务。
  */
 import { openAndMigrate } from './db';
-import { EMBEDDINGS_RETENTION_DAYS, STORE_ERROR_CODES, isTaskStatus, type CircuitEventFilter, type CircuitEventInput, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KnnQuery, type LlmCallFilter, type NoteInput, type NoteQueryFilter, type NoteRowView, type ReportInput, type ReportRowView, type StoreRequest, type StoreResponse, type CreateTaskInput, type LogQueryFilter, type LlmCallInput, type StepInput, type TaskEventInput, type TaskStatusInput, type RetentionPolicy } from './protocol';
+import { EMBEDDINGS_RETENTION_DAYS, STORE_ERROR_CODES, isTaskStatus, type CircuitEventFilter, type CircuitEventInput, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KnnQuery, type LlmCallFilter, type NoteInput, type NoteQueryFilter, type NoteRowView, type ReportInput, type ReportRowView, type SourcingCandidateFilter, type SourcingCandidateInput, type StoreRequest, type StoreResponse, type CreateTaskInput, type LogQueryFilter, type LlmCallInput, type StepInput, type TaskEventInput, type TaskStatusInput, type RetentionPolicy } from './protocol';
 
 type SqliteDatabase = import('better-sqlite3').SqliteDatabase;
 
@@ -577,6 +577,73 @@ export function handleStoreRequest(db: SqliteDatabase, request: StoreRequest): {
                 captchaConsumed: Number(row.captcha_consumed),
               } satisfies CollectRunStatsView)
             : null,
+        };
+      }
+
+      case 'insertSourcingCandidates': {
+        // 幂等替换：同 task_id 旧批次先删后插（selection 任务重跑 = 全量替换，不做增量）
+        const rows = request.rows as SourcingCandidateInput[];
+        if (rows.length === 0) return { inserted: 0 };
+        const at = new Date().toISOString();
+        db.transaction(() => {
+          const taskIds = [...new Set(rows.map((r) => r.taskId))];
+          for (const taskId of taskIds) {
+            db.prepare('DELETE FROM sourcing_candidates WHERE task_id = ?').run(taskId);
+          }
+          const insert = db.prepare(
+            `INSERT INTO sourcing_candidates
+             (task_id, selection_id, rank, offer_id, keyword, total, dimensions_json, title,
+              price_text, sales_text, supplier_name, supplier_address, source_url, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          );
+          for (const r of rows) {
+            insert.run(
+              r.taskId,
+              r.selectionId,
+              r.rank,
+              r.offerId,
+              r.keyword,
+              r.total,
+              JSON.stringify(r.dimensions ?? null),
+              r.title,
+              r.priceText ?? null,
+              r.salesText ?? null,
+              r.supplierName ?? null,
+              r.supplierAddress ?? null,
+              r.sourceUrl ?? null,
+              at,
+            );
+          }
+        })();
+        return { inserted: rows.length };
+      }
+
+      case 'listSourcingCandidates': {
+        const filter = request.filter as SourcingCandidateFilter;
+        const limit = Math.min(Math.max(1, filter.limit ?? 50), 500);
+        const rows = (
+          filter.taskId === undefined
+            ? db.prepare('SELECT * FROM sourcing_candidates ORDER BY total DESC, rank ASC LIMIT ?').all(limit)
+            : db.prepare('SELECT * FROM sourcing_candidates WHERE task_id = ? ORDER BY rank ASC LIMIT ?').all(filter.taskId, limit)
+        ) as Array<Record<string, unknown>>;
+        return {
+          rows: rows.map((row) => ({
+            id: Number(row.id),
+            taskId: String(row.task_id),
+            selectionId: String(row.selection_id),
+            rank: Number(row.rank),
+            offerId: String(row.offer_id),
+            keyword: String(row.keyword),
+            total: Number(row.total),
+            dimensions: parseJsonOrNull(row.dimensions_json as string | null),
+            title: String(row.title),
+            priceText: (row.price_text as string | null) ?? null,
+            salesText: (row.sales_text as string | null) ?? null,
+            supplierName: (row.supplier_name as string | null) ?? null,
+            supplierAddress: (row.supplier_address as string | null) ?? null,
+            sourceUrl: (row.source_url as string | null) ?? null,
+            createdAt: String(row.created_at),
+          })),
         };
       }
 

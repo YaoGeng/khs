@@ -318,6 +318,48 @@ export interface CollectRunStatsView {
   captchaConsumed: number;
 }
 
+/** 选品候选行输入（T-M2-03；dimensions = selection-agent 的 DimensionScore[] 原样 JSON） */
+export interface SourcingCandidateInput {
+  taskId: string;
+  selectionId: string;
+  rank: number;
+  offerId: string;
+  keyword: string;
+  total: number;
+  dimensions: unknown;
+  title: string;
+  priceText?: string | null;
+  salesText?: string | null;
+  supplierName?: string | null;
+  supplierAddress?: string | null;
+  sourceUrl?: string | null;
+}
+
+export interface SourcingCandidateRowView {
+  id: number;
+  taskId: string;
+  selectionId: string;
+  rank: number;
+  offerId: string;
+  keyword: string;
+  total: number;
+  /** 已 JSON.parse 的 DimensionScore[]（worker 侧解析；损坏行返回 null） */
+  dimensions: unknown;
+  title: string;
+  priceText: string | null;
+  salesText: string | null;
+  supplierName: string | null;
+  supplierAddress: string | null;
+  sourceUrl: string | null;
+  createdAt: string;
+}
+
+export interface SourcingCandidateFilter {
+  taskId?: string;
+  /** 默认 50（TopN 口径），上限 500 */
+  limit?: number;
+}
+
 /** embeddings_cache 行写入（不存原文，只有 sha256）；rowid 由 worker 分配并与 vec 表共享 */
 export interface EmbeddingUpsertInput {
   provider: string;
@@ -393,6 +435,8 @@ export type StoreRequest =
   | (RequestBase & { type: 'kvDel'; key: string })
   | (RequestBase & { type: 'upsertCollectRunStats'; stats: CollectRunStatsInput })
   | (RequestBase & { type: 'getCollectRunStats'; runId: string })
+  | (RequestBase & { type: 'insertSourcingCandidates'; rows: SourcingCandidateInput[] })
+  | (RequestBase & { type: 'listSourcingCandidates'; filter: SourcingCandidateFilter })
   | (RequestBase & { type: 'upsertEmbedding'; embedding: EmbeddingUpsertInput })
   | (RequestBase & { type: 'knnTopK'; query: KnnQuery })
   | (RequestBase & { type: 'pruneEmbeddingsCache' });

@@ -21,6 +21,8 @@ import { createMainWindow } from './main/window';
 import { loadHeavyModules } from './main/heavy';
 import { attachMigrationReport, createStoreService, resolveStorePaths, runPreWindowMigration, type StoreService } from './main/store-service';
 import { createCollectBinding, type CollectBinding } from './main/collect-binding';
+import { SelectionService, createFixtureSearchPortFromFile } from './tasks/selection-service';
+import { createCdpSourcingPort1688 } from './browser/sourcing-port';
 import { createElectronSafeStoragePort } from './main/safe-storage-port';
 import { createGatewayKeyReader, createKeyService, type KeyService, type SafeStoragePort } from './main/key-service';
 import { createReportService, type ReportService } from './main/report-service';
@@ -292,12 +294,42 @@ if (!gotLock) {
 
     // 跨日续采扫描（02 §9.1：应用启动扫描昨日未完 remainder；UI「继续采集」经 collect:remainders）
     void storeService.recoveredTaskIds.then(async () => {
+      const storeSvc = storeService;
+      if (!storeSvc) return;
       const remainders = await collectBinding?.scanRemainders() ?? [];
       if (remainders.length > 0) {
-        storeService?.logger.userAction('collect:remainders-scanned', {
+        storeSvc.logger.userAction('collect:remainders-scanned', {
           count: remainders.length,
           taskIds: remainders.map((r) => r.taskId),
           note: '跨日续采面就绪（collect:remainders 通道 + tasks:resume 继续采集，任务不重建）',
+        });
+      }
+      // T-M2-03：queued selection 占位任务起跑（gate confirm 产出的任务，启动序补驱动）。
+      // fixture seam XINGLIAN_SELECTION_FIXTURE=<json 路径> = 候选回放（e2e/联调）；
+      // 真实端口惰性取浏览器连接（检索时须已接管；未接管 → 步骤失败可重试，不自动拉浏览器）
+      const selectionFixture = process.env.XINGLIAN_SELECTION_FIXTURE;
+      const selectionService = new SelectionService({
+        store: storeSvc.store,
+        runner: storeSvc.runner,
+        logger: storeSvc.logger,
+        searchPort: selectionFixture
+          ? createFixtureSearchPortFromFile(selectionFixture)
+          : createCdpSourcingPort1688({
+              connection: async () => {
+                const session = await browserService!.prepareAutomationTab();
+                return session.connection;
+              },
+              gate: () => browserService!.whenAutomationAllowed(),
+              delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+              logger: storeSvc.logger,
+            }),
+      });
+      const startedSelection = await selectionService.startQueued();
+      if (startedSelection.length > 0) {
+        storeSvc.logger.userAction('selection:queued-started', {
+          count: startedSelection.length,
+          taskIds: startedSelection,
+          mode: selectionFixture ? 'fixture' : 'cdp',
         });
       }
     });

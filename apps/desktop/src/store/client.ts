@@ -9,7 +9,7 @@
  *   当前批不重放（replay）——丢失面与 ADR-8「日志类可丢、任务类以事件流水可重建」口径一致。
  * 本模块 electron-free（transport 注入），vitest 以内存 transport + 真实 worker 内核直测。
  */
-import { STORE_ERROR_CODES, type CircuitEventFilter, type CircuitEventInput, type CircuitEventRowView, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type CreateTaskInput, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KeywordHitRowView, type KnnHit, type KnnQuery, type LogQueryFilter, type LogRowInput, type LogRowView, type LlmCallFilter, type LlmCallInput, type LlmCallRowView, type NoteInput, type NoteQueryFilter, type NoteRowView, type ReportInput, type ReportRowView, type StepInput, type StepRowView, type StoreRequest, type StoreResponse, type TaskEventInput, type TaskEventRowView, type TaskRowView, type TaskStatus, type TaskStatusInput, type KvValue } from './protocol';
+import { STORE_ERROR_CODES, type CircuitEventFilter, type CircuitEventInput, type CircuitEventRowView, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type CreateTaskInput, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KeywordHitRowView, type KnnHit, type KnnQuery, type LogQueryFilter, type LogRowInput, type LogRowView, type LlmCallFilter, type LlmCallInput, type LlmCallRowView, type NoteInput, type NoteQueryFilter, type NoteRowView, type ReportInput, type ReportRowView, type SourcingCandidateFilter, type SourcingCandidateInput, type SourcingCandidateRowView, type StepInput, type StepRowView, type StoreRequest, type StoreResponse, type TaskEventInput, type TaskEventRowView, type TaskRowView, type TaskStatus, type TaskStatusInput, type KvValue } from './protocol';
 import type { RetentionPolicy } from '@xinglian/logger';
 
 export interface StoreTransport {
@@ -99,6 +99,9 @@ export interface StoreClient {
   /** 增量语义：worker 侧按列累加（采集 DAG 逐步上报） */
   upsertCollectRunStats(stats: CollectRunStatsInput): Promise<{ upserted: boolean }>;
   getCollectRunStats(runId: string): Promise<CollectRunStatsView | null>;
+  /** 幂等替换：同 task_id 旧批次先删后插（selection 任务重跑 = 全量替换） */
+  insertSourcingCandidates(rows: SourcingCandidateInput[]): Promise<{ inserted: number }>;
+  listSourcingCandidates(filter?: SourcingCandidateFilter): Promise<SourcingCandidateRowView[]>;
   /** 嵌入缓存 upsert：rowid 由 worker 分配并与 embeddings_vec 共享（BigInt） */
   upsertEmbedding(embedding: EmbeddingUpsertInput): Promise<EmbeddingUpsertResult>;
   knnTopK(query: KnnQuery): Promise<KnnHit[]>;
@@ -384,6 +387,11 @@ export function createStoreClient(options: StoreClientOptions): StoreClient {
     getCollectRunStats: async (runId: string) => {
       const data = await unwrap<{ stats: CollectRunStatsView | null }>(dispatch(false, (id) => ({ id, type: 'getCollectRunStats', runId })));
       return data.stats;
+    },
+    insertSourcingCandidates: (rows: SourcingCandidateInput[]) => unwrap<{ inserted: number }>(dispatch(true, (id) => ({ id, type: 'insertSourcingCandidates', rows }))),
+    listSourcingCandidates: async (filter?: SourcingCandidateFilter) => {
+      const data = await unwrap<{ rows: SourcingCandidateRowView[] }>(dispatch(false, (id) => ({ id, type: 'listSourcingCandidates', filter: filter ?? {} })));
+      return data.rows;
     },
     upsertEmbedding: (embedding: EmbeddingUpsertInput) => unwrap(dispatch(false, (id) => ({ id, type: 'upsertEmbedding', embedding }))),
     knnTopK: async (query: KnnQuery) => {

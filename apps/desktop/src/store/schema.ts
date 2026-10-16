@@ -232,6 +232,38 @@ export const collectRunStats = sqliteTable('collect_run_stats', {
 });
 
 /**
+ * 选品候选快照（T-M2-03；M2 选品链路落库面）。一次 selection 任务产出 TopN 行，
+ * dimensions_json 存五维分与理由（审计可回放）；同一任务重跑按 (selection_id) 全量
+ * 替换（幂等）；跨任务同 offer 不去重——历史快照保真，看板侧聚合。
+ */
+export const sourcingCandidates = sqliteTable(
+  'sourcing_candidates',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** selection 任务 id（同任务重跑先删后插，幂等替换） */
+    taskId: text('task_id').notNull(),
+    /** generateSelection 产出的 selectionId（区分同任务多次执行批次） */
+    selectionId: text('selection_id').notNull(),
+    rank: integer('rank').notNull(),
+    offerId: text('offer_id').notNull(),
+    keyword: text('keyword').notNull(),
+    total: real('total').notNull(),
+    dimensionsJson: text('dimensions_json').notNull(),
+    title: text('title').notNull(),
+    priceText: text('price_text'),
+    salesText: text('sales_text'),
+    supplierName: text('supplier_name'),
+    supplierAddress: text('supplier_address'),
+    sourceUrl: text('source_url'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    index('idx_sourcing_candidates_task').on(t.taskId, t.rank),
+    index('idx_sourcing_candidates_offer').on(t.offerId),
+  ],
+);
+
+/**
  * 本地嵌入缓存（provider-matrix §4.2 注记落地；id 显式 = embeddings_vec rowid，
  * 绑定一律 BigInt）。embeddings_vec 本身是 vec0 虚拟表，drizzle sqlite-core
  * 无法建模，不设投影——仅 raw SQL（DDL 真源 migrations.ts upV3，dim=2048 单表）。

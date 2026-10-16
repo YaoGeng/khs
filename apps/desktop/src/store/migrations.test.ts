@@ -30,8 +30,8 @@ describe('v0 → v3 升级', () => {
     try {
       expect(vecError).toBeUndefined();
       expect(migration?.fromVersion).toBe(0);
-      expect(migration?.toVersion).toBe(3);
-      expect(currentVersion(db)).toBe(3);
+      expect(migration?.toVersion).toBe(4);
+      expect(currentVersion(db)).toBe(4);
       const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as Array<{ name: string }>).map((r) => r.name);
       for (const t of [
         'logs',
@@ -51,11 +51,12 @@ describe('v0 → v3 升级', () => {
         'collect_run_stats',
         'embeddings_cache',
         'embeddings_vec',
+        'sourcing_candidates',
       ]) {
         expect(tables).toContain(t);
       }
       const ledger = appliedVersions(db);
-      expect(ledger).toHaveLength(3);
+      expect(ledger).toHaveLength(4);
       expect(ledger[0]?.version).toBe(1);
       expect(ledger[0]?.name).toBe('0001-initial-m0-tables');
       expect(ledger[0]?.appliedAt).toBeTruthy();
@@ -65,16 +66,19 @@ describe('v0 → v3 升级', () => {
       expect(ledger[2]?.version).toBe(3);
       expect(ledger[2]?.name).toBe('0003-insight-m1-tables');
       expect(ledger[2]?.appliedAt).toBeTruthy();
+      expect(ledger[3]?.version).toBe(4);
+      expect(ledger[3]?.name).toBe('0004-m2-sourcing-candidates');
+      expect(ledger[3]?.appliedAt).toBeTruthy();
     } finally {
       db.close();
     }
   });
 
-  it('幂等：重复打开不重复执行（仍是 v3）', () => {
+  it('幂等：重复打开不重复执行（仍是 v4）', () => {
     migrateBeforeWindow(dbFile());
     const second = migrateBeforeWindow(dbFile());
-    expect(second.fromVersion).toBe(3);
-    expect(second.toVersion).toBe(3);
+    expect(second.fromVersion).toBe(4);
+    expect(second.toVersion).toBe(4);
     expect(second.applied).toHaveLength(0);
   });
 
@@ -97,10 +101,10 @@ describe('v3 → v0 回滚', () => {
     try {
       db.prepare("INSERT INTO logs (ts, created_at, level, level_name, category, msg) VALUES ('t','t',30,'info','user-action','m')").run();
       const report = runMigrations(db, { targetVersion: 0 });
-      expect(report.fromVersion).toBe(3);
+      expect(report.fromVersion).toBe(4);
       expect(report.toVersion).toBe(0);
       expect(report.applied[0]?.direction).toBe('down');
-      expect(report.applied).toHaveLength(3);
+      expect(report.applied).toHaveLength(4);
       expect(currentVersion(db)).toBe(0);
       const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((r) => r.name);
       for (const t of [
@@ -120,6 +124,7 @@ describe('v3 → v0 回滚', () => {
         'collect_run_stats',
         'embeddings_cache',
         'embeddings_vec',
+        'sourcing_candidates',
       ]) {
         expect(tables).not.toContain(t);
       }
@@ -138,7 +143,7 @@ describe('v3 → v0 回滚', () => {
     first.db.close();
     const second = openAndMigrate(file);
     try {
-      expect(currentVersion(second.db)).toBe(3);
+      expect(currentVersion(second.db)).toBe(4);
       second.db.prepare("INSERT INTO tasks (id, kind, status, created_at, updated_at) VALUES ('t1','demo','idle','now','now')").run();
       expect(second.db.prepare('SELECT COUNT(*) AS c FROM tasks').get()).toEqual({ c: 1 });
     } finally {
@@ -155,18 +160,22 @@ describe('0002 consents（todo 9 / FR-1.9：upgrade/downgrade 成对）', () => 
         "INSERT INTO consents (subject, action, eula_version, created_at) VALUES ('eula','accepted','0.1.0-draft','t')",
       ).run();
       const report = runMigrations(db, { targetVersion: 1 });
-      expect(report.fromVersion).toBe(3);
+      expect(report.fromVersion).toBe(4);
       expect(report.toVersion).toBe(1);
-      expect(report.applied).toHaveLength(2);
-      expect(report.applied[0]?.version).toBe(3);
-      expect(report.applied[0]?.name).toBe('0003-insight-m1-tables');
+      expect(report.applied).toHaveLength(3);
+      expect(report.applied[0]?.version).toBe(4);
+      expect(report.applied[0]?.name).toBe('0004-m2-sourcing-candidates');
       expect(report.applied[0]?.direction).toBe('down');
-      expect(report.applied[1]?.version).toBe(2);
-      expect(report.applied[1]?.name).toBe('0002-consents-compliance');
+      expect(report.applied[1]?.version).toBe(3);
+      expect(report.applied[1]?.name).toBe('0003-insight-m1-tables');
+      expect(report.applied[1]?.direction).toBe('down');
+      expect(report.applied[2]?.version).toBe(2);
+      expect(report.applied[2]?.name).toBe('0002-consents-compliance');
       const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((r) => r.name);
       expect(tables).not.toContain('consents');
       expect(tables).not.toContain('notes');
       expect(tables).not.toContain('embeddings_vec');
+      expect(tables).not.toContain('sourcing_candidates');
       expect(tables).toContain('logs');
       expect(tables).toContain('tasks');
       expect(currentVersion(db)).toBe(1);
@@ -255,10 +264,10 @@ describe('升级失败回滚（停在上一版本）', () => {
     } finally {
       db.close();
     }
-    // 库可复开：同文件以真链重开 → 正常迁到 v3 且可写
+    // 库可复开：同文件以真链重开 → 正常迁到最新（v4）且可写
     const reopened = openAndMigrate(file);
     try {
-      expect(currentVersion(reopened.db)).toBe(3);
+      expect(currentVersion(reopened.db)).toBe(4);
       reopened.db
         .prepare("INSERT INTO notes (note_id, title, collected_at) VALUES ('reopened', 'ok', 't')")
         .run();
@@ -302,10 +311,10 @@ describe('0003 insight v3（M1 todo 6：upgrade/downgrade 成对）', () => {
     } finally {
       seeded.db.close();
     }
-    // 2) up 到 v3：v3 表齐 + 播种一条 v3 业务行
+    // 2) up 到顶（v4，链含 0004）：v3 表齐 + 播种一条 v3 业务行
     const uped = openAndMigrate(file);
     try {
-      expect(currentVersion(uped.db)).toBe(3);
+      expect(currentVersion(uped.db)).toBe(4);
       const tables = tableNames(uped.db);
       for (const t of V3_TABLES) expect(tables).toContain(t);
       uped.db
@@ -314,15 +323,17 @@ describe('0003 insight v3（M1 todo 6：upgrade/downgrade 成对）', () => {
     } finally {
       uped.db.close();
     }
-    // 3) down 到 v2：v3 表全部消失（含 vec0 虚表）、v1/v2 数据原样、记账停 v2
+    // 3) down 到 v2：v3/v4 表全部消失（含 vec0 虚表）、v1/v2 数据原样、记账停 v2
     const downed = openAndMigrate(file, { skipMigration: true });
     try {
       const report = runMigrations(downed.db, { targetVersion: 2 });
-      expect(report.fromVersion).toBe(3);
+      expect(report.fromVersion).toBe(4);
       expect(report.toVersion).toBe(2);
-      expect(report.applied).toHaveLength(1);
-      expect(report.applied[0]?.version).toBe(3);
+      expect(report.applied).toHaveLength(2);
+      expect(report.applied[0]?.version).toBe(4);
       expect(report.applied[0]?.direction).toBe('down');
+      expect(report.applied[1]?.version).toBe(3);
+      expect(report.applied[1]?.direction).toBe('down');
       const tables = tableNames(downed.db);
       for (const t of V3_TABLES) expect(tables).not.toContain(t);
       expect(downed.db.prepare("SELECT COUNT(*) AS c FROM logs WHERE msg = 'v2-row'").get()).toEqual({ c: 1 });
@@ -331,10 +342,10 @@ describe('0003 insight v3（M1 todo 6：upgrade/downgrade 成对）', () => {
     } finally {
       downed.db.close();
     }
-    // 4) 再升回 v3：结构重建可写、v2 数据仍在（v3 行不复活——down 即删）
+    // 4) 再升回顶（v4）：结构重建可写、v2 数据仍在（v3 行不复活——down 即删）
     const reuped = openAndMigrate(file);
     try {
-      expect(currentVersion(reuped.db)).toBe(3);
+      expect(currentVersion(reuped.db)).toBe(4);
       expect(reuped.db.prepare('SELECT COUNT(*) AS c FROM notes').get()).toEqual({ c: 0 });
       expect(reuped.db.prepare("SELECT COUNT(*) AS c FROM logs WHERE msg = 'v2-row'").get()).toEqual({ c: 1 });
       reuped.db.prepare("INSERT INTO reports (topic, report_json, created_at) VALUES ('topic', '{}', 't2')").run();

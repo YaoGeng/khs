@@ -303,11 +303,45 @@ function downV3(db: SqliteDatabase): void {
   `);
 }
 
+/** v4（M2 T-M2-03）：选品候选快照表——selection 任务 TopN 落库（同任务幂等替换） */
+function upV4(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE sourcing_candidates (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id          TEXT    NOT NULL,
+      selection_id     TEXT    NOT NULL,
+      rank             INTEGER NOT NULL,
+      offer_id         TEXT    NOT NULL,
+      keyword          TEXT    NOT NULL,
+      total            REAL    NOT NULL,
+      dimensions_json  TEXT    NOT NULL,
+      title            TEXT    NOT NULL,
+      price_text       TEXT,
+      sales_text       TEXT,
+      supplier_name    TEXT,
+      supplier_address TEXT,
+      source_url       TEXT,
+      created_at       TEXT    NOT NULL
+    );
+    CREATE INDEX idx_sourcing_candidates_task ON sourcing_candidates (task_id, rank);
+    CREATE INDEX idx_sourcing_candidates_offer ON sourcing_candidates (offer_id);
+  `);
+}
+
+function downV4(db: SqliteDatabase): void {
+  db.exec(`
+    DROP INDEX IF EXISTS idx_sourcing_candidates_offer;
+    DROP INDEX IF EXISTS idx_sourcing_candidates_task;
+    DROP TABLE IF EXISTS sourcing_candidates;
+  `);
+}
+
 /** 迁移链：只追加不回改（发布后已应用版本不可变更，M1+ 走 0004+） */
 export const MIGRATIONS: readonly MigrationStep[] = [
   { version: 1, name: '0001-initial-m0-tables', up: upV1, down: downV1 },
   { version: 2, name: '0002-consents-compliance', up: upV2, down: downV2 },
   { version: 3, name: '0003-insight-m1-tables', up: upV3, down: downV3 },
+  { version: 4, name: '0004-m2-sourcing-candidates', up: upV4, down: downV4 },
 ];
 
 function ensureLedger(db: SqliteDatabase): void {

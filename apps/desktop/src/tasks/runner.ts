@@ -161,6 +161,25 @@ export class TaskRunner {
     return taskId;
   }
 
+  /** 起跑既有 queued 任务（T-M2-03：selection 占位任务由 gate confirm 产出，queued --TASK_START--> running） */
+  async startQueued(taskId: string): Promise<TaskStatus> {
+    await this.deps.store.whenReady();
+    const task = await this.deps.store.getTask(taskId);
+    if (!task) throw new Error(`task not found: ${taskId}`);
+    if (task.status !== 'queued') {
+      throw new Error(`task ${taskId} 状态为 ${task.status}，仅 queued 可起跑（resume 走既有通道）`);
+    }
+    if (!this.kindHandlers.has(task.kind)) {
+      throw new Error(`task ${taskId} 的 kind=${task.kind} 未注册处理器（启动序问题或未知 kind）`);
+    }
+    const traceId = randomUUID();
+    const box: ActorBox = { state: 'queued', snapshot: undefined, cancelled: false, stopRequested: false, kind: task.kind };
+    this.actors.set(taskId, box);
+    await this.applyLifecycle(taskId, box, { type: 'TASK_START' }, traceId);
+    box.drivePromise = this.drive(taskId, traceId, box);
+    return 'running';
+  }
+
   /** 按检查点续跑（02 §6.1）：跳过 task_steps 中已完成步骤 */
   async resume(taskId: string): Promise<TaskStatus> {
     await this.deps.store.whenReady();
