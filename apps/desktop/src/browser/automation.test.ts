@@ -289,6 +289,32 @@ describe('真实搜索/详情提取（pilot 修复：SPA 竞态 + href 凭证导
       delete (globalThis as { document?: unknown }).document;
     }
   });
+
+  it('readDetailSource：现代互动区选择器（2026-10 真页取证 .like/.collect/.chat-wrapper）与 og:image property 属性', () => {
+    const metaHtml = [{ getAttribute: (k: string) => (k === 'content' ? 'https://img.xhscdn.com/cover.jpg' : null) }];
+    const stub = {
+      querySelector: (sel: string) => {
+        const bySel: Record<string, string> = {
+          '#detail-title': '标题',
+          '.like-wrapper .count': '87',
+          '.collect-wrapper .count': '2310',
+          '.chat-wrapper .count': '456',
+        };
+        return bySel[sel] ? { textContent: bySel[sel] } : null;
+      },
+      querySelectorAll: (sel: string) => (sel === 'meta[property="og:image"], meta[name="og:image"]' ? metaHtml : []),
+    };
+    (globalThis as { document?: unknown }).document = stub;
+    try {
+      const detail = new Function(`return ${readDetailSource(JSON.stringify('n2'))}`)() as { likes: number; collects: number; comments: number; imageUrls: string[] };
+      expect(detail.likes).toBe(87);
+      expect(detail.collects).toBe(2310);
+      expect(detail.comments).toBe(456);
+      expect(detail.imageUrls).toEqual(['https://img.xhscdn.com/cover.jpg']);
+    } finally {
+      delete (globalThis as { document?: unknown }).document;
+    }
+  });
 });
 
 describe('mock CDP（fixture）+ 让位监视器', () => {

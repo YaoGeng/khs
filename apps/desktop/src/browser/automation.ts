@@ -303,7 +303,11 @@ export function extractNoteLinksSource(): string {
 }
 
 /** 笔记详情提取（页面侧表达式；导出供单测以 stub document 直评源码）。
- *  选择器对应笔记详情上下文（/explore/<id> 或搜索态详情视图），必须在导航到位后 evaluate。 */
+ *  选择器对应笔记详情上下文（/explore/<id> 或搜索态详情视图），必须在导航到位后 evaluate。
+ *  互动数走双链：2026-10 真页取证（scripts/probe-engagement.mjs）详情互动区为
+ *  .like-wrapper/.collect-wrapper/.chat-wrapper .count，旧 .engage-bar 家族已全站消失
+ *  （[class*="engage"] 命中 0），保留旧链兜底；图片 og:image 在 property 属性
+ *  （meta[name="og:image"] 真页命中恒 0，是历史图片全空的根因），双属性兼容。 */
 export function readDetailSource(noteIdJson: string): string {
   return `(function () {
   var noteId = ${noteIdJson};
@@ -322,21 +326,28 @@ export function readDetailSource(noteIdJson: string): string {
     var mult = unit === '万' || unit === 'w' ? 10000 : unit === 'k' ? 1000 : 1;
     return Math.round(n * mult);
   };
+  var countOf = function (selectors) {
+    for (var i = 0; i < selectors.length; i += 1) {
+      var v = count(selectors[i]);
+      if (v > 0) return v;
+    }
+    return 0;
+  };
   var list = function (sel) {
     return Array.prototype.slice.call(document.querySelectorAll(sel)).map(function (el) {
       return (el.textContent || '').trim();
     }).filter(Boolean);
   };
-  var images = Array.prototype.slice.call(document.querySelectorAll('meta[name="og:image"]')).map(function (m) {
+  var images = Array.prototype.slice.call(document.querySelectorAll('meta[property="og:image"], meta[name="og:image"]')).map(function (m) {
     return m.getAttribute('content') || '';
   }).filter(Boolean);
   return {
     noteId: noteId,
     title: text('#detail-title'),
     content: text('#detail-desc'),
-    likes: count('.engage-bar .like .count'),
-    collects: count('.engage-bar .collect .count'),
-    comments: count('.engage-bar .chat .count'),
+    likes: countOf(['.like-wrapper .count', '.engage-bar .like .count']),
+    collects: countOf(['.collect-wrapper .count', '.engage-bar .collect .count']),
+    comments: countOf(['.chat-wrapper .count', '.engage-bar .chat .count']),
     tags: list('#detail-desc a.tag'),
     author: { name: text('.author-container .username') },
     publishedAt: text('.date') || null,
