@@ -414,7 +414,9 @@ if (!gotLock) {
     // pilot 脚本化采集 seam（XINGLIAN_PILOT_AUTOCOLLECT，env 门控；仅联调窗口设置，生产不设）：
     // JSON = {action:'collect', payload:<collect:start 入参>} | {action:'resume', taskId}
     //      | {action:'confirm-gate', taskId}（无头确认闸门，等价 gate:confirm 通道）
-    //      | {action:'install-builtin'}（触发内置 Chromium 真实安装，B4 验收用）。
+    //      | {action:'install-builtin'}（触发内置 Chromium 真实安装，B4 验收用），
+    //      或以上动作组成的数组（顺序执行；collect/resume 等任务终态再走下一条——
+    //      runner.resume 只踢驱动不阻塞，且真实链路共用单个自动化会话，并发必窜）。
     // 与手动流程同路径：接管 xhs 平台浏览器（登录态在专用 Profile，保持 FR-3.1 不碰账密）→
     // prepare 自动化 → start（新任务）/ resumeTask（检查点续跑，等价 tasks:resume 通道）。
     const pilotAutoRaw = process.env.XINGLIAN_PILOT_AUTOCOLLECT;
@@ -428,36 +430,59 @@ if (!gotLock) {
           if (info?.state === 'installed' || info?.state === 'failed') return;
         }
       };
+      // 数组编排助手：等任务到终态（2s 轮询，30min 上限；awaiting_user/paused/suspended
+      // 都是「本条已让位人工/闸门」的停点，不应堵住后续条目）
+      const waitTaskTerminal = async (taskId: string): Promise<string> => {
+        const terminal = new Set(['completed', 'failed', 'paused', 'suspended', 'awaiting_user', 'cancelled']);
+        for (let i = 0; i < 900; i += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          const task = await storeClient.getTask(taskId).catch(() => null);
+          if (!task || terminal.has(task.status)) return task?.status ?? 'gone';
+        }
+        return 'wait-timeout';
+      };
       setTimeout(() => {
         void (async () => {
           try {
-            const spec = JSON.parse(pilotAutoRaw) as
+            const parsedSpecs: unknown = JSON.parse(pilotAutoRaw);
+            const specs = (Array.isArray(parsedSpecs) ? parsedSpecs : [parsedSpecs]) as Array<
               | { action: 'collect'; payload: unknown }
               | { action: 'resume'; taskId: string }
               | { action: 'confirm-gate'; taskId: string }
-              | { action: 'install-builtin' };
-            if (spec.action !== 'confirm-gate' && spec.action !== 'install-builtin') {
-              await browserService?.openPlatform({ platform: 'xhs' });
-            }
-            if (spec.action === 'collect') {
-              const parsed = channelParamsSchemas['collect:start'].safeParse(spec.payload);
-              if (!parsed.success) {
-                throw new Error(`E-PILOT-AUTO-INVALID: collect 入参不合法（${parsed.error.issues[0]?.message ?? 'schema'}）`);
+              | { action: 'install-builtin' }
+            >;
+            for (const spec of specs) {
+              if (spec.action !== 'confirm-gate' && spec.action !== 'install-builtin') {
+                await browserService?.openPlatform({ platform: 'xhs' });
               }
-              console.log('[pilot-autocollect] started', JSON.stringify(await collectBinding?.start(parsed.data as CollectStartParams)));
-            } else if (spec.action === 'confirm-gate') {
-              const parsed = channelParamsSchemas['gate:confirm'].safeParse({ taskId: spec.taskId });
-              if (!parsed.success) {
-                throw new Error(`E-PILOT-AUTO-INVALID: confirm-gate 入参不合法（${parsed.error.issues[0]?.message ?? 'schema'}）`);
+              if (spec.action === 'collect') {
+                const parsed = channelParamsSchemas['collect:start'].safeParse(spec.payload);
+                if (!parsed.success) {
+                  throw new Error(`E-PILOT-AUTO-INVALID: collect 入参不合法（${parsed.error.issues[0]?.message ?? 'schema'}）`);
+                }
+                const started = await collectBinding?.start(parsed.data as CollectStartParams);
+                console.log('[pilot-autocollect] started', JSON.stringify(started));
+                if (started?.taskId && specs.length > 1) {
+                  console.log('[pilot-autocollect] await-terminal', started.taskId, await waitTaskTerminal(started.taskId));
+                }
+              } else if (spec.action === 'confirm-gate') {
+                const parsed = channelParamsSchemas['gate:confirm'].safeParse({ taskId: spec.taskId });
+                if (!parsed.success) {
+                  throw new Error(`E-PILOT-AUTO-INVALID: confirm-gate 入参不合法（${parsed.error.issues[0]?.message ?? 'schema'}）`);
+                }
+                console.log('[pilot-autocollect] gate-confirmed', JSON.stringify(await reportService!.confirmGate((parsed.data as { taskId: string }).taskId)));
+              } else if (spec.action === 'install-builtin') {
+                console.log('[pilot-autocollect] builtin-install kicked', JSON.stringify(await browserService?.installBuiltin()));
+                // 轮询到终态再让编排继续（B4 验收：进程内观察真实下载/解压/校验全程）
+                await waitBuiltinTerminal();
+              } else {
+                await collectBinding?.prepare();
+                const resumed = await storeService!.ipc.resumeTask(spec.taskId);
+                console.log('[pilot-autocollect] resumed', JSON.stringify(resumed));
+                if (specs.length > 1) {
+                  console.log('[pilot-autocollect] await-terminal', spec.taskId, await waitTaskTerminal(spec.taskId));
+                }
               }
-              console.log('[pilot-autocollect] gate-confirmed', JSON.stringify(await reportService!.confirmGate((parsed.data as { taskId: string }).taskId)));
-            } else if (spec.action === 'install-builtin') {
-              console.log('[pilot-autocollect] builtin-install kicked', JSON.stringify(await browserService?.installBuiltin()));
-              // 轮询到终态再让编排继续（B4 验收：进程内观察真实下载/解压/校验全程）
-              await waitBuiltinTerminal();
-            } else {
-              await collectBinding?.prepare();
-              console.log('[pilot-autocollect] resumed', JSON.stringify(await storeService!.ipc.resumeTask(spec.taskId)));
             }
           } catch (error) {
             console.error('[pilot-autocollect] failed', error);

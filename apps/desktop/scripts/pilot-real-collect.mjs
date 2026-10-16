@@ -8,8 +8,9 @@
  *   node apps/desktop/scripts/pilot-real-collect.mjs doctor    # 前置体检（浏览器/公钥/适配包/配额 env）
  *   node apps/desktop/scripts/pilot-real-collect.mjs launch    # 以真实模式（无 fixture）+ 保守配额 ≤50/日 启动桌面端
  *   node apps/desktop/scripts/pilot-real-collect.mjs run --terms 冰丝防晒衣,防晒口罩 --target 50 --limit 100
- *   node apps/desktop/scripts/pilot-real-collect.mjs run --resume <taskId> --limit 100
- *     # run = launch + XINGLIAN_PILOT_AUTOCOLLECT 自动采集 seam（启动后自动接管平台浏览器并开始采集）
+ *   node apps/desktop/scripts/pilot-real-collect.mjs run --resume <taskId>[,<taskId>…] --limit 100
+ *     # run = launch + XINGLIAN_PILOT_AUTOCOLLECT 自动采集 seam（启动后自动接管平台浏览器并开始采集；
+ *     # 多 taskId 输出动作数组，seam 按序等前一条到终态再续下一条，规避单自动化会话并发）
  *
  * 红线（02:321）：不做任何风控绕过；触熔断立即停窗并记录升级。
  */
@@ -111,7 +112,7 @@ function launch(extraEnv = {}) {
   child.on('exit', (code) => process.exit(code ?? 0));
 }
 
-/** run = launch + 自动采集 seam：--terms a,b,c（1~5 词 or 组合）或 --resume <taskId>；--limit 覆盖日配额 */
+/** run = launch + 自动采集 seam：--terms a,b,c（1~5 词 or 组合）或 --resume <taskId>[,<taskId>…]；--limit 覆盖日配额 */
 function run(args) {
   const opts = { terms: null, target: '50', topic: 'pilot-1', limit: null, resume: null };
   for (let i = 0; i < args.length; i += 2) {
@@ -129,7 +130,12 @@ function run(args) {
   }
   let auto;
   if (opts.resume) {
-    auto = { action: 'resume', taskId: String(opts.resume) };
+    const ids = String(opts.resume).split(',').map((s) => s.trim()).filter(Boolean);
+    if (ids.length === 0) {
+      console.error('[pilot] --resume 需要至少一个 taskId');
+      process.exit(1);
+    }
+    auto = ids.length === 1 ? { action: 'resume', taskId: ids[0] } : ids.map((taskId) => ({ action: 'resume', taskId }));
   } else {
     if (!opts.terms) {
       console.error('[pilot] run 需要 --terms 词1,词2,…（1~5 词）或 --resume <taskId>');
