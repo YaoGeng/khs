@@ -137,13 +137,18 @@ test.describe.serial('license 锁定状态机 e2e（FR-1.5/FR-1.6）', () => {
         expect(await page.getAttribute('html', 'data-last-navigate')).toBe(view);
       }
 
-      // 工作流写入口：6 视图全部 data-entry-locked + 按钮 disabled + 横幅可见
+      // 工作流写入口：6 视图全部 data-entry-locked + 横幅可见；仍带占位执行按钮的视图
+      // 同时断言按钮 disabled（sourcing 自 T-M2-03 起为真实候选清单读面，无占位按钮
+      // ——T-M2-04 收藏/询盘将带回真实写入口并恢复按钮级断言）
       for (const view of WRITE_VIEWS) {
         await page.click(`.nav-item[data-view="${view}"]`);
         const section = page.locator(`#view-${view}`);
         await expect(section).toHaveClass(/active/);
         expect(await section.getAttribute('data-entry-locked')).toBe('true');
-        expect(await section.locator('.workflow-entry[data-write-entry]').isDisabled()).toBe(true);
+        const entry = section.locator('.workflow-entry[data-write-entry]');
+        if ((await entry.count()) > 0) {
+          expect(await entry.isDisabled()).toBe(true);
+        }
         expect(await section.locator('[data-license-lock]').isVisible()).toBe(true);
       }
 
@@ -169,9 +174,11 @@ test.describe.serial('license 锁定状态机 e2e（FR-1.5/FR-1.6）', () => {
         await expect(section).toHaveClass(/active/);
         expect(await section.getAttribute('data-entry-locked')).toBe('false');
         const entry = section.locator('.workflow-entry[data-write-entry]');
-        expect(await entry.isDisabled()).toBe(false);
-        await entry.click();
-        await expect(section.locator('[data-entry-msg]')).toBeVisible();
+        if ((await entry.count()) > 0) {
+          expect(await entry.isDisabled()).toBe(false);
+          await entry.click();
+          await expect(section.locator('[data-entry-msg]')).toBeVisible();
+        }
       }
 
       await page.click('.nav-item[data-view="settings"]');

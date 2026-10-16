@@ -33,6 +33,12 @@ import {
   ReportExportPdfResultSchema,
   ReportGetResultSchema,
   ReportsListResultSchema,
+  SelectionCandidatesResultSchema,
+  SelectionConfigResultSchema,
+  SelectionInsertFixtureResultSchema,
+  SelectionListResultSchema,
+  SelectionSetPinnedResultSchema,
+  SelectionSetWeightsResultSchema,
   TasksCancelResultSchema,
   TasksCreateDemoResultSchema,
   TasksListResultSchema,
@@ -76,6 +82,16 @@ import {
   type ReportGetResult,
   type ReportInsertFixtureParams,
   type ReportsListResult,
+  type SelectionCandidatesParams,
+  type SelectionCandidatesResult,
+  type SelectionConfigResult,
+  type SelectionInsertFixtureParams,
+  type SelectionInsertFixtureResult,
+  type SelectionListResult,
+  type SelectionSetPinnedParams,
+  type SelectionSetPinnedResult,
+  type SelectionSetWeightsParams,
+  type SelectionSetWeightsResult,
   type TasksListResult,
   type UsageSetPricingParams,
   type UsageSetPricingResult,
@@ -189,6 +205,8 @@ export interface AppInfoDeps {
   readonly report?: ReportIpcDeps;
   /** m1 todo 12：用量面板 + 全局 RPM（FR-2.5/2.6）依赖；未装配时 usage: 通道显式报未就绪 */
   readonly usage?: UsageIpcDeps;
+  /** 05 T-M2-03：选品候选清单（FR-6.2/6.3）依赖；未装配时 selection: 通道显式报未就绪 */
+  readonly selection?: SelectionIpcDeps;
 }
 
 /**
@@ -199,6 +217,21 @@ export interface UsageIpcDeps {
   readonly summary: (params: UsageSummaryParams) => Promise<UsageSummaryResult>;
   readonly setPricing: (params: UsageSetPricingParams) => Promise<UsageSetPricingResult>;
   readonly setRpm: (params: UsageSetRpmParams) => Promise<UsageSetRpmResult>;
+}
+
+/**
+ * 选品候选清单链路依赖注入面（05 T-M2-03；main binding 在 main.ts →
+ * selection-view-service）。读面（list/candidates/config）与偏好写面（setWeights/
+ * setPinned，settings 性质同 usage:set*）均不设 EULA 门；insertFixture 仅 debug 门控装配。
+ */
+export interface SelectionIpcDeps {
+  readonly list: () => Promise<SelectionListResult>;
+  readonly candidates: (params: SelectionCandidatesParams) => Promise<SelectionCandidatesResult>;
+  readonly config: () => Promise<SelectionConfigResult>;
+  readonly setWeights: (params: SelectionSetWeightsParams) => Promise<SelectionSetWeightsResult>;
+  readonly setPinned: (params: SelectionSetPinnedParams) => Promise<SelectionSetPinnedResult>;
+  /** QA 播种专用（XINGLIAN_DEBUG_HOOKS=1 才装配）；缺省显式报未就绪 */
+  readonly insertFixture?: (params: SelectionInsertFixtureParams) => Promise<SelectionInsertFixtureResult>;
 }
 
 /** 校验并执行一次 IPC 调用（主进程 handle 与单测共用同一路径） */
@@ -716,6 +749,75 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
           }
           const result = await deps.report.rejectGate(payload);
           return validateExit(GateRejectResultSchema, result, 'gate:reject');
+        },
+      },
+    ],
+    [
+      'selection:list',
+      {
+        paramsSchema: channelParamsSchemas['selection:list'],
+        // 只读面（FR-6.3 候选清单数据源）：不设 EULA 门（历史数据可访问语义一致）
+        handle: async () => {
+          if (!deps.selection) throw new Error('E-IPC-DEP-MISSING: selection 链路未装配');
+          const result = await deps.selection.list();
+          return validateExit(SelectionListResultSchema, result, 'selection:list');
+        },
+      },
+    ],
+    [
+      'selection:candidates',
+      {
+        paramsSchema: channelParamsSchemas['selection:candidates'],
+        handle: async (payload: SelectionCandidatesParams) => {
+          if (!deps.selection) throw new Error('E-IPC-DEP-MISSING: selection 链路未装配');
+          const result = await deps.selection.candidates(payload);
+          return validateExit(SelectionCandidatesResultSchema, result, 'selection:candidates');
+        },
+      },
+    ],
+    [
+      'selection:config',
+      {
+        paramsSchema: channelParamsSchemas['selection:config'],
+        handle: async () => {
+          if (!deps.selection) throw new Error('E-IPC-DEP-MISSING: selection 链路未装配');
+          const result = await deps.selection.config();
+          return validateExit(SelectionConfigResultSchema, result, 'selection:config');
+        },
+      },
+    ],
+    [
+      'selection:setWeights',
+      {
+        paramsSchema: channelParamsSchemas['selection:setWeights'],
+        // 偏好写面（FR-6.2 权重可调）：settings 性质，与 usage:set* 同口径不设 EULA 门
+        handle: async (payload: SelectionSetWeightsParams) => {
+          if (!deps.selection) throw new Error('E-IPC-DEP-MISSING: selection 链路未装配');
+          const result = await deps.selection.setWeights(payload);
+          return validateExit(SelectionSetWeightsResultSchema, result, 'selection:setWeights');
+        },
+      },
+    ],
+    [
+      'selection:setPinned',
+      {
+        paramsSchema: channelParamsSchemas['selection:setPinned'],
+        // 偏好写面（FR-6.3 置顶）：同 setWeights 口径
+        handle: async (payload: SelectionSetPinnedParams) => {
+          if (!deps.selection) throw new Error('E-IPC-DEP-MISSING: selection 链路未装配');
+          const result = await deps.selection.setPinned(payload);
+          return validateExit(SelectionSetPinnedResultSchema, result, 'selection:setPinned');
+        },
+      },
+    ],
+    [
+      'selection:insertFixture',
+      {
+        paramsSchema: channelParamsSchemas['selection:insertFixture'],
+        // QA 播种专用：仅组合根显式装配（XINGLIAN_DEBUG_HOOKS=1）时存在
+        handle: async (payload: SelectionInsertFixtureParams) => {
+          if (!deps.selection?.insertFixture) throw new Error('E-IPC-DEP-MISSING: selection:insertFixture 未装配（debug 门控）');
+          return validateExit(SelectionInsertFixtureResultSchema, await deps.selection.insertFixture(payload), 'selection:insertFixture');
         },
       },
     ],

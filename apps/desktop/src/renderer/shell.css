@@ -734,3 +734,84 @@ body {
   background: #2563eb;
   transition: width 0.4s ease;
 }
+
+/* ============================== 智能选品（05 T-M2-03；FR-6.2/6.3） ============================== */
+
+.sourcing-status { font-size: 12px; color: #57606a; margin: 0 0 8px; }
+
+.sourcing-task-card {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.sourcing-task-card:hover { border-color: #2563eb; }
+
+.sourcing-task-card.active { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15); }
+
+.sourcing-task-card h3 { margin: 0 0 6px; font-size: 14px; }
+
+.sourcing-task-meta { margin: 0; font-size: 12px; color: #57606a; }
+
+.sourcing-task-warn { margin: 6px 0 0; font-size: 12px; color: #9a6700; }
+
+.sourcing-weights {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  background: #f6f8fa;
+}
+
+.sourcing-weights h4 { margin: 0 0 8px; font-size: 13px; }
+
+.sourcing-weight-row { display: flex; align-items: center; gap: 10px; margin: 4px 0; font-size: 12px; }
+
+.sourcing-weight-label { width: 110px; color: #24292f; }
+
+.sourcing-weight-row input[type='range'] { flex: 1; }
+
+.sourcing-weight-value { width: 30px; text-align: right; font-variant-numeric: tabular-nums; color: #57606a; }
+
+.sourcing-weight-actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+
+.sourcing-weights-note { font-size: 12px; color: #57606a; }
+
+.sourcing-toolbar { display: flex; gap: 12px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+
+.sourcing-filter-label { font-size: 13px; display: flex; gap: 6px; align-items: center; }
+
+.sourcing-hint { font-size: 12px; color: #57606a; margin: 8px 0; }
+
+.sourcing-table-wrap { overflow-x: auto; margin: 8px 0; }
+
+.sourcing-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+
+.sourcing-table th, .sourcing-table td { border-bottom: 1px solid #d0d7de; padding: 6px 8px; text-align: left; vertical-align: top; }
+
+.sourcing-table th { background: #f6f8fa; color: #57606a; font-weight: 600; white-space: nowrap; }
+
+.sourcing-table tr[data-pinned='true'] { background: #fff8c5; }
+
+.sourcing-title { max-width: 320px; }
+
+.sourcing-title span:first-child { display: block; }
+
+.sourcing-offer-id { display: block; margin-top: 2px; font-size: 11px; color: #57606a; }
+
+.sourcing-dims { white-space: nowrap; }
+
+.sourcing-dim-chip {
+  display: inline-block;
+  margin: 1px 3px 1px 0;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: #eef2f7;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sourcing-total { font-weight: 700; font-variant-numeric: tabular-nums; }

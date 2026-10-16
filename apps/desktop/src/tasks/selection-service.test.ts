@@ -28,11 +28,16 @@ const silentLogger: Logger = {
   systemError: () => {},
   child: () => silentLogger,
   startSpan: () => ({ spanId: 'span', logger: silentLogger, end: () => {} }),
-};
+  categories: [],
+  getBuffer: () => [],
+  enforceRetention: async () => ({ prunedFiles: 0, freedBytes: 0 }),
+  flush: async () => {},
+  close: async () => {},
+} as unknown as Logger;
 
 /* ------------------------------ 内存 store（selection 面最小镜像） ------------------------------ */
 
-function makeMemoryStore(): { store: StoreClient; state: { candidates: SourcingCandidateRowView[]; kv: Map<string, string>; steps: Map<string, Array<{ stepId: string; status: string; output: unknown }>> } } {
+function makeMemoryStore(): { store: StoreClient; state: { candidates: SourcingCandidateRowView[]; kv: Map<string, string | Buffer>; steps: Map<string, Array<{ stepId: string; status: string; output: unknown }>> } } {
   const tasks = new Map<string, TaskRowView>();
   const events: Array<{ taskId: string; type: string }> = [];
   const kv = new Map<string, string | Buffer>();
@@ -48,8 +53,8 @@ function makeMemoryStore(): { store: StoreClient; state: { candidates: SourcingC
     },
     updateTaskStatus: async (u: { taskId: string; status: string }) => {
       const t = tasks.get(u.taskId);
-      if (t) t.status = u.taskId ? u.status : t.status;
-      return { updated: true, taskId: u.taskId, status: u.status };
+      if (t) t.status = u.status as TaskRowView['status'];
+      return { updated: true, taskId: u.taskId, status: u.status as TaskRowView['status'] };
     },
     writeTaskEvent: async (e: { taskId: string; type: string }) => {
       events.push({ taskId: e.taskId, type: e.type });

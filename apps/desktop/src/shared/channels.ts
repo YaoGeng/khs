@@ -22,6 +22,11 @@
  * （FR-2.6 全局 RPM，0=不限流）。
  * M2（m2-builtin-browser-plan B2）：browser:installBuiltin 入白名单——内置便携 Chromium
  * 按需下载安装触发（进度经 browser:status.builtinInstall 轮询回流，不另设推送通道）。
+ * M2（05 T-M2-03 候选清单 UI）：selection:* 六通道入白名单——selection:list /
+ * selection:candidates / selection:config（读面，FR-6.3 对比表格数据源）+
+ * selection:setWeights / selection:setPinned（偏好写面，FR-6.2 权重可调/FR-6.3 置顶，
+ * 与 usage:set* 同为设置性质不设 EULA 门）+ selection:insertFixture（QA 播种，
+ * debug 门控装配）。权重重算 = 读时纯算术（库内 rank/total 保留 Agent 原始评分溯源）。
  */
 export const IPC_CHANNELS = [
   'app:info',
@@ -57,6 +62,12 @@ export const IPC_CHANNELS = [
   'report:insertFixture',
   'reports:get',
   'reports:list',
+  'selection:candidates',
+  'selection:config',
+  'selection:insertFixture',
+  'selection:list',
+  'selection:setPinned',
+  'selection:setWeights',
   'tasks:createDemo',
   'tasks:list',
   'tasks:pause',
@@ -154,6 +165,15 @@ export const KEY_ERRORS = {
   /** 词库未就绪（active 配置包缺失/全部损坏） */
   WORDLIST_NOT_READY: 'E-WORDLIST-NOT-READY',
 } as const;
+
+/**
+ * 选品五维 id（05 T-M2-03 / FR-6.2 权重调整面）。与 packages/agents selection-agent
+ * SELECTION_DIMENSIONS 键集互链镜像（渲染 bundle 不携带 agents 包，镜像面靠
+ * selection-view-service 启动期一致性断言守护——键集不符即抛，防两表漂移）。
+ */
+export const SELECTION_DIMENSIONS_SCHEMA = ['relevance', 'price', 'sales', 'supplier', 'gallery'] as const;
+
+export type SelectionDimensionId = (typeof SELECTION_DIMENSIONS_SCHEMA)[number];
 
 /**
  * 关键词确认闸门稳定错误码（m1 todo 11 = T-M1-06②；renderer/e2e 据此判定拒绝原因）。

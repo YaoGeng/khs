@@ -27,6 +27,7 @@ import { createElectronSafeStoragePort } from './main/safe-storage-port';
 import { createGatewayKeyReader, createKeyService, type KeyService, type SafeStoragePort } from './main/key-service';
 import { createReportService, type ReportService } from './main/report-service';
 import { createUsageService, type UsageService } from './main/usage-service';
+import { createSelectionViewService } from './main/selection-view-service';
 import { LlmGateway, TokenBucketLimiter } from '@xinglian/llm-gateway';
 import type { StoreClient } from './store';
 import { createWordlistService, type WordlistService } from './compliance/wordlist-service';
@@ -337,6 +338,10 @@ if (!gotLock) {
     // m1 todo 12：用量面板 + 全局 RPM（FR-2.5/2.6；llm_calls 聚合 + 自填单价 + 探测档展示）
     usageService = createUsageService({ store: storeClient });
 
+    // 05 T-M2-03：选品候选清单视图服务（FR-6.2 权重/FR-6.3 对比表格读面；构造期含
+    // shared↔agents 五维镜像一致性断言——漂移即启动期可见）
+    const selectionViewService = createSelectionViewService({ store: storeClient, runner: storeService.runner });
+
     registerIpcHandlers({
       appInfo: () => ({
         appVersion: app.getVersion(),
@@ -406,6 +411,21 @@ if (!gotLock) {
       },
       // m1 todo 12：用量面板 + 全局 RPM（usage:summary / usage:setPricing / usage:setRpm；FR-2.5/2.6）
       usage: usageService!.ipc,
+      // 05 T-M2-03：选品候选清单（selection:*；FR-6.2 权重可调/FR-6.3 对比表格）
+      selection: {
+        list: () => selectionViewService.listSelections(),
+        candidates: (params) => selectionViewService.listCandidates(params.taskId),
+        config: () => selectionViewService.getConfig(),
+        setWeights: (params) => selectionViewService.setWeights(params.weights),
+        setPinned: (params) => selectionViewService.setPinned(params),
+        // QA 播种专用（缺省显式报未就绪）：仅 debug 门控装配
+        ...(process.env.XINGLIAN_DEBUG_HOOKS === '1'
+          ? {
+              insertFixture: (params: Parameters<typeof selectionViewService.insertFixture>[0]) =>
+                selectionViewService.insertFixture(params),
+            }
+          : {}),
+      },
     });
 
     // e2e/测试钩子（仅显式 env 门控；生产不暴露）：让位机制与崩溃联动的进程内驱动入口

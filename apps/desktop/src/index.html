@@ -171,10 +171,60 @@
           </section>
           <section class="view" id="view-sourcing" data-view="sourcing">
             <h2>智能选品</h2>
-            <p class="placeholder">M0 占位视图：仅导航骨架。选品 Agent M2+ 交付。</p>
+            <p class="placeholder">选品任务由「市场洞察」报告⑦章关键词闸门确认后产生；候选清单按当前权重实时重算综合分（库内保留 Agent 原始评分）。</p>
             <p class="license-lock-banner" data-license-lock hidden>已锁定：license 缺失或过期（FR-1.6）——工作流执行入口不可用；历史与日志仍可访问。</p>
-            <button class="btn btn-primary workflow-entry" type="button" data-write-entry>执行入口（占位）</button>
-            <p class="entry-msg" data-entry-msg hidden>M0 占位：工作流引擎随 M1+ 交付。</p>
+            <!-- 05 T-M2-03（FR-6.3）：候选清单 = 任务卡 + 权重面板（FR-6.2）+ 筛选排序 + 对比表格 -->
+            <div class="sourcing-tasks" id="sourcing-task-list" aria-live="polite"></div>
+            <p class="sourcing-status" id="sourcing-status">加载中…</p>
+            <div class="sourcing-weights" id="sourcing-weights-panel" hidden>
+              <h4>评分权重（相对值，调整后重算综合分）</h4>
+              <div class="sourcing-weight-sliders" id="sourcing-weight-sliders"></div>
+              <div class="sourcing-weight-actions">
+                <button class="btn btn-primary" type="button" id="sourcing-weights-apply">应用权重</button>
+                <button class="btn btn-ghost" type="button" id="sourcing-weights-reset">恢复默认</button>
+                <span class="sourcing-weights-note" id="sourcing-weights-note"></span>
+              </div>
+            </div>
+            <div class="sourcing-toolbar" id="sourcing-toolbar" hidden>
+              <label class="sourcing-filter-label">关键词
+                <select id="sourcing-keyword-filter" aria-label="按检索词筛选候选">
+                  <option value="">全部</option>
+                </select>
+              </label>
+              <label class="sourcing-filter-label">搜索
+                <input id="sourcing-search" type="text" placeholder="标题 / 供应商模糊过滤" spellcheck="false" />
+              </label>
+              <label class="sourcing-filter-label">排序
+                <select id="sourcing-sort" aria-label="排序维度">
+                  <option value="total">综合分</option>
+                  <option value="relevance">相关度</option>
+                  <option value="price">价格</option>
+                  <option value="sales">销量</option>
+                  <option value="supplier">供应商</option>
+                  <option value="gallery">素材</option>
+                </select>
+              </label>
+              <button class="btn btn-ghost" type="button" id="sourcing-sort-dir" data-dir="desc" aria-label="切换升降序">降序 ↓</button>
+            </div>
+            <p class="sourcing-hint" id="sourcing-hint" hidden></p>
+            <div class="sourcing-table-wrap" id="sourcing-table-wrap" hidden>
+              <table class="sourcing-table" id="sourcing-table">
+                <thead>
+                  <tr>
+                    <th>置顶</th>
+                    <th>#</th>
+                    <th>商品</th>
+                    <th>关键词</th>
+                    <th>价格</th>
+                    <th>销量</th>
+                    <th>供应商</th>
+                    <th>五维分（悬停看理由）</th>
+                    <th>综合分</th>
+                  </tr>
+                </thead>
+                <tbody id="sourcing-tbody"></tbody>
+              </table>
+            </div>
           </section>
           <section class="view" id="view-publish" data-view="publish">
             <h2>内容发布</h2>

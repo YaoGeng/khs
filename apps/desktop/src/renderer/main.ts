@@ -12,6 +12,7 @@ import type { ViewId } from '../shared/types';
 import { initInsightView, refreshInsightView } from './insight';
 import { initUsageView, refreshUsagePanel } from './usage';
 import { initReportView } from './reportView';
+import { initSourcingView, refreshSourcingView } from './sourcing';
 
 const bridge = window.xinglian;
 
@@ -44,6 +45,8 @@ function switchView(view: string, title: string): void {
   if (topbarTitle && title) topbarTitle.textContent = title;
   /* 洞察视图每次激活即刷新（采集列表/闸门可能已被后台任务推进） */
   if (view === 'insight') refreshInsightView();
+  /* 选品视图每次激活即刷新（候选/任务可能已被后台选品管道推进） */
+  if (view === 'sourcing') void refreshSourcingView();
   /* 设置视图激活即刷新用量面板（报告跑完回来看消耗） */
   if (view === 'settings') refreshUsagePanel();
 }
@@ -1121,6 +1124,13 @@ try {
   initReportView();
 } catch (error) {
   console.warn('[renderer] report view init failed:', error);
+}
+
+// 05 T-M2-03：智能选品（候选清单/权重重算/置顶）
+try {
+  initSourcingView();
+} catch (error) {
+  console.warn('[renderer] sourcing view init failed:', error);
 }
 
 // m1 todo 12（FR-2.5/2.6）：用量面板（settings 视图内 usage-card）

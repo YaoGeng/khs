@@ -3,7 +3,7 @@
  * 通道即契约，入参用 zod 校验——preload 侧与 ipcMain.handle 侧共用本文件）。
  */
 import { z } from 'zod';
-import { BROWSER_PLATFORMS, KEY_PROVIDER_IDS, NAV_VIEWS, type IpcChannel } from './channels';
+import { BROWSER_PLATFORMS, KEY_PROVIDER_IDS, NAV_VIEWS, SELECTION_DIMENSIONS_SCHEMA, type IpcChannel } from './channels';
 
 /* app:info —— 壳层运行时信息（M0 唯一"数据"通道，无业务含义） */
 export const AppInfoParamsSchema = z.strictObject({});
@@ -607,6 +607,137 @@ export const GateRejectParamsSchema = z.strictObject({ taskId: z.string().min(1)
 
 export const GateRejectResultSchema = z.object({ taskId: z.string(), status: z.enum(TASK_STATUSES_SCHEMA) });
 
+/* selection:* —— 候选清单 UI（05 T-M2-03；FR-6.2 权重可调 / FR-6.3 对比表格） */
+
+/** 权重表：五维齐全、0-100 整数（相对权重，重算时归一化——Σw=0 视为非法由 refine 拦截） */
+export const SelectionWeightsSchema = z
+  .record(z.enum(SELECTION_DIMENSIONS_SCHEMA), z.number().int().min(0).max(100))
+  .refine((weights) => {
+    const values = SELECTION_DIMENSIONS_SCHEMA.map((id) => weights[id] ?? 0);
+    return values.some((v) => v > 0);
+  }, '五维权重不能全为 0');
+
+export type SelectionWeights = z.infer<typeof SelectionWeightsSchema>;
+
+export const SelectionListParamsSchema = z.strictObject({});
+
+/** 选品任务卡（selection:list 出口；excludedJunk 高企 = 匿名检索推荐流的「需登录」诚实信号） */
+export const SelectionSummarySchema = z.object({
+  taskId: z.string(),
+  topic: z.string(),
+  topicId: z.string().nullable(),
+  /** 闸门放行的检索词（term——理由 复合格式原样） */
+  keywords: z.array(z.string()),
+  status: z.enum(TASK_STATUSES_SCHEMA),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  /** selection-persist 步骤产出的落库候选数（TopN 口径） */
+  candidateCount: z.number().int().nonnegative(),
+  /** stats kv 聚合的推荐流剔除数（需登录信号；任务未跑到 score/persist 时为 null） */
+  excludedJunk: z.number().int().nonnegative().nullable(),
+  generatedAt: z.string().nullable(),
+});
+
+export const SelectionListResultSchema = z.object({ selections: z.array(SelectionSummarySchema) });
+
+export const SelectionCandidatesParamsSchema = z.strictObject({ taskId: z.string().min(1).max(64) });
+
+/** 候选行（store SourcingCandidateRowView 镜像；dimensions = DimensionScore[] 含 reason） */
+export const SelectionCandidateViewSchema = z.object({
+  id: z.number().int(),
+  taskId: z.string(),
+  selectionId: z.string(),
+  rank: z.number().int(),
+  offerId: z.string(),
+  keyword: z.string(),
+  total: z.number(),
+  dimensions: z.unknown(),
+  title: z.string(),
+  priceText: z.string().nullable(),
+  salesText: z.string().nullable(),
+  supplierName: z.string().nullable(),
+  supplierAddress: z.string().nullable(),
+  sourceUrl: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const SelectionCandidatesResultSchema = z.object({
+  candidates: z.array(SelectionCandidateViewSchema),
+  /** 该任务置顶的 offerId 集（kv `selection:pinned:<taskId>`） */
+  pinned: z.array(z.string()),
+});
+
+export const SelectionConfigParamsSchema = z.strictObject({});
+
+export const SelectionDimensionMetaSchema = z.object({
+  id: z.enum(SELECTION_DIMENSIONS_SCHEMA),
+  title: z.string(),
+  /** Agent 默认权重（0-100 整数形态，如 relevance=30） */
+  default: z.number().int().min(0).max(100),
+});
+
+export const SelectionConfigResultSchema = z.object({
+  dimensions: z.array(SelectionDimensionMetaSchema),
+  weights: SelectionWeightsSchema,
+  /** 用户是否已保存过自定义权重（kv 有记录即 true） */
+  customized: z.boolean(),
+});
+
+export const SelectionSetWeightsParamsSchema = z.strictObject({ weights: SelectionWeightsSchema });
+
+export const SelectionSetWeightsResultSchema = SelectionConfigResultSchema;
+
+export const SelectionSetPinnedParamsSchema = z.strictObject({
+  taskId: z.string().min(1).max(64),
+  offerId: z.string().min(1).max(64),
+  pinned: z.boolean(),
+});
+
+export const SelectionSetPinnedResultSchema = z.object({
+  taskId: z.string(),
+  offerIds: z.array(z.string()),
+});
+
+/** QA 播种专用（XINGLIAN_DEBUG_HOOKS=1 才装配）：直接落 completed 任务 + 候选 + 三步 + stats */
+export const SelectionInsertFixtureParamsSchema = z.strictObject({
+  topic: z.string().min(1).max(120),
+  keywords: z.array(z.string().min(1).max(200)).min(1).max(5),
+  candidates: z
+    .array(
+      z.strictObject({
+        offerId: z.string().min(1).max(64),
+        keyword: z.string().min(1).max(200),
+        title: z.string().min(1).max(500),
+        priceText: z.string().max(100).optional(),
+        salesText: z.string().max(100).optional(),
+        supplierName: z.string().max(200).optional(),
+        supplierAddress: z.string().max(300).optional(),
+        sourceUrl: z.string().max(500).optional(),
+        /** 缺省由服务生成确定性五维分（含 reason），保证 e2e 可预测 */
+        dimensions: z.array(z.strictObject({ name: z.enum(SELECTION_DIMENSIONS_SCHEMA), title: z.string(), score: z.number().min(0).max(100), weight: z.number(), reason: z.string() })).optional(),
+        total: z.number().min(0).max(100).optional(),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+export const SelectionInsertFixtureResultSchema = z.object({ taskId: z.string(), inserted: z.number().int() });
+
+export type SelectionListResult = z.infer<typeof SelectionListResultSchema>;
+export type SelectionSummary = z.infer<typeof SelectionSummarySchema>;
+export type SelectionCandidatesParams = z.infer<typeof SelectionCandidatesParamsSchema>;
+export type SelectionCandidatesResult = z.infer<typeof SelectionCandidatesResultSchema>;
+export type SelectionCandidateView = z.infer<typeof SelectionCandidateViewSchema>;
+export type SelectionConfigResult = z.infer<typeof SelectionConfigResultSchema>;
+export type SelectionDimensionMeta = z.infer<typeof SelectionDimensionMetaSchema>;
+export type SelectionSetWeightsParams = z.infer<typeof SelectionSetWeightsParamsSchema>;
+export type SelectionSetWeightsResult = z.infer<typeof SelectionSetWeightsResultSchema>;
+export type SelectionSetPinnedParams = z.infer<typeof SelectionSetPinnedParamsSchema>;
+export type SelectionSetPinnedResult = z.infer<typeof SelectionSetPinnedResultSchema>;
+export type SelectionInsertFixtureParams = z.infer<typeof SelectionInsertFixtureParamsSchema>;
+export type SelectionInsertFixtureResult = z.infer<typeof SelectionInsertFixtureResultSchema>;
+
 /* usage:* —— FR-2.5 用量面板 + FR-2.6 全局 RPM（m1 todo 12；聚合数据源=llm_calls 计量元数据） */
 
 export const UsageSummaryParamsSchema = z.strictObject({
@@ -701,6 +832,12 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'gate:confirm': GateConfirmParamsSchema,
   'gate:list': GateListParamsSchema,
   'gate:reject': GateRejectParamsSchema,
+  'selection:candidates': SelectionCandidatesParamsSchema,
+  'selection:config': SelectionConfigParamsSchema,
+  'selection:insertFixture': SelectionInsertFixtureParamsSchema,
+  'selection:list': SelectionListParamsSchema,
+  'selection:setPinned': SelectionSetPinnedParamsSchema,
+  'selection:setWeights': SelectionSetWeightsParamsSchema,
   'tasks:createDemo': TasksCreateDemoParamsSchema,
   'tasks:list': TasksListParamsSchema,
   'tasks:pause': TasksPauseParamsSchema,
