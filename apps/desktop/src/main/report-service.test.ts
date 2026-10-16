@@ -189,11 +189,12 @@ function notesFixture() {
   }));
 }
 
-function makeDeps(options: { tasks?: Parameters<typeof makeStore>[0]['tasks']; notes?: Parameters<typeof makeStore>[0]['notes']; wordlist?: FakeWordlist; gateway?: StructuredGateway; withKey?: boolean } = {}) {
+function makeDeps(options: { tasks?: Parameters<typeof makeStore>[0]['tasks']; notes?: Parameters<typeof makeStore>[0]['notes']; wordlist?: FakeWordlist; gateway?: StructuredGateway; withKey?: boolean; onGateConfirmed?: NonNullable<ReportServiceDeps['onGateConfirmed']> } = {}) {
   const fake = makeStore({ tasks: options.tasks, notes: options.notes });
   const runner = makeRunner();
   const gateway = options.gateway ?? makeGateway();
   const telemetry: Array<{ name: string; payload?: unknown }> = [];
+  const gateConfirmed: Array<{ taskId: string; selectionTaskId: string; source: string }> = [];
   const logger = {
     automationStep: () => {},
     userAction: () => {},
@@ -215,8 +216,16 @@ function makeDeps(options: { tasks?: Parameters<typeof makeStore>[0]['tasks']; n
     salt: 'unit-salt',
     seed: 7,
     now: () => new Date('2026-10-14T08:00:00.000Z'),
+    // T-M2-03b：闸门确认联动钩子（默认捕获数组；用例可注入覆写）
+    ...(options.onGateConfirmed
+      ? { onGateConfirmed: options.onGateConfirmed }
+      : {
+          onGateConfirmed: (info: { taskId: string; selectionTaskId: string; source: 'user' | 'auto' }) => {
+            gateConfirmed.push(info);
+          },
+        }),
   };
-  return { deps, runner, gateway, telemetry, ...fake };
+  return { deps, runner, gateway, telemetry, gateConfirmed, ...fake };
 }
 
 const ctxBase: CollectReportStepContext = {
@@ -318,7 +327,7 @@ describe('闸门状态机（确认/拒绝/幂等）', () => {
     return { service, ...handle };
   }
 
-  it('确认 → selection 占位任务（queued + idempotency_key）+ collect 任务 resume 收口', async () => {
+  it('确认 → selection 占位任务（queued + idempotency_key）+ collect 任务 resume 收口 + onGateConfirmed 联动（T-M2-03b）', async () => {
     const handle = await seedKeywordGate();
     const result = await handle.service.confirmGate('task-1');
 
@@ -331,9 +340,12 @@ describe('闸门状态机（确认/拒绝/幂等）', () => {
     expect(handle.statusUpdates).toContainEqual({ taskId: result.selectionTaskId, status: 'queued' });
     expect(handle.taskEvents.some((e) => e.type === 'TASK_ENQUEUE')).toBe(true);
     expect(handle.runner.resume).toHaveBeenCalledWith('task-1');
+    // 即时起跑联动钩子：新建路径触发一次，携带 selectionTaskId + source=user
+    expect(handle.gateConfirmed).toHaveLength(1);
+    expect(handle.gateConfirmed[0]).toMatchObject({ taskId: 'task-1', selectionTaskId: result.selectionTaskId, source: 'user' });
   });
 
-  it('重复确认幂等 no-op：不新建任务（created=false，selectionTaskId 不变）', async () => {
+  it('重复确认幂等 no-op：不新建任务（created=false，selectionTaskId 不变）；联动钩子仍触发（组合根可补跑）', async () => {
     const handle = await seedKeywordGate();
     const first = await handle.service.confirmGate('task-1');
     const second = await handle.service.confirmGate('task-1');
@@ -342,6 +354,8 @@ describe('闸门状态机（确认/拒绝/幂等）', () => {
     expect(second.selectionTaskId).toBe(first.selectionTaskId);
     expect(second.idempotencyKey).toBe(first.idempotencyKey);
     expect(handle.createdTasks).toHaveLength(1);
+    expect(handle.gateConfirmed).toHaveLength(2);
+    expect(handle.gateConfirmed.every((g) => g.selectionTaskId === first.selectionTaskId)).toBe(true);
   });
 
   it('拒绝 → runner.cancel（awaiting_user → cancelled）+ 挂起指针清除；重复拒绝幂等', async () => {
@@ -458,5 +472,25 @@ describe('全自动档闸门自动确认（M2 产品卡③ = FR-12.7）', () => 
     const result = await service.runCollectReportStep(ctxBase);
     expect(result.autoConfirmed).toBeUndefined();
     expect(handle.createdTasks).toHaveLength(0);
+  });
+});
+
+describe('sourcing_login 三值闸门（T-M2-03b 登录守卫读面/边界）', () => {
+  it('listGates：selection 任务挂 sourcing_login → 三值枚举视图（kind=selection，keywords=null）', async () => {
+    const handle = makeDeps({ tasks: [{ id: 'sel-9', kind: 'selection' }] });
+    const service = createReportService(handle.deps);
+    await handle.setKv(gatePendingKey('sel-9'), { gate: 'sourcing_login', topicId: 'topic-1', topic: 'pilot-1', createdAt: '2026-10-15T00:00:00.000Z' });
+    const gates = await service.listGates();
+    expect(gates.gates).toHaveLength(1);
+    expect(gates.gates[0]).toMatchObject({ taskId: 'sel-9', kind: 'selection', gate: 'sourcing_login', keywords: null });
+  });
+
+  it('confirmGate 拒绝 sourcing_login 闸门（E-GATE-NOT-KEYWORD-CONFIRM）——只可 resume 不可确认', async () => {
+    const handle = makeDeps({ tasks: [{ id: 'sel-9', kind: 'selection' }] });
+    const service = createReportService(handle.deps);
+    await handle.setKv(gatePendingKey('sel-9'), { gate: 'sourcing_login', createdAt: '2026-10-15T00:00:00.000Z' });
+    await expect(service.confirmGate('sel-9')).rejects.toThrow('E-GATE-NOT-KEYWORD-CONFIRM');
+    expect(handle.createdTasks).toHaveLength(0);
+    expect(handle.gateConfirmed).toHaveLength(0);
   });
 });

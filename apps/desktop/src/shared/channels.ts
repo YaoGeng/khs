@@ -214,6 +214,8 @@ export type AutomationTierId = (typeof AUTOMATION_TIERS)[number];
 /**
  * 关键词确认闸门稳定错误码（m1 todo 11 = T-M1-06②；renderer/e2e 据此判定拒绝原因）。
  * 闸门状态机：collect 任务 awaiting_user → 确认（selection 占位 queued）/拒绝（cancelled）。
+ * T-M2-03b 起三值枚举：+sourcing_login（selection 任务检索全被推荐流剔除 → 挂起待
+ * 人工登录 1688；只可 tasks:resume，confirm/reject 被两错误码拦下）。
  */
 export const GATE_ERRORS = {
   /** 目标任务不在 awaiting_user 态（已收口/不存在） */

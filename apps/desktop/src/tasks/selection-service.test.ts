@@ -1,9 +1,10 @@
 /**
- * selection 管道单测（T-M2-03；内存 store + 真 runner 状态机 + fake 检索端口）：
+ * selection 管道单测（T-M2-03 + T-M2-03b 工程面；内存 store + 真 runner 状态机 + fake 检索端口）：
  * - 关键词解析："词——理由" 拆分 / 去重 / 上限 5 / 空词过滤；
  * - 端到端：queued 占位任务（gate confirm 产物形态）→ startQueued 起跑 →
  *   三步检查点 completed → sourcing_candidates 落库（rank/维度分 JSON）+ stats kv；
- * - 推荐流口径：端口全返无关卡片 → 任务 completed（不 failed）+ 零候选 + excludedJunk 统计；
+ * - 登录守卫（T-M2-03b）：全推荐流 → awaiting_user + sourcing_login 三值闸门 + 通知 +
+ *   stats 证据保留；登录后 resume → completed + 挂起指针清理；混合/全空不触发；
  * - runner.startQueued 守卫：非 queued 拒绝 / 未注册 kind 拒绝。
  */
 import { describe, expect, it } from 'vitest';
@@ -82,6 +83,7 @@ function makeMemoryStore(): { store: StoreClient; state: { candidates: SourcingC
       return { set: true };
     },
     kvGet: async (k: string) => kv.get(k) ?? null,
+    kvDel: async (k: string) => ({ deleted: kv.delete(k) }),
     insertSourcingCandidates: async (rows: SourcingCandidateInput[]) => {
       // 幂等替换语义镜像：同 taskId 先删后插
       for (let i = candidates.length - 1; i >= 0; i -= 1) if (candidates[i].taskId === rows[0]?.taskId) candidates.splice(i, 1);
@@ -190,7 +192,7 @@ describe('selection-service（T-M2-03）', () => {
     ]);
   });
 
-  it('推荐流口径：端口全返无关卡片 → 任务 completed（不 failed）+ 零候选 + excludedJunk 统计可观测', async () => {
+  it('登录守卫（T-M2-03b）：端口全返无关卡片（推荐流铁证）→ awaiting_user + sourcing_login 闸门 + 通知 + stats 证据保留', async () => {
     const { store, state } = makeMemoryStore();
     const runner = createTaskRunner({ store, logger: silentLogger, stepDelayMs: 0, delay: async () => {} });
     await store.createTask({
@@ -203,15 +205,103 @@ describe('selection-service（T-M2-03）', () => {
     const port = createFixtureSearchPort({
       冰丝防晒衣: [cand('junk1', '手持松土两齿叉种花工具'), cand('junk2', '不锈钢豆芽叉子套装')],
     });
-    const service = new SelectionService({ store, runner, logger: silentLogger, searchPort: port });
+    const notified: Array<{ title: string; body: string }> = [];
+    const service = new SelectionService({
+      store, runner, logger: silentLogger, searchPort: port,
+      notify: (title, body) => notified.push({ title, body }),
+    });
 
     await service.startQueued();
     await new Promise((r) => setTimeout(r, 50));
     const task = await store.getTask('sel-2');
-    expect(task?.status).toBe('completed');
+    expect(task?.status).toBe('awaiting_user');
+    // 闸门挂起记录（三值枚举第三值）+ 候选零行
+    const pending = JSON.parse((state.kv.get('gate:pending:sel-2') as string) ?? 'null');
+    expect(pending?.gate).toBe('sourcing_login');
+    expect(pending?.topic).toBe('pilot-1');
     expect(state.candidates.filter((c) => c.taskId === 'sel-2')).toHaveLength(0);
+    // 可观测证据保留：excludedJunk 计数 + loginGate 标记
     const stats = JSON.parse((state.kv.get('selection:stats:sel-2') as string) ?? '{}');
+    expect(stats.loginGate).toBe(true);
     expect(stats.stats.keywords[0].excludedJunk).toBe(2);
+    // 桌面通知引导（含「不接触账号密码」口径）
+    expect(notified).toHaveLength(1);
+    expect(notified[0]!.title).toContain('登录 1688');
+    expect(notified[0]!.body).toContain('不接触账号密码');
+  });
+
+  it('登录守卫恢复链：登录后 resume → 检索真实结果 → completed + 候选落库 + 挂起指针清理', async () => {
+    const { store, state } = makeMemoryStore();
+    const runner = createTaskRunner({ store, logger: silentLogger, stepDelayMs: 0, delay: async () => {} });
+    await store.createTask({
+      id: 'sel-5',
+      kind: SELECTION_KIND,
+      payload: { selection: { topic: 'pilot-1', topicId: 'pilot-1', reportId: 5, idempotencyKey: 'k5', keywords: ['冰丝防晒衣'] } },
+    });
+    await store.updateTaskStatus({ taskId: 'sel-5', status: 'queued' });
+
+    // 可变端口：首轮全推荐流（匿名）→ 模拟用户登录后返回真实相关卡
+    let loggedIn = false;
+    const port = {
+      async search(keyword: string, limit: number) {
+        const rows = loggedIn
+          ? [cand('8801', '冰丝防晒衣女夏季UPF50+ 冰丝凉感'), cand('8802', '冰丝防晒衣男款透气轻薄')]
+          : [cand('junk1', '手持松土两齿叉种花工具')];
+        return rows.slice(0, limit);
+      },
+    };
+    const service = new SelectionService({ store, runner, logger: silentLogger, searchPort: port });
+
+    await service.startQueued();
+    await new Promise((r) => setTimeout(r, 50));
+    expect((await store.getTask('sel-5'))?.status).toBe('awaiting_user');
+
+    loggedIn = true;
+    await runner.resume('sel-5');
+    await new Promise((r) => setTimeout(r, 80));
+    expect((await store.getTask('sel-5'))?.status).toBe('completed');
+    expect(state.candidates.filter((c) => c.taskId === 'sel-5')).toHaveLength(2);
+    // 正常完成收尾：挂起指针清理（幂等）
+    expect(state.kv.has('gate:pending:sel-5')).toBe(false);
+  });
+
+  it('混合口径：同词 junk + 真实卡并存（retained>0）→ 不触发登录闸门，正常 completed', async () => {
+    const { store, state } = makeMemoryStore();
+    const runner = createTaskRunner({ store, logger: silentLogger, stepDelayMs: 0, delay: async () => {} });
+    await store.createTask({
+      id: 'sel-6',
+      kind: SELECTION_KIND,
+      payload: { selection: { topic: 't', topicId: 't', reportId: 1, idempotencyKey: 'k6', keywords: ['冰丝防晒衣'] } },
+    });
+    await store.updateTaskStatus({ taskId: 'sel-6', status: 'queued' });
+
+    const port = createFixtureSearchPort({
+      冰丝防晒衣: [cand('junk1', '手持松土两齿叉种花工具'), cand('8801', '冰丝防晒衣女夏季UPF50+')],
+    });
+    const service = new SelectionService({ store, runner, logger: silentLogger, searchPort: port });
+    await service.startQueued();
+    await new Promise((r) => setTimeout(r, 50));
+    expect((await store.getTask('sel-6'))?.status).toBe('completed');
+    expect(state.candidates.filter((c) => c.taskId === 'sel-6')).toHaveLength(1);
+    expect(state.kv.has('gate:pending:sel-6')).toBe(false);
+  });
+
+  it('全空检索（candidates=0，登录墙中止/确无结果）→ 不臆造不挂闸门，completed + 零候选（诚实口径保留）', async () => {
+    const { store, state } = makeMemoryStore();
+    const runner = createTaskRunner({ store, logger: silentLogger, stepDelayMs: 0, delay: async () => {} });
+    await store.createTask({
+      id: 'sel-7',
+      kind: SELECTION_KIND,
+      payload: { selection: { topic: 't', topicId: 't', reportId: 1, idempotencyKey: 'k7', keywords: ['冷门词xyz'] } },
+    });
+    await store.updateTaskStatus({ taskId: 'sel-7', status: 'queued' });
+
+    const service = new SelectionService({ store, runner, logger: silentLogger, searchPort: createFixtureSearchPort({}) });
+    await service.startQueued();
+    await new Promise((r) => setTimeout(r, 50));
+    expect((await store.getTask('sel-7'))?.status).toBe('completed');
+    expect(state.candidates.filter((c) => c.taskId === 'sel-7')).toHaveLength(0);
+    expect(state.kv.has('gate:pending:sel-7')).toBe(false);
   });
 
   it('runner.startQueued 守卫：非 queued 拒绝；未注册 kind 拒绝', async () => {

@@ -575,8 +575,9 @@ export const ReportInsertFixtureParamsSchema = z.strictObject({
 
 export const ReportInsertFixtureResultSchema = z.object({ id: z.number().int() });
 
-/** 闸门类型枚举（两值；02:274 E 步 + Key 未配置分支——文档化契约） */
-export const GATE_TYPES_SCHEMA = ['keyword_confirm', 'llm_key_config'] as const;
+/** 闸门类型枚举（三值：02:274 E 步 keyword_confirm + Key 未配置 llm_key_config + T-M2-03b
+ * 选品登录守卫 sourcing_login——1688 检索全被推荐流剔除时挂起待人工登录，恢复即重跑检索） */
+export const GATE_TYPES_SCHEMA = ['keyword_confirm', 'llm_key_config', 'sourcing_login'] as const;
 
 export const GateListParamsSchema = z.strictObject({});
 

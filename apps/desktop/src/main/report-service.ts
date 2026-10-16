@@ -44,12 +44,14 @@ import type {
   ReportsListResult,
 } from '../shared/schemas';
 
-/** gate 类型枚举（两值；任务书口径：文档化于 GATE_TYPES） */
-export const GATE_TYPES = ['keyword_confirm', 'llm_key_config'] as const;
+/** gate 类型枚举（三值：keyword_confirm / llm_key_config / sourcing_login——第三值由
+ * selection-service 在「检索结果全被推荐流剔除」时写入（T-M2-03b 登录守卫），文档化于 GATE_TYPES） */
+export const GATE_TYPES = ['keyword_confirm', 'llm_key_config', 'sourcing_login'] as const;
 export type GateType = (typeof GATE_TYPES)[number];
 
 export const GATE_KEYWORD_CONFIRM: GateType = 'keyword_confirm';
 export const GATE_LLM_KEY_CONFIG: GateType = 'llm_key_config';
+export const GATE_SOURCING_LOGIN: GateType = 'sourcing_login';
 
 /* ---- kv 键（kv_config 单表；前缀分段） ---- */
 export const KV_REPORT_INDEX = 'report:index';
@@ -117,6 +119,12 @@ export interface ReportServiceDeps {
   readonly readKeyEntry: (provider: string) => Promise<{ provider: string; baseUrl: string; apiKey: string; backupKeys: string[]; model: string } | null>;
   /** 去标识化本地盐（与 realrun 同语义；组合根注入持久值） */
   readonly salt: string;
+  /**
+   * 闸门确认联动钩子（T-M2-03b 即时起跑）：confirmGate 成功（新建或幂等命中）后触发，
+   * 组合根接「queued selection 立即起跑」——浏览器未接管时由钩子侧决定留队。
+   * 同步通知语义（void 调用），钩子内部自行容错。
+   */
+  readonly onGateConfirmed?: (info: { taskId: string; selectionTaskId: string; source: 'user' | 'auto' }) => void;
   /** 聚类/筛选确定性种子 */
   readonly seed?: number;
   readonly now?: () => Date;
@@ -445,6 +453,7 @@ export function createReportService(deps: ReportServiceDeps): ReportService {
       if (resolution?.idempotencyKey) {
         const existing = await findSelection(resolution.idempotencyKey);
         if (existing) {
+          deps.onGateConfirmed?.({ taskId, selectionTaskId: existing.id, source });
           return { created: false, selectionTaskId: existing.id, idempotencyKey: resolution.idempotencyKey };
         }
       }
@@ -463,6 +472,7 @@ export function createReportService(deps: ReportServiceDeps): ReportService {
       const idempotencyKey = keywordGateIdempotencyKey(pending.topic ?? pending.topicId ?? '', pending.reportId);
       const existing = await findSelection(idempotencyKey);
       if (existing) {
+        deps.onGateConfirmed?.({ taskId, selectionTaskId: existing.id, source });
         return { created: false, selectionTaskId: existing.id, idempotencyKey };
       }
 
@@ -511,6 +521,7 @@ export function createReportService(deps: ReportServiceDeps): ReportService {
         idempotencyKey,
         ...(source === 'auto' ? { automationTier: 'auto', note: '全自动档自动确认（FR-12.7）；收藏/询盘发送前人工确认不受档位影响' } : {}),
       });
+      deps.onGateConfirmed?.({ taskId, selectionTaskId, source });
       return { created: true, selectionTaskId, idempotencyKey };
     },
 

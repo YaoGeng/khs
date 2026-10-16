@@ -37,7 +37,7 @@ interface GateView {
   taskId: string;
   kind: string;
   status: string;
-  gate: 'keyword_confirm' | 'llm_key_config';
+  gate: 'keyword_confirm' | 'llm_key_config' | 'sourcing_login';
   reportId: number | null;
   topicId: string | null;
   topic: string | null;
@@ -143,7 +143,9 @@ function gateCard(gate: GateView): HTMLElement {
     hint.textContent =
       gate.gate === 'llm_key_config'
         ? '未检测到可用的 LLM API Key：请前往「设置 → LLM 服务商与 API Key」保存 Key，然后点「恢复报告步骤」。'
-        : '闸门等待中。';
+        : gate.gate === 'sourcing_login'
+          ? '1688 未登录：检索返回的全部是与关键词无关的推荐流卡片。请在受控浏览器打开 1688 并由你本人完成登录（客户端不接触、不存储平台账号密码），然后点「恢复选品任务」——登录后检索将返回真实结果。'
+          : '闸门等待中。';
     card.appendChild(hint);
     const actions = document.createElement('div');
     actions.className = 'gate-actions';
@@ -151,7 +153,7 @@ function gateCard(gate: GateView): HTMLElement {
     resumeBtn.type = 'button';
     resumeBtn.className = 'btn btn-primary gate-resume-btn';
     resumeBtn.dataset.taskId = gate.taskId;
-    resumeBtn.textContent = '恢复报告步骤（Key 已配置）';
+    resumeBtn.textContent = gate.gate === 'sourcing_login' ? '恢复选品任务（1688 已登录）' : '恢复报告步骤（Key 已配置）';
     resumeBtn.addEventListener('click', () => void runGateAction(resumeBtn, 'tasks:resume', gate.taskId));
     actions.appendChild(resumeBtn);
     card.appendChild(actions);

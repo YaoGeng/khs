@@ -229,6 +229,62 @@ if (!gotLock) {
       wordlist: wordlistService,
     });
 
+    // T-M2-03/T-M2-03b：选品执行服务（三步管道 + 登录守卫闸门）。
+    // fixture seam XINGLIAN_SELECTION_FIXTURE=<json 路径> = 候选回放（e2e/联调）；
+    // 真实端口惰性取浏览器连接（自开后台 tab 直达 1688 canonical URL；须已接管浏览器）。
+    const selectionFixture = process.env.XINGLIAN_SELECTION_FIXTURE;
+    const selectionService = new SelectionService({
+      store: storeClient,
+      runner: storeService.runner,
+      logger: storeService.logger,
+      notify: showDesktopNotification,
+      searchPort: selectionFixture
+        ? createFixtureSearchPortFromFile(selectionFixture)
+        : createCdpSourcingPort1688({
+            connection: async () => {
+              const session = await browserService!.prepareAutomationTab();
+              return session.connection;
+            },
+            gate: () => browserService!.whenAutomationAllowed(),
+            delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+            logger: storeService.logger,
+          }),
+    });
+
+    /**
+     * queued selection 起跑决策（T-M2-03b 即时起跑）：fixture 模式恒可起跑（回放无需
+     * 浏览器）；真实 CDP 模式须浏览器已接管（state !== detached），否则留队——接管动作
+     * （openPlatform）与下次 gate confirm / 应用启动都会再触发补跑，不烧任务重试预算。
+     */
+    const kickQueuedSelections = async (reason: string): Promise<string[]> => {
+      try {
+        if (!selectionFixture) {
+          const status = await browserService?.status();
+          if (!status || status.state === 'detached') {
+            storeService?.logger.networkMeta('selection:kick-deferred', {
+              reason,
+              browserState: status?.state ?? 'none',
+              note: '浏览器未接管：queued selection 留队，待接管/下次确认/下轮启动补跑',
+            });
+            return [];
+          }
+        }
+        const started = await selectionService.startQueued();
+        if (started.length > 0) {
+          storeService?.logger.userAction('selection:queued-started', {
+            count: started.length,
+            taskIds: started,
+            mode: selectionFixture ? 'fixture' : 'cdp',
+            reason,
+          });
+        }
+        return started;
+      } catch (error) {
+        storeService?.logger.systemError('selection:kick-failed', { reason, error: String((error as Error).message).slice(0, 200) });
+        return [];
+      }
+    };
+
     // m1 todo 11：报告组合根服务（T-M1-06 组合接线）——report-agent 真实 Ports：
     // structured = LlmGateway（BYOK 解密 Key），llm_calls sink = store.insertLlmCall，
     // insertReport/kv = store client，telemetry emitter = complianceService 唯一出口。
@@ -276,6 +332,10 @@ if (!gotLock) {
       readKeyEntry: createGatewayKeyReader(storeClient, safeStoragePort),
       salt: `xinglian-report-salt:${app.getPath('userData')}`,
       createGateway: buildGateway,
+      // T-M2-03b：闸门确认 → queued selection 即时起跑（不等重启；浏览器未接管则留队补跑）
+      onGateConfirmed: (info) => {
+        void kickQueuedSelections(`gate-confirmed:${info.source}:${info.selectionTaskId.slice(0, 8)}`);
+      },
     });
 
     // M2 产品卡③：自动化档位（settings 写面 + report 步骤闸门自动确认读面）
@@ -330,34 +390,9 @@ if (!gotLock) {
           note: '跨日续采面就绪（collect:remainders 通道 + tasks:resume 继续采集，任务不重建）',
         });
       }
-      // T-M2-03：queued selection 占位任务起跑（gate confirm 产出的任务，启动序补驱动）。
-      // fixture seam XINGLIAN_SELECTION_FIXTURE=<json 路径> = 候选回放（e2e/联调）；
-      // 真实端口惰性取浏览器连接（检索时须已接管；未接管 → 步骤失败可重试，不自动拉浏览器）
-      const selectionFixture = process.env.XINGLIAN_SELECTION_FIXTURE;
-      const selectionService = new SelectionService({
-        store: storeSvc.store,
-        runner: storeSvc.runner,
-        logger: storeSvc.logger,
-        searchPort: selectionFixture
-          ? createFixtureSearchPortFromFile(selectionFixture)
-          : createCdpSourcingPort1688({
-              connection: async () => {
-                const session = await browserService!.prepareAutomationTab();
-                return session.connection;
-              },
-              gate: () => browserService!.whenAutomationAllowed(),
-              delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-              logger: storeSvc.logger,
-            }),
-      });
-      const startedSelection = await selectionService.startQueued();
-      if (startedSelection.length > 0) {
-        storeSvc.logger.userAction('selection:queued-started', {
-          count: startedSelection.length,
-          taskIds: startedSelection,
-          mode: selectionFixture ? 'fixture' : 'cdp',
-        });
-      }
+      // T-M2-03/T-M2-03b：boot 扫描 queued selection——fixture 恒起跑；真实模式浏览器
+      // 未接管时留队（kick 内决策），由接管动作/gate confirm/下轮启动补跑
+      await kickQueuedSelections('boot');
     });
 
     // m1 todo 12：用量面板 + 全局 RPM（FR-2.5/2.6；llm_calls 聚合 + 自填单价 + 探测档展示）
@@ -384,7 +419,12 @@ if (!gotLock) {
       // M2 B2：+ browser:installBuiltin（内置便携 Chromium 按需安装）
       browser: {
         status: () => browserService?.status() ?? Promise.reject(new Error('browser service 未就绪')),
-        openPlatform: (params) => browserService?.openPlatform(params) ?? Promise.reject(new Error('browser service 未就绪')),
+        openPlatform: async (params) => {
+          const result = await (browserService?.openPlatform(params) ?? Promise.reject(new Error('browser service 未就绪')));
+          // T-M2-03b：浏览器接管成功 → 补跑留队的 queued selection（真实模式此前因未接管留队）
+          if (result.ok) void kickQueuedSelections(`browser-attached:${params.platform}`);
+          return result;
+        },
         disconnect: () => browserService?.disconnect() ?? Promise.reject(new Error('browser service 未就绪')),
         installBuiltin: () => browserService?.installBuiltin() ?? Promise.reject(new Error('browser service 未就绪')),
         // M2 产品卡①：应用内镜像预览（screencast 只读投流；帧经 PUSH_CHANNELS 推送）
