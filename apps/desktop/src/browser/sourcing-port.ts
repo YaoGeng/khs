@@ -26,6 +26,7 @@
  */
 import type { SourcingCandidate, SourcingSearchPort } from '@xinglian/agents';
 import type { CdpConnection } from './cdp';
+import { CdpProtocolError } from './cdp';
 
 const SEARCH_URL = (keyword: string) =>
   `https://s.1688.com/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword)}&charset=utf8`;
@@ -84,59 +85,93 @@ export function detectBlockedSource(): string {
 })()`;
 }
 
+/** 页面表达式求值（returnByValue；异常详情收敛为短消息） */
+async function evaluate<T>(connection: CdpConnection, sessionId: string, expression: string): Promise<T> {
+  const result = await connection.send<{ result?: { value?: unknown }; exceptionDetails?: unknown }>(
+    'Runtime.evaluate',
+    { expression, returnByValue: true, awaitPromise: false },
+    sessionId,
+  );
+  if (result.exceptionDetails) {
+    throw new Error(`页面表达式执行失败: ${JSON.stringify(result.exceptionDetails).slice(0, 160)}`);
+  }
+  return result.result?.value as T;
+}
+
+/** 单次检索尝试（开后台 tab → canonical URL 直达 → 轮询提取 → 关 tab） */
+async function searchOnce(
+  connection: CdpConnection,
+  keyword: string,
+  limit: number,
+  log: CdpSourcingPortDeps['logger'],
+  timing: { interval: number; timeout: number; now: () => number; delay: (ms: number) => Promise<void> },
+): Promise<SourcingCandidate[]> {
+  const created = await connection.send<{ targetId?: string }>('Target.createTarget', { url: 'about:blank' });
+  const targetId = created.targetId;
+  if (!targetId) throw new Error('E-SOURCING-TAB-FAILED: 无法创建检索标签页');
+  const attached = await connection.send<{ sessionId?: string }>('Target.attachToTarget', { targetId, flatten: true });
+  const sessionId = attached.sessionId ?? '';
+  try {
+    await connection.send('Page.enable', {}, sessionId);
+    await connection.send('Page.navigate', { url: SEARCH_URL(keyword) }, sessionId);
+    const deadline = timing.now() + timing.timeout;
+    for (;;) {
+      let blocked: string | null = null;
+      try {
+        blocked = await evaluate<string | null>(connection, sessionId, detectBlockedSource());
+      } catch { /* 跳转中重试 */ }
+      if (blocked) {
+        log?.networkMeta?.('sourcing:blocked-feature', { keyword, feature: blocked, action: 'abort-empty（不自动重试，02:321）' });
+        return [];
+      }
+      let cards: SourcingCandidate[] = [];
+      try {
+        cards = await evaluate<SourcingCandidate[]>(connection, sessionId, extractOfferCardsSource());
+      } catch { /* 跳转中重试 */ }
+      if (cards.length > 0 || timing.now() + timing.interval > deadline) {
+        const sliced = cards.slice(0, limit);
+        log?.networkMeta?.('sourcing:cards-extracted', { keyword, raw: cards.length, kept: sliced.length });
+        return sliced;
+      }
+      await timing.delay(timing.interval);
+    }
+  } finally {
+    await connection.send('Target.closeTarget', { targetId }).catch(() => {});
+  }
+}
+
 export function createCdpSourcingPort1688(deps: CdpSourcingPortDeps): SourcingSearchPort {
   const interval = deps.pollIntervalMs ?? POLL_INTERVAL_DEFAULT;
   const timeout = deps.pollTimeoutMs ?? POLL_TIMEOUT_DEFAULT;
   const now = deps.now ?? (() => Date.now());
 
-  async function evaluate<T>(connection: CdpConnection, sessionId: string, expression: string): Promise<T> {
-    const result = await connection.send<{ result?: { value?: unknown }; exceptionDetails?: unknown }>(
-      'Runtime.evaluate',
-      { expression, returnByValue: true, awaitPromise: false },
-      sessionId,
-    );
-    if (result.exceptionDetails) {
-      throw new Error(`页面表达式执行失败: ${JSON.stringify(result.exceptionDetails).slice(0, 160)}`);
-    }
-    return result.result?.value as T;
-  }
-
   return {
+    /**
+     * 端口级重试（2026-10-18 登录态首跑取证）：长活浏览器上新开 tab 会话的
+     * Page.enable 偶发响应超时（首轮验收两次任务各挂在第 1/第 3 个关键词，
+     * 工作流级重试要整步重来浪费已取得的词）。瞬态 CDP 错误在此重试，
+     * 登录墙/空结果等业务口径不重试。
+     */
     async search(keyword, limit): Promise<SourcingCandidate[]> {
       await deps.gate();
       const connection = await deps.connection();
-      const created = await connection.send<{ targetId?: string }>('Target.createTarget', { url: 'about:blank' });
-      const targetId = created.targetId;
-      if (!targetId) throw new Error('E-SOURCING-TAB-FAILED: 无法创建检索标签页');
-      const attached = await connection.send<{ sessionId?: string }>('Target.attachToTarget', { targetId, flatten: true });
-      const sessionId = attached.sessionId ?? '';
-      try {
-        await connection.send('Page.enable', {}, sessionId);
-        await connection.send('Page.navigate', { url: SEARCH_URL(keyword) }, sessionId);
-        const deadline = now() + timeout;
-        for (;;) {
-          let blocked: string | null = null;
-          try {
-            blocked = await evaluate<string | null>(connection, sessionId, detectBlockedSource());
-          } catch { /* 跳转中重试 */ }
-          if (blocked) {
-            deps.logger?.networkMeta?.('sourcing:blocked-feature', { keyword, feature: blocked, action: 'abort-empty（不自动重试，02:321）' });
-            return [];
-          }
-          let cards: SourcingCandidate[] = [];
-          try {
-            cards = await evaluate<SourcingCandidate[]>(connection, sessionId, extractOfferCardsSource());
-          } catch { /* 跳转中重试 */ }
-          if (cards.length > 0 || now() + interval > deadline) {
-            const sliced = cards.slice(0, limit);
-            deps.logger?.networkMeta?.('sourcing:cards-extracted', { keyword, raw: cards.length, kept: sliced.length });
-            return sliced;
-          }
-          await deps.delay(interval);
+      const maxAttempts = 3;
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          return await searchOnce(connection, keyword, limit, deps.logger, { interval, timeout, now, delay: deps.delay });
+        } catch (error) {
+          lastError = error;
+          if (!(error instanceof CdpProtocolError) || attempt >= maxAttempts) throw error;
+          deps.logger?.networkMeta?.('sourcing:search-retry', {
+            keyword,
+            attempt,
+            error: String((error as Error).message).slice(0, 100),
+          });
+          await deps.delay(1_500);
         }
-      } finally {
-        await connection.send('Target.closeTarget', { targetId }).catch(() => {});
       }
+      throw lastError;
     },
   };
 }
