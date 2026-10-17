@@ -1,15 +1,20 @@
 import type { AdapterDslInput } from '@xinglian/protocol';
 
 export const ADAPTER_1688_PLATFORM = '1688';
-export const ADAPTER_1688_VERSION = '1.0.0';
-export const ADAPTER_1688_MIN_ENGINE_VERSION = '1.0.0';
+export const ADAPTER_1688_VERSION = '1.1.0';
+export const ADAPTER_1688_MIN_ENGINE_VERSION = '1.1.0';
 
 /**
- * 1688 适配包 DSL v1.0（纯数据；T-M2-01）。
+ * 1688 适配包 DSL v1.1（纯数据；T-M2-01 + 2026-10-18 契约扩展卡）。
  * 选择器来源：2026-10-16 内置 Chromium 匿名真页取证（apps/desktop/scripts/probe-1688.mjs，
  * 报告 scripts/out/probe-1688.json，三轮）——searchInput / offerLink / price / sales /
- * company-name / address / gallery 为实测命中；offerTitle(h1) 与部分字段为「合理编写」，
- * 真实校验与精确化在 T-M2-02 检索联调窗口（登录态）进行——与 adapters-xhs v1 同口径。
+ * company-name / address / gallery 为实测命中；offerTitle(h1) 与 favorite/inquiry 写操作
+ * 全部 selectors 为「合理编写」，真实校验与精确化在 T-M2-04 联调窗口（登录态）进行——
+ * 与 adapters-xhs v1 同口径。
+ *
+ * 版本升档说明：flows 扩展 favorite/inquiry（strict schema 下老引擎会 schema_invalid 拒绝
+ * 新包），按 dsl.ts 既定策略「前向兼容走 minEngineVersion 升档」双升至 1.1.0，老引擎获得
+ * 优雅的 engine_too_old 拒绝理由（引擎侧 ENGINE_DSL_VERSION 同卡升至 1.1.0）。
  *
  * 取证关键结论（诚实口径）：1688 匿名访问搜索结果页返回**推荐流**（页面 body 含关键词
  * 0 次、15 张卡片与查询词无关），真实关键词结果需登录态（FR-3.1：用户本人在可见浏览器
@@ -39,12 +44,17 @@ export const adapter1688Dsl = {
     ncCaptchaContainer: '.nc-container',
     punishPanel: '[class*="punish"]',
     captchaRoot: '#captcha',
+    // favorite/inquiry 写操作位点（契约扩展卡 2026-10-18；全部「合理编写」，T-M2-04 登录态联调校准）
+    favoriteButton: '[class*="favor-btn"]',
+    favoriteDoneState: '[class*="favor-done"]',
+    inquiryEntry: '[class*="inquiry"]',
+    wwChatWindow: '[class*="chat-window"]',
+    inquiryTextarea: '[class*="chat-input"] textarea',
+    inquirySendButton: '[class*="chat-send"]',
+    inquirySentMark: '[class*="msg-sent"]',
   },
 
   flows: {
-    // 选品检索（T-M2-02 输入面）：v1 只声明 keyword 路由（选品输入 = 报告产出的关键词/词组）；
-    // 收藏/询盘 flow 属 AdapterDsl 契约扩展（schema 当前仅 search/detail），随 T-M2-04 前的
-    // 契约卡进入，不在本包越权。
     search: {
       description:
         '关键词检索：canonical selloffer URL 直达（首页输入框为备选路线）。'
@@ -87,6 +97,68 @@ export const adapter1688Dsl = {
         },
       ],
     },
+    // 契约扩展卡（2026-10-18）：favorite/inquiry 对外写操作 flow（FR-6.4）。
+    // confirm 声明 = 引擎执行首个 nonReentrant 步骤前必须人工确认（不受 FR-12.7 档位影响）
+    // + 审计留痕；执行端（确认弹窗 UI/审计落库/素材留存/商品卡片入库）归 T-M2-04。
+    favorite: {
+      description: '收藏商品（FR-6.4 对外写操作）：{{input.offerUrl}} 直达详情 → 人工确认 → 收藏',
+      confirm: {
+        description: '收藏前人工确认（FR-6.4/FR-12.7 红线：对外写操作永远人工确认，不受自动化档位影响）',
+        expect: [{ selector: 'favoriteButton' }],
+      },
+      steps: [
+        { id: 'fav-open', action: 'navigate', value: '{{input.offerUrl}}', description: '直达商品详情页' },
+        {
+          id: 'fav-await-detail',
+          action: 'waitFor',
+          target: 'offerTitle',
+          expect: [{ selector: 'offerTitle' }],
+          description: '详情页渲染（结构特征）',
+        },
+        {
+          id: 'fav-click',
+          action: 'click',
+          target: 'favoriteButton',
+          nonReentrant: true,
+          description: '点击收藏（不可逆动作锚点；恢复时先按 verify 核对成功态，已成功则跳过重放）',
+        },
+      ],
+    },
+    inquiry: {
+      description:
+        '供应商询盘（FR-6.4）：{{input.offerUrl}} 直达详情 → 打开旺旺会话 → 键入 {{input.message}} '
+        + '（话术模板含需求数量/一件代发询问/素材授权句，由引擎组装）→ 人工确认 → 发送',
+      confirm: {
+        description: '询盘发送前人工确认（FR-6.4：发送前弹确认；FR-12.7：不受自动化档位影响，永远人工）',
+        expect: [{ selector: 'wwChatWindow' }, { selector: 'inquiryTextarea' }],
+      },
+      steps: [
+        { id: 'inq-open', action: 'navigate', value: '{{input.offerUrl}}', description: '直达商品详情页' },
+        {
+          id: 'inq-await-detail',
+          action: 'waitFor',
+          target: 'offerTitle',
+          expect: [{ selector: 'offerTitle' }],
+          description: '详情页渲染（结构特征）',
+        },
+        { id: 'inq-click-entry', action: 'click', target: 'inquiryEntry', description: '打开询盘/旺旺会话入口' },
+        {
+          id: 'inq-await-chat',
+          action: 'waitFor',
+          target: 'wwChatWindow',
+          expect: [{ selector: 'wwChatWindow' }, { selector: 'inquiryTextarea' }],
+          description: '会话窗与输入框在场（= confirm.expect 同源特征；发送前引擎二次核验）',
+        },
+        { id: 'inq-type', action: 'type', target: 'inquiryTextarea', value: '{{input.message}}', description: '键入询盘话术（引擎侧模板组装）' },
+        {
+          id: 'inq-send',
+          action: 'click',
+          target: 'inquirySendButton',
+          nonReentrant: true,
+          description: '点击发送（不可逆动作锚点；恢复时先按 verify 核对已发送特征，已发出则跳过重放）',
+        },
+      ],
+    },
   },
 
   // 激活前在 fixture 无害页回放（02:390）
@@ -110,10 +182,39 @@ export const adapter1688Dsl = {
       ],
       description: '详情字段位点特征',
     },
+    {
+      name: 'favorite-features',
+      fixture: 'fixtures/favorite.html',
+      expect: [{ selector: 'favoriteButton' }, { selector: 'favoriteDoneState' }],
+      description: '收藏按钮 + 成功态特征（写操作位点，契约扩展卡）',
+    },
+    {
+      name: 'inquiry-features',
+      fixture: 'fixtures/inquiry.html',
+      expect: [
+        { selector: 'inquiryEntry' },
+        { selector: 'wwChatWindow' },
+        { selector: 'inquiryTextarea' },
+        { selector: 'inquirySendButton' },
+        { selector: 'inquirySentMark' },
+      ],
+      description: '询盘入口 + 会话窗/输入框/发送/已发送特征（写操作位点，契约扩展卡）',
+    },
   ],
 
-  // v1 无不可重入步骤，verify 为空（收藏/询盘随契约扩展卡补 nonReentrant + verify）
-  verify: [],
+  // 契约扩展卡：favorite/inquiry 不可逆动作（fav-click / inq-send）的恢复核对声明（S2）
+  verify: [
+    {
+      step: 'fav-click',
+      description: '收藏已成功（详情页含已收藏成功态特征）——恢复时命中即跳过重放',
+      expect: [{ selector: 'favoriteDoneState' }],
+    },
+    {
+      step: 'inq-send',
+      description: '询盘已发出（会话窗含已发送消息特征）——恢复时命中即跳过重放（防重复打扰供应商）',
+      expect: [{ selector: 'inquirySentMark' }],
+    },
+  ],
 
   blockedFeatures: [
     {

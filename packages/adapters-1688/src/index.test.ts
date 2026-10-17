@@ -38,7 +38,7 @@ describe('adapters-1688 v1', () => {
     expect(ADAPTER_1688_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  it('search flow v1 只声明 keyword 路由（选品输入 = 报告关键词；收藏/询盘走契约扩展卡）', () => {
+  it('search flow 只声明 keyword 路由（选品输入 = 报告关键词）', () => {
     const routes = adapter1688Dsl.flows.search.routes;
     expect(Object.keys(routes ?? {})).toEqual(['keyword']);
   });
@@ -104,5 +104,53 @@ describe('adapters-1688 v1', () => {
     const tamperedJson = `${dslJson.slice(0, -2)}x${dslJson.slice(-1)}`;
     const tamperedSha = createHash('sha256').update(tamperedJson, 'utf8').digest('hex');
     expect(tamperedSha).not.toBe(manifest.sha256);
+  });
+});
+
+describe('契约扩展卡（v1.1.0，2026-10-18）', () => {
+  it('版本升档：DSL 1.1.0 + minEngineVersion 1.1.0（flows 扩展下老引擎 strict 拒绝，升档给优雅拒绝理由）', () => {
+    expect(ADAPTER_1688_VERSION).toBe('1.1.0');
+    expect(adapter1688Dsl.version).toBe('1.1.0');
+    expect(adapter1688Dsl.minEngineVersion).toBe('1.1.0');
+  });
+
+  it('favorite/inquiry 均含 confirm 声明（FR-6.4/FR-12.7：对外写操作发送前人工确认，不受档位影响）', () => {
+    for (const key of ['favorite', 'inquiry'] as const) {
+      const flow = adapter1688Dsl.flows[key];
+      expect(flow.confirm, `${key} 缺 confirm 声明`).toBeDefined();
+      expect(flow.confirm?.description).toContain('人工确认');
+      expect(flow.confirm?.expect.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('不可逆动作锚点：fav-click / inq-send 为 nonReentrant 且 verify 声明配对（S2）', () => {
+    const nonReentrant = new Set<string>();
+    for (const key of ['favorite', 'inquiry'] as const) {
+      for (const step of adapter1688Dsl.flows[key].steps ?? []) {
+        if (step.nonReentrant === true) nonReentrant.add(step.id);
+      }
+    }
+    expect([...nonReentrant].sort()).toEqual(['fav-click', 'inq-send']);
+    const verifiedSteps = new Set(adapter1688Dsl.verify.map((decl) => decl.step));
+    for (const id of nonReentrant) {
+      expect(verifiedSteps.has(id), `${id} 缺 verify 声明`).toBe(true);
+    }
+  });
+
+  it('询盘 confirm.expect 与发送前页面核验同源：覆盖会话窗 + 输入框', () => {
+    const expectSelectors = adapter1688Dsl.flows.inquiry.confirm?.expect.map((exp) => exp.selector) ?? [];
+    expect(expectSelectors).toContain('wwChatWindow');
+    expect(expectSelectors).toContain('inquiryTextarea');
+  });
+
+  it('输入面：offerUrl/message 走 {{input.xxx}} 模板占位', () => {
+    const templates = [
+      adapter1688Dsl.flows.favorite.steps?.[0]?.value,
+      adapter1688Dsl.flows.inquiry.steps?.[0]?.value,
+      adapter1688Dsl.flows.inquiry.steps?.find((step) => step.id === 'inq-type')?.value,
+    ];
+    for (const tpl of templates) {
+      expect(tpl).toMatch(/\{\{input\.[a-zA-Z]+\}\}/);
+    }
   });
 });

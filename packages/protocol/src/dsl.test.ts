@@ -146,6 +146,69 @@ describe('AdapterDslSchema（DSL v1.1）', () => {
     expect(AdapterDslSchema.safeParse(both).success).toBe(false);
   });
 
+  it('契约扩展：flows 只认 search/detail/favorite/inquiry（未知 flow 键拒绝）', () => {
+    const dsl = JSON.parse(JSON.stringify(baseDsl())) as Record<string, unknown>;
+    (dsl.flows as Record<string, unknown>).publish = {
+      steps: [{ id: 'p1', action: 'waitFor', target: 'searchBox' }],
+    };
+    expect(AdapterDslSchema.safeParse(dsl).success).toBe(false);
+  });
+
+  it('契约扩展：favorite/inquiry 可选键合法；无新键的旧形态包仍合法（向后兼容）', () => {
+    // 旧形态 = baseDsl() 本身（仅 search/detail），上面「最小合法 DSL 通过」已覆盖
+    const dsl = JSON.parse(JSON.stringify(baseDsl())) as Record<string, unknown>;
+    const selectors = dsl.selectors as Record<string, string>;
+    selectors.favoriteButton = '[class*="favor"]';
+    selectors.favoriteDone = '[class*="favored"]';
+    (dsl.flows as Record<string, unknown>).favorite = {
+      description: '收藏商品（对外写操作）',
+      confirm: { description: 'FR-6.4：发送/收藏前人工确认红线', expect: [{ selector: 'favoriteDone' }] },
+      steps: [
+        { id: 'fav-open', action: 'navigate', value: '{{input.offerUrl}}' },
+        { id: 'fav-click', action: 'click', target: 'favoriteButton', nonReentrant: true },
+      ],
+    };
+    (dsl as Record<string, unknown>).verify = [
+      { step: 'fav-click', description: '收藏成功态可见', expect: [{ selector: 'favoriteDone' }] },
+    ];
+    expect(AdapterDslSchema.safeParse(dsl).success).toBe(true);
+  });
+
+  it('契约扩展：跨 flow 步骤 id 冲突（favorite 与 search 同 id）→ 拒绝', () => {
+    const dsl = JSON.parse(JSON.stringify(baseDsl())) as Record<string, unknown>;
+    (dsl.flows as Record<string, unknown>).favorite = {
+      steps: [{ id: 's1', action: 'waitFor', target: 'searchBox' }],
+    };
+    expect(AdapterDslSchema.safeParse(dsl).success).toBe(false);
+  });
+
+  it('契约扩展：声明 confirm 的 flow 缺 nonReentrant 步骤 → 拒绝（不可逆动作锚点强制）', () => {
+    const dsl = JSON.parse(JSON.stringify(baseDsl())) as Record<string, unknown>;
+    (dsl.flows as Record<string, unknown>).inquiry = {
+      description: '询盘（对外写操作）',
+      confirm: { description: 'FR-6.4：发送前人工确认红线', expect: [{ selector: 'searchBox' }] },
+      steps: [
+        { id: 'inq-open', action: 'navigate', value: '{{input.offerUrl}}' },
+        { id: 'inq-type', action: 'type', target: 'searchBox', value: '{{input.message}}' },
+      ],
+    };
+    expect(AdapterDslSchema.safeParse(dsl).success).toBe(false);
+  });
+
+  it('契约扩展：confirm.expect 引用未定义 selector → 拒绝（selector 引用检查覆盖新 flow）', () => {
+    const dsl = JSON.parse(JSON.stringify(baseDsl())) as Record<string, unknown>;
+    const selectors = dsl.selectors as Record<string, string>;
+    selectors.favoriteButton = '[class*="favor"]';
+    (dsl.flows as Record<string, unknown>).favorite = {
+      confirm: { description: 'FR-6.4：发送前人工确认红线', expect: [{ selector: 'ghostSelector' }] },
+      steps: [{ id: 'fav-click', action: 'click', target: 'favoriteButton', nonReentrant: true }],
+    };
+    (dsl as Record<string, unknown>).verify = [
+      { step: 'fav-click', description: 'x', expect: [{ selector: 'searchBox' }] },
+    ];
+    expect(AdapterDslSchema.safeParse(dsl).success).toBe(false);
+  });
+
   it('verify/blockedFeatures 缺省时应用默认空数组', () => {
     const dsl = JSON.parse(JSON.stringify(baseDsl())) as Record<string, unknown>;
     delete dsl.verify;

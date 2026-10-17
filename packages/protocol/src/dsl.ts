@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 // 适配层 DSL v1.1 契约；唯一真源 = 02-系统架构设计.md §7.5「DSL v1.1 规范参数表」。
 // 纯数据、不含可执行 JS（安全边界）；app 引擎与适配包共同依赖的唯一跨层通道。
+// 2026-10-18 契约扩展卡（T-M2-01 范围收尾）：flows 增可选 favorite/inquiry 写操作 flow
+// + flow 级 confirm 声明（发送前人工确认红线，FR-6.4/FR-12.7）；引擎侧执行语义见 §7.5。
 
 export const SEMVER_RE =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
@@ -132,6 +134,19 @@ export const VerifyDeclSchema = z.strictObject({
 });
 export type VerifyDecl = z.infer<typeof VerifyDeclSchema>;
 
+/**
+ * confirm 声明（契约扩展卡，2026-10-18）：对外写操作 flow（收藏/询盘等）的人工确认红线。
+ * 引擎侧执行语义（02 §7.5）：执行本 flow 首个 nonReentrant 步骤前，必须完成 app 人工确认
+ * 弹窗（**不受 FR-12.7 自动化档位影响，永远人工**）+ 审计事件留痕
+ * （taskId/offerId/用户决定/时间戳）；expect = 人工确认后、不可逆动作执行前引擎须核验的
+ * 平台侧界面特征（如旺旺会话窗、收藏按钮在场）。执行端实现归 T-M2-04。
+ */
+export const ConfirmDeclSchema = z.strictObject({
+  description: z.string().min(1),
+  expect: z.array(PageFeatureSchema).min(1),
+});
+export type ConfirmDecl = z.infer<typeof ConfirmDeclSchema>;
+
 /** 风控特征（验证码容器等，02:388）：命中 → 上报风控信号 → 熔断器介入 */
 export const BlockedFeatureSchema = z.strictObject({
   name: z.string().min(1),
@@ -157,6 +172,8 @@ const FlowBaseSchema = z.strictObject({
   steps: z.array(StepSchema).min(1).optional(),
   /** 按输入类型路由（search 的 keyword/user/note_url 三种输入用） */
   routes: z.record(z.string().min(1), z.array(StepSchema).min(1)).optional(),
+  /** 对外写操作的人工确认声明（favorite/inquiry 用；见 ConfirmDeclSchema 注释） */
+  confirm: ConfirmDeclSchema.optional(),
 });
 
 export const FlowSchema = FlowBaseSchema.superRefine((flow, ctx) => {
@@ -182,6 +199,7 @@ function collectFlowSteps(flow: Flow): Step[] {
 /**
  * DSL v1.1 顶层 schema。加载期校验前置（02:387，不留给运行时）：
  * nonReentrant 步骤必须有 verify 声明；verify.step 必须存在；
+ * 声明 confirm 的 flow 必须含至少一个 nonReentrant 步骤（不可逆动作锚点）；
  * 所有 selector 引用必须落在 selectors 表内。
  */
 export const AdapterDslSchema = z
@@ -193,13 +211,17 @@ export const AdapterDslSchema = z
     flows: z.strictObject({
       search: FlowSchema,
       detail: FlowSchema,
+      /** 契约扩展卡（2026-10-18）：对外写操作 flow 为可选键（xhs 等只读包不含仍合法） */
+      favorite: FlowSchema.optional(),
+      inquiry: FlowSchema.optional(),
     }),
     selfcheck: z.array(SelfcheckCaseSchema).min(1),
     verify: z.array(VerifyDeclSchema).default([]),
     blockedFeatures: z.array(BlockedFeatureSchema).default([]),
   })
   .superRefine((dsl, ctx) => {
-    const allSteps = [...collectFlowSteps(dsl.flows.search), ...collectFlowSteps(dsl.flows.detail)];
+    const flowEntries = Object.entries(dsl.flows) as Array<[string, Flow]>;
+    const allSteps = flowEntries.flatMap(([, flow]) => collectFlowSteps(flow));
 
     const stepIds = new Set<string>();
     for (const step of allSteps) {
@@ -207,6 +229,18 @@ export const AdapterDslSchema = z
         ctx.addIssue({ code: 'custom', message: `步骤 id 重复: ${step.id}`, path: ['flows'] });
       }
       stepIds.add(step.id);
+    }
+
+    // 契约扩展卡：confirm 声明 → 本 flow 至少一个 nonReentrant 步骤
+    //（不可逆动作锚点；该步骤经下方 S2 检查强制配对 verify 声明）
+    for (const [flowKey, flow] of flowEntries) {
+      if (flow.confirm !== undefined && !collectFlowSteps(flow).some((step) => step.nonReentrant === true)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `声明 confirm 的 flow 缺少 nonReentrant 步骤: ${flowKey}`,
+          path: ['flows', flowKey, 'confirm'],
+        });
+      }
     }
 
     const verifiedSteps = new Set(dsl.verify.map((decl) => decl.step));
@@ -245,6 +279,7 @@ export const AdapterDslSchema = z
           unknown.push({ path: ['flows', flowKey, 'fields', field], name: selectorName });
         }
       }
+      flow.confirm?.expect.forEach((exp, j) => checkFeature(exp, ['flows', flowKey, 'confirm', 'expect', j]));
     }
     dsl.selfcheck.forEach((check, i) =>
       check.expect.forEach((exp, j) => checkFeature(exp, ['selfcheck', i, 'expect', j])),

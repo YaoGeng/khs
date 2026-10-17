@@ -15,8 +15,12 @@ import {
 } from '@xinglian/protocol';
 import { createLinkedomSelfcheckRunner } from './selfcheck.js';
 
-/** 当前引擎的 DSL 引擎版本（M1）；与适配包的 minEngineVersion 做兼容判定 */
-export const ENGINE_DSL_VERSION = '1.0.0';
+/**
+ * 当前引擎的 DSL 引擎版本；与适配包的 minEngineVersion 做兼容判定。
+ * 1.1.0（2026-10-18 契约扩展卡）：AdapterDslSchema.flows 扩展 favorite/inquiry +
+ * confirm 声明；桌面组合根注入源在 apps/desktop/src/shared/engine-constants.ts（两处同步）。
+ */
+export const ENGINE_DSL_VERSION = '1.1.0';
 
 export const ACTIVE_FILE = 'active.json';
 
