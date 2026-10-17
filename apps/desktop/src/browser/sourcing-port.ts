@@ -13,6 +13,11 @@
  *   href 内 /offer/<id> 段；title 取锚点祖先卡片（[class*="offer-item"] 优先，缺省
  *   锚点自身 textContent）——真实结果卡锚文本必含商品标题（含公司名等噪声，
  *   agent 的 bigram 相关性对噪声鲁棒；推荐流卡片则零重叠被剔除）。
+ * - 关键词编码（2026-10-18 登录态实页取证）：selloffer 端点默认按 **GBK** 解码
+ *   keywords 参数——纯 UTF-8 encodeURIComponent 的 URL 关键词会变乱码（页面标题
+ *   「閻叉檼甯」），返回与查询词无关的杂货结果（登录态下也会发生，会被相关性
+ *   防御整体剔除并误判为未登录）。必须追加 `charset=utf8`（真页验证：标题正确
+ *   「防晒帽_防晒帽批发」、结果全为关键词命中）。
  * - priceText/salesText 取卡片内首个 [class*="price"] / [class*="sales"] 文本
  *   （取证命中 69/297 与 12 个）；supplier/gallery 卡片层不可得 → null（agent 按
  *   「无信息」维度口径计分）——详情深读留登录联调卡（T-M2-03b 校准 offerTitle）。
@@ -23,7 +28,7 @@ import type { SourcingCandidate, SourcingSearchPort } from '@xinglian/agents';
 import type { CdpConnection } from './cdp';
 
 const SEARCH_URL = (keyword: string) =>
-  `https://s.1688.com/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword)}`;
+  `https://s.1688.com/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword)}&charset=utf8`;
 
 const POLL_INTERVAL_DEFAULT = 300;
 const POLL_TIMEOUT_DEFAULT = 12_000;

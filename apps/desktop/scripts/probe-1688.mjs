@@ -22,7 +22,8 @@ const BUILTIN_EXE = path.join(
 );
 const KEYWORD = process.argv[2] ?? '防晒衣';
 const HOME = 'https://www.1688.com';
-const SEARCH_URL = `https://s.1688.com/selloffer/offer_search.htm?keywords=`;
+// charset=utf8：selloffer 端点默认按 GBK 解码 keywords，纯 UTF-8 会乱码（2026-10-18 登录态实页取证）
+const SEARCH_URL = `https://s.1688.com/selloffer/offer_search.htm?charset=utf8&keywords=`;
 
 const require = createRequire(path.join(DESKTOP, 'package.json'));
 const { chromium } = require('@playwright/test');

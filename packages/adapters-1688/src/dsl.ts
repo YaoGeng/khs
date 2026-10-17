@@ -64,8 +64,8 @@ export const adapter1688Dsl = {
           {
             id: 'kw-open-selloffer',
             action: 'navigate',
-            value: 'https://s.1688.com/selloffer/offer_search.htm?keywords={{input.keyword}}',
-            description: '直达搜索结果页（取证：URL 直达最稳；匿名=推荐流）',
+            value: 'https://s.1688.com/selloffer/offer_search.htm?keywords={{input.keyword}}&charset=utf8',
+            description: '直达搜索结果页（取证：URL 直达最稳；匿名=推荐流）。charset=utf8 必带：端点默认 GBK 解码 keywords，纯 UTF-8 会乱码返回无关结果（2026-10-18 登录态实页取证）',
           },
           {
             id: 'kw-await-cards',
