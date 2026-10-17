@@ -108,9 +108,9 @@ describe('adapters-1688 v1', () => {
 });
 
 describe('契约扩展卡（v1.1.0，2026-10-18）', () => {
-  it('版本升档：DSL 1.1.0 + minEngineVersion 1.1.0（flows 扩展下老引擎 strict 拒绝，升档给优雅拒绝理由）', () => {
-    expect(ADAPTER_1688_VERSION).toBe('1.1.0');
-    expect(adapter1688Dsl.version).toBe('1.1.0');
+  it('版本升档：DSL 1.1.1（T-M2-04 前置登录态校准，patch）+ minEngineVersion 1.1.0（契约不变）', () => {
+    expect(ADAPTER_1688_VERSION).toBe('1.1.1');
+    expect(adapter1688Dsl.version).toBe('1.1.1');
     expect(adapter1688Dsl.minEngineVersion).toBe('1.1.0');
   });
 
@@ -141,6 +141,16 @@ describe('契约扩展卡（v1.1.0，2026-10-18）', () => {
     const expectSelectors = adapter1688Dsl.flows.inquiry.confirm?.expect.map((exp) => exp.selector) ?? [];
     expect(expectSelectors).toContain('wwChatWindow');
     expect(expectSelectors).toContain('inquiryTextarea');
+  });
+
+  it('写操作与详情位点为登录态取证形态（2026-10-18 probe-1688-loggedin，T-M2-04 前置校准）', () => {
+    expect(adapter1688Dsl.selectors.favoriteButton).toBe('[data-click="FAV"]');
+    expect(adapter1688Dsl.selectors.followShopButton).toBe('[data-click="follow-shop"]');
+    expect(adapter1688Dsl.selectors.inquiryEntry).toBe('[data-click="咨询客服"]');
+    // 防回退旧噪声锚：详情页 7 个 h1 首个是公司名；.company-name 命中页尾推荐模块
+    expect(adapter1688Dsl.selectors.offerTitle).toContain('module-od-title');
+    expect(adapter1688Dsl.selectors.supplierName).toContain('shop-company-name');
+    expect(adapter1688Dsl.selectors.offerCard).toContain('offerCard');
   });
 
   it('输入面：offerUrl/message 走 {{input.xxx}} 模板占位', () => {

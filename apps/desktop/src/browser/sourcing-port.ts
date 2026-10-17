@@ -8,19 +8,22 @@
  * - 动作前置 gate（browserService.whenAutomationAllowed，浏览器级）——与采集
  *   自动化同一让位机制（FR-4.5）；检索是只读动作，不烧采集配额。
  *
- * 提取口径（2026-10-16 匿名真页取证，scripts/out/probe-1688.json）：
- * - 锚点 `a[href*="detail.1688.com/offer"]` 三轮稳定命中（15/15/60）；offerId 取
- *   href 内 /offer/<id> 段；title 取锚点祖先卡片（[class*="offer-item"] 优先，缺省
- *   锚点自身 textContent）——真实结果卡锚文本必含商品标题（含公司名等噪声，
- *   agent 的 bigram 相关性对噪声鲁棒；推荐流卡片则零重叠被剔除）。
- * - 关键词编码（2026-10-18 登录态实页取证）：selloffer 端点默认按 **GBK** 解码
- *   keywords 参数——纯 UTF-8 encodeURIComponent 的 URL 关键词会变乱码（页面标题
- *   「閻叉檼甯」），返回与查询词无关的杂货结果（登录态下也会发生，会被相关性
- *   防御整体剔除并误判为未登录）。必须追加 `charset=utf8`（真页验证：标题正确
- *   「防晒帽_防晒帽批发」、结果全为关键词命中）。
- * - priceText/salesText 取卡片内首个 [class*="price"] / [class*="sales"] 文本
- *   （取证命中 69/297 与 12 个）；supplier/gallery 卡片层不可得 → null（agent 按
- *   「无信息」维度口径计分）——详情深读留登录联调卡（T-M2-03b 校准 offerTitle）。
+ * 提取口径（2026-10-18 登录态实页取证，scripts/out/probe-1688-loggedin.json + probe-1688-loggedin.mjs）：
+ * - 关键词编码：selloffer 端点默认按 GBK 解码 keywords——纯 UTF-8 encodeURIComponent 的
+ *   URL 关键词会乱码返回无关结果（登录态下也发生，会被相关性防御剔除并误判未登录），
+ *   URL 必带 `charset=utf8`（2026-10-18 b8842d1 修复）。
+ * - 卡片 = 锚自身 `a.offerCard--<hash>`（CSS Modules 哈希类，一律前缀匹配容忍发版换哈希；
+ *   旧口径 `[class*="offer-item"]` 实页 0 命中）；列表容器 offerList/gridCell 只做外层。
+ * - title 取卡内 `[class*="titleText"]`（干净商品标题；旧口径 card.textContent 混入
+ *   「找相似+公司名+服务分」整卡噪声——pilot-5 30 条样本即该缺陷产物）。
+ * - price 取 priceSign+priceMain+priceSub 拼接（「¥2.8」主价块；纯价格不含数量，
+ *   parsePriceRange 取全数字 min/max，混入「2~99顶」会污染区间）。阶梯价在 hover 面板
+ *   （hoverPriceValue/hoverPriceQty），v1 不入候选快照（products.moq 留详情深读）。
+ * - sales 取 descText 中以「件」结尾且含数字的文本（「3.4万+件」「全网2.9万+件」；
+ *   同类名还有营销语「新人价」「包邮」与「100件起批」——后者不以待尾「件」命中被排除）。
+ *   旧口径 `[class*="sales"]` 搜索卡 0 命中 → pilot-5 sales_text 全 null 的根因。
+ * - supplier 取 shopRow 内 descText 的 title 属性（干净公司名；详情页 .company-name
+ *   命中的是页尾推荐模块，勿用）。address 卡片层不存在 → null（详情深读补）。
  * - 登录墙/滑块（blockedFeatures 特征）命中即中止本轮并返回空——上层 agent 的
  *   推荐流防御 + stats.excludedJunk 提供「需登录」可观测信号，不自动重试（02:321）。
  */
@@ -46,7 +49,8 @@ export interface CdpSourcingPortDeps {
   readonly logger?: { networkMeta?: (msg: string, payload?: unknown) => void };
 }
 
-/** 页面侧提取源（导出供单测以 stub 直评）：卡片级候选抽取 */
+/** 页面侧提取源（导出供单测以 stub 直评）：卡片级候选抽取。
+ * 校准依据：2026-10-18 登录态真页取证（probe-1688-loggedin.mjs 三轮）——锚点结构见文件头。 */
 export function extractOfferCardsSource(): string {
   return `(function () {
   var anchors = Array.prototype.slice.call(document.querySelectorAll('a[href*="detail.1688.com/offer"]'));
@@ -58,15 +62,27 @@ export function extractOfferCardsSource(): string {
     var m = /offer\\/(\\d+)/.exec(a.getAttribute('href') || '');
     if (!m || seen[m[1]]) continue;
     seen[m[1]] = 1;
-    var card = a.closest('[class*="offer-item"]') || a.parentElement;
-    if (!card) continue;
-    var priceEl = card.querySelector('[class*="price"]');
-    var salesEl = card.querySelector('[class*="sales"]');
+    var card = a.closest('[class*="offerCard"]') || a;
+    var titleEl = card.querySelector('[class*="titleText"]');
+    var title = clean(titleEl ? titleEl.textContent : '').slice(0, 160) || clean(card.textContent).slice(0, 160);
+    var main = card.querySelector('[class*="priceMain"]');
+    var sub = card.querySelector('[class*="priceSub"]');
+    var priceText = main ? clean('¥' + clean(main.textContent) + clean(sub ? sub.textContent : '')).slice(0, 40) : null;
+    var salesText = null;
+    var descs = card.querySelectorAll('[class*="descText"]');
+    for (var d = 0; d < descs.length; d += 1) {
+      var t = clean(descs[d].textContent);
+      if (/\\d[\\d.]*(万|w)?\\+?件$/.test(t)) { salesText = t.slice(0, 40); break; }
+    }
+    var supEl = card.querySelector('[class*="shopRow"] [class*="descText"]');
+    var supplierName = supEl ? clean(supEl.getAttribute('title') || supEl.textContent).slice(0, 80) : null;
     out.push({
       offerId: m[1],
-      title: clean(card.textContent).slice(0, 160) || clean(a.textContent).slice(0, 160),
-      priceText: priceEl ? clean(priceEl.textContent).slice(0, 40) : null,
-      salesText: salesEl ? clean(salesEl.textContent).slice(0, 40) : null,
+      title: title,
+      priceText: priceText,
+      salesText: salesText,
+      supplierName: supplierName,
+      supplierAddress: null,
       sourceUrl: 'https://detail.1688.com/offer/' + m[1] + '.html'
     });
   }

@@ -2,28 +2,50 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>1688 - 搜索（fixture：selfcheck 离线回放，不访问真实站点）</title>
+  <title>防晒帽_防晒帽批发_防晒帽供应_阿里巴巴（fixture：selfcheck 离线回放，不访问真实站点）</title>
 </head>
 <body>
-  <!-- fixture 页面：仅用于 adapter selfcheck 离线回放；类名取自 2026-10-16 真页取证形态 -->
+  <!-- fixture：按 2026-10-18 登录态真页取证形态（probe-1688-loggedin.json）搭建。
+       结构要点：卡片 = a.offerCard--<hash> 锚自身（CSS Modules 哈希后缀）；列表容器
+       offerList/gridCell 只做外层；卡内 titleText/priceSign+priceMain+priceSub/
+       descText（销量以「件」结尾）/shopRow（公司名带 title 属性）。 -->
   <header>
     <input name="keywords" type="text" placeholder="请输入要搜索的内容">
   </header>
-  <main class="page-offerlist">
-    <div class="col-feeds">
-      <div class="feeds-wrapper">
-        <div class="offer-item offer-item-normal">
-          <a href="https://detail.1688.com/offer/880000000001.html">
-            <span class="title">冰丝防晒衣女夏季UPF50+</span>
-            <span class="price">¥12.80</span>
-          </a>
-        </div>
-        <div class="offer-item offer-item-normal">
-          <a href="https://detail.1688.com/offer/880000000002.html">
-            <span class="title">防晒衣男透气薄款外套</span>
-            <span class="price">¥9.90</span>
-          </a>
-        </div>
+  <main>
+    <div class="offerList--FsydnV_n" data-spm="offerlist">
+      <div class="gridCell--PjMmdJiZ" data-offer-grid-cell="true">
+        <a class="offerCard--dMshu5T4" href="https://detail.1688.com/offer/880000000001.html">
+          <div class="titleRow--yU3JSAPp">
+            <div class="titleText--R1FHVG6p"><div>冰丝防晒帽女夏季UPF50+渔夫帽大头围</div></div>
+          </div>
+          <div class="priceRow--a1b2c3d4">
+            <div class="priceSign--nAa0s13U">¥</div><div class="priceMain--gOVM3HWw">3</div><div class="priceSub--cRZNE4GV">.5</div>
+            <div class="descText--gQVhDCIw">新人价</div>
+          </div>
+          <div class="descRow--PMvbLUp6"><div class="descText--gQVhDCIw">3.4万+件</div><div class="descText--gQVhDCIw">包邮</div></div>
+          <div class="shopRow--QU6RrAOK">
+            <a class="descItem--cSPn7Xp1" href="https://shop0f38z5h889313.1688.com">
+              <div class="descText--gQVhDCIw" title="台州市椒江顺新鞋帽厂">台州市椒江顺新鞋帽厂</div>
+            </a>
+          </div>
+        </a>
+      </div>
+      <div class="gridCell--PjMmdJiZ" data-offer-grid-cell="true">
+        <a class="offerCard--dMshu5T4" href="https://detail.1688.com/offer/880000000002.html">
+          <div class="titleRow--yU3JSAPp">
+            <div class="titleText--R1FHVG6p"><div>防晒帽男透气薄款空顶帽户外遮阳</div></div>
+          </div>
+          <div class="priceRow--a1b2c3d4">
+            <div class="priceSign--nAa0s13U">¥</div><div class="priceMain--gOVM3HWw">2</div><div class="priceSub--cRZNE4GV">.8</div>
+          </div>
+          <div class="descRow--PMvbLUp6"><div class="descText--gQVhDCIw">1.0万+件</div><div class="descText--gQVhDCIw">100件起批</div></div>
+          <div class="shopRow--QU6RrAOK">
+            <a class="descItem--cSPn7Xp1" href="https://shop8hy67u123456.1688.com">
+              <div class="descText--gQVhDCIw" title="义乌市沐原服装有限公司">义乌市沐原服装有限公司</div>
+            </a>
+          </div>
+        </a>
       </div>
     </div>
   </main>

@@ -1,20 +1,25 @@
 import type { AdapterDslInput } from '@xinglian/protocol';
 
 export const ADAPTER_1688_PLATFORM = '1688';
-export const ADAPTER_1688_VERSION = '1.1.0';
+export const ADAPTER_1688_VERSION = '1.1.1';
 export const ADAPTER_1688_MIN_ENGINE_VERSION = '1.1.0';
 
 /**
- * 1688 适配包 DSL v1.1（纯数据；T-M2-01 + 2026-10-18 契约扩展卡）。
- * 选择器来源：2026-10-16 内置 Chromium 匿名真页取证（apps/desktop/scripts/probe-1688.mjs，
- * 报告 scripts/out/probe-1688.json，三轮）——searchInput / offerLink / price / sales /
- * company-name / address / gallery 为实测命中；offerTitle(h1) 与 favorite/inquiry 写操作
- * 全部 selectors 为「合理编写」，真实校验与精确化在 T-M2-04 联调窗口（登录态）进行——
- * 与 adapters-xhs v1 同口径。
+ * 1688 适配包 DSL v1.1.1（纯数据；T-M2-01 + 契约扩展卡 + T-M2-04 前置校准）。
+ * 选择器来源：
+ * - 2026-10-16 匿名取证（probe-1688.mjs）：searchInput / offerLink 实测；
+ * - **2026-10-18 登录态取证（probe-1688-loggedin.mjs，T-M2-04 前置校准）**：offerCard
+ *   （= 锚自身 a.offerCard--hash，CSS Modules 哈希类一律前缀匹配）/ offerTitle
+ *   （module-od-title h1；页面 7 个 h1 首个是公司名，裸 h1 不可用）/ priceTag
+ *   （priceMain）/ supplierName（shop-company-name；.company-name 命中页尾推荐模块）/
+ *   写操作位点（data-click 动作属性语义化：FAV / follow-shop / 咨询客服）。
+ * - wwChatWindow / inquiryTextarea / inquirySendButton / inquirySentMark / favoriteDoneState
+ *   为「合理编写」：点击咨询客服后的会话窗与收藏成功态须用户在场联调取证（真实写操作
+ *   绝不代用户点击），T-M2-04 真实发送验收轮补。
  *
- * 版本升档说明：flows 扩展 favorite/inquiry（strict schema 下老引擎会 schema_invalid 拒绝
- * 新包），按 dsl.ts 既定策略「前向兼容走 minEngineVersion 升档」双升至 1.1.0，老引擎获得
- * 优雅的 engine_too_old 拒绝理由（引擎侧 ENGINE_DSL_VERSION 同卡升至 1.1.0）。
+ * 版本升档说明：v1.1.1 = 选择器登录态校准（patch，契约不变）；v1.1.0 = flows 扩展
+ * favorite/inquiry（strict schema 下老引擎会 schema_invalid 拒绝新包），minEngineVersion
+ * 保持 1.1.0（引擎侧 ENGINE_DSL_VERSION 不随包 patch 升档）。
  *
  * 取证关键结论（诚实口径）：1688 匿名访问搜索结果页返回**推荐流**（页面 body 含关键词
  * 0 次、15 张卡片与查询词无关），真实关键词结果需登录态（FR-3.1：用户本人在可见浏览器
@@ -29,12 +34,12 @@ export const adapter1688Dsl = {
 
   selectors: {
     searchInput: 'input[name="keywords"]',
-    offerCard: '[class*="offer-item"]',
+    offerCard: '[class*="offerCard"]',
     offerLink: 'a[href*="detail.1688.com/offer"]',
-    offerTitle: 'h1',
-    priceTag: '[class*="price"]',
+    offerTitle: '[class*="module-od-title"] h1',
+    priceTag: '[class*="priceMain"]',
     salesTag: '[class*="sales"]',
-    supplierName: '.company-name',
+    supplierName: '[class*="shop-company-name"]',
     supplierAddress: '[class*="address"]',
     galleryImage: '[class*="gallery"] img',
     loginPanel: '.login-panel',
@@ -44,10 +49,13 @@ export const adapter1688Dsl = {
     ncCaptchaContainer: '.nc-container',
     punishPanel: '[class*="punish"]',
     captchaRoot: '#captcha',
-    // favorite/inquiry 写操作位点（契约扩展卡 2026-10-18；全部「合理编写」，T-M2-04 登录态联调校准）
-    favoriteButton: '[class*="favor-btn"]',
+    // favorite/inquiry 写操作位点（2026-10-18 登录态取证校准；data-click 动作属性为锚）：
+    // fav-button（收藏(576)）/ follow-shop（关注店铺）/ customer-service（咨询客服入口）。
+    // 成功态与会话窗内部位点留用户在场联调（真实写操作绝不代用户点击）。
+    favoriteButton: '[data-click="FAV"]',
+    followShopButton: '[data-click="follow-shop"]',
     favoriteDoneState: '[class*="favor-done"]',
-    inquiryEntry: '[class*="inquiry"]',
+    inquiryEntry: '[data-click="咨询客服"]',
     wwChatWindow: '[class*="chat-window"]',
     inquiryTextarea: '[class*="chat-input"] textarea',
     inquirySendButton: '[class*="chat-send"]',

@@ -5,16 +5,20 @@
   <title>1688 - 供应商询盘（fixture：selfcheck 离线回放，不访问真实站点）</title>
 </head>
 <body>
-  <!-- fixture 页面：仅用于 adapter selfcheck 离线回放；inquiry 写操作位点是「合理编写」，
-       真实校准在 T-M2-04 登录态联调窗口（契约扩展卡 2026-10-18） -->
-  <h1>冰丝防晒衣女夏季UPF50+防紫外线薄款透气外套</h1>
-  <button class="inquiry-entry">联系供应商</button>
-  <div class="ww-chat-window">
-    <div class="chat-input-area">
-      <textarea class="chat-input" placeholder="输入询盘内容"></textarea>
+  <!-- fixture：询盘入口按 2026-10-18 登录态真页取证（a[data-click="咨询客服"]，class
+       action-link customer-service）；点击后的旺旺会话窗内部位点（wwChatWindow/
+       inquiryTextarea/inquirySendButton/inquirySentMark）仍为「合理编写」——须用户在场
+       联调取证（真实写操作绝不代用户点击），fixture 保持可回放即可。 -->
+  <div class="module-od-title">
+    <div class="title-content"><h1>帽子男款新款春秋棒球帽帆布鸭舌帽批发户外大檐帽四季帽休闲批发</h1></div>
+  </div>
+  <a class="action-link customer-service" data-click="咨询客服"><span>客服</span></a>
+  <div class="ww-chat-window--x9y8z7">
+    <div class="chat-input-area--q1w2e3">
+      <textarea class="chat-input--r4t5y6" placeholder="输入询盘内容"></textarea>
     </div>
-    <button class="chat-send">发送</button>
-    <div class="msg-sent" hidden>【询盘】您好，请问这款支持一件代发吗？</div>
+    <button class="chat-send--u7i8o9">发送</button>
+    <div class="msg-sent--p0a1s2" hidden>【询盘】您好，请问这款支持一件代发吗？</div>
   </div>
 </body>
 </html>
