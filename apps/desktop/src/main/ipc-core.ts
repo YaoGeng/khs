@@ -32,6 +32,12 @@ import {
   MirrorStartResultSchema,
   MirrorStopResultSchema,
   NotesListResultSchema,
+  OutreachDecideResultSchema,
+  OutreachStartResultSchema,
+  OutreachStatusResultSchema,
+  ProductsListResultSchema,
+  ProductsOpenSourceResultSchema,
+  SelectionSetCheckedResultSchema,
   ReportChartDataResultSchema,
   ReportExportPdfResultSchema,
   ReportGetResultSchema,
@@ -86,17 +92,28 @@ import {
   type LogsQueryResult,
   type NotesListParams,
   type NotesListResult,
+  type OutreachDecideParams,
+  type OutreachDecideResult,
+  type OutreachStartParams,
+  type ProductsListParams,
+  type ProductsOpenSourceParams,
   type ReportChartDataResult,
   type ReportExportPdfResult,
   type ReportGetResult,
   type ReportInsertFixtureParams,
   type ReportsListResult,
+  type OutreachStartResult,
+  type OutreachStatusResult,
+  type ProductsListResult,
+  type ProductsOpenSourceResult,
   type SelectionCandidatesParams,
   type SelectionCandidatesResult,
   type SelectionConfigResult,
   type SelectionInsertFixtureParams,
   type SelectionInsertFixtureResult,
   type SelectionListResult,
+  type SelectionSetCheckedParams,
+  type SelectionSetCheckedResult,
   type SelectionSetPinnedParams,
   type SelectionSetPinnedResult,
   type SelectionSetWeightsParams,
@@ -238,6 +255,10 @@ export interface AppInfoDeps {
   readonly usage?: UsageIpcDeps;
   /** 05 T-M2-03：选品候选清单（FR-6.2/6.3）依赖；未装配时 selection: 通道显式报未就绪 */
   readonly selection?: SelectionIpcDeps;
+  /** T-M2-04：收藏/询盘执行依赖；未装配时 outreach: 通道显式报未就绪 */
+  readonly outreach?: OutreachIpcDeps;
+  /** T-M2-04：商品卡片（FR-6.5）依赖；未装配时 products: 通道显式报未就绪 */
+  readonly products?: ProductsIpcDeps;
   /** M2 产品卡③：自动化档位依赖；未装配时 automation: 通道显式报未就绪 */
   readonly automation?: AutomationIpcDeps;
   /** M2 产品卡②：爆款清单依赖；未装配时 viral: 通道显式报未就绪 */
@@ -265,8 +286,27 @@ export interface SelectionIpcDeps {
   readonly config: () => Promise<SelectionConfigResult>;
   readonly setWeights: (params: SelectionSetWeightsParams) => Promise<SelectionSetWeightsResult>;
   readonly setPinned: (params: SelectionSetPinnedParams) => Promise<SelectionSetPinnedResult>;
+  /** T-M2-04：FR-6.3 勾选集写面（kv，setPinned 同款设置性质） */
+  readonly setChecked: (params: SelectionSetCheckedParams) => Promise<SelectionSetCheckedResult>;
   /** QA 播种专用（XINGLIAN_DEBUG_HOOKS=1 才装配）；缺省显式报未就绪 */
   readonly insertFixture?: (params: SelectionInsertFixtureParams) => Promise<SelectionInsertFixtureResult>;
+}
+
+/**
+ * 收藏/询盘执行链路依赖注入面（T-M2-04；main binding 在 main.ts → outreach-service）。
+ * start = sourcing 视图业务写入口（EULA 门与 collect:start 同口径，FR-1.9）；decide =
+ * FR-6.4 红线人工确认的回传面（永远人工，不受 FR-12.7 档位影响）；status 只读。
+ */
+export interface OutreachIpcDeps {
+  readonly start: (params: OutreachStartParams) => Promise<OutreachStartResult>;
+  readonly decide: (params: OutreachDecideParams) => Promise<OutreachDecideResult>;
+  readonly status: () => Promise<OutreachStatusResult>;
+}
+
+/** 商品卡片链路依赖注入面（T-M2-04；FR-6.5）。list 只读不设门；openSource = 打开货源页。 */
+export interface ProductsIpcDeps {
+  readonly list: (params: ProductsListParams) => Promise<ProductsListResult>;
+  readonly openSource: (params: ProductsOpenSourceParams) => Promise<ProductsOpenSourceResult>;
 }
 
 /** 校验并执行一次 IPC 调用（主进程 handle 与单测共用同一路径） */
@@ -900,6 +940,83 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
         handle: async (payload: SelectionInsertFixtureParams) => {
           if (!deps.selection?.insertFixture) throw new Error('E-IPC-DEP-MISSING: selection:insertFixture 未装配（debug 门控）');
           return validateExit(SelectionInsertFixtureResultSchema, await deps.selection.insertFixture(payload), 'selection:insertFixture');
+        },
+      },
+    ],
+    [
+      'selection:setChecked',
+      {
+        paramsSchema: channelParamsSchemas['selection:setChecked'],
+        // 勾选集写面（FR-6.3）：kv 偏好，setPinned 同款设置性质不设 EULA 门
+        handle: async (payload: SelectionSetCheckedParams) => {
+          if (!deps.selection) throw new Error('E-IPC-DEP-MISSING: selection 链路未装配');
+          const result = await deps.selection.setChecked(payload);
+          return validateExit(SelectionSetCheckedResultSchema, result, 'selection:setChecked');
+        },
+      },
+    ],
+    [
+      'outreach:start',
+      {
+        paramsSchema: channelParamsSchemas['outreach:start'],
+        // sourcing 视图业务写入口：EULA 门语义与 collect:start 一致（FR-1.9）。
+        // 批次内每候选的收藏/询盘仍各经 FR-6.4 红线确认弹窗（outreach:confirm 推送 +
+        // outreach:decide 回传），永远人工，不受 FR-12.7 自动化档位影响。
+        handle: async (payload: OutreachStartParams) => {
+          if (!deps.consent.isViewAllowed('sourcing')) {
+            throw new Error(`${E_EULA_LOCKED}: 选品执行已被 EULA 首启确认门锁定（FR-1.9）——请先完成协议确认`);
+          }
+          if (!deps.outreach) throw new Error('E-IPC-DEP-MISSING: outreach 链路未装配');
+          const result = await deps.outreach.start(payload);
+          return validateExit(OutreachStartResultSchema, result, 'outreach:start');
+        },
+      },
+    ],
+    [
+      'outreach:decide',
+      {
+        paramsSchema: channelParamsSchemas['outreach:decide'],
+        // FR-6.4 红线确认回传：主进程审计（OUTREACH_CONFIRM）在 service 内落 task_events
+        handle: async (payload: OutreachDecideParams) => {
+          if (!deps.outreach) throw new Error('E-IPC-DEP-MISSING: outreach 链路未装配');
+          const result = await deps.outreach.decide(payload);
+          return validateExit(OutreachDecideResultSchema, result, 'outreach:decide');
+        },
+      },
+    ],
+    [
+      'outreach:status',
+      {
+        paramsSchema: channelParamsSchemas['outreach:status'],
+        handle: async () => {
+          if (!deps.outreach) throw new Error('E-IPC-DEP-MISSING: outreach 链路未装配');
+          return validateExit(OutreachStatusResultSchema, await deps.outreach.status(), 'outreach:status');
+        },
+      },
+    ],
+    [
+      'products:list',
+      {
+        paramsSchema: channelParamsSchemas['products:list'],
+        // 只读面（FR-6.5 商品卡片数据源）：不设 EULA 门（历史数据可访问语义一致）
+        handle: async (payload: ProductsListParams) => {
+          if (!deps.products) throw new Error('E-IPC-DEP-MISSING: products 链路未装配');
+          return validateExit(ProductsListResultSchema, await deps.products.list(payload), 'products:list');
+        },
+      },
+    ],
+    [
+      'products:openSource',
+      {
+        paramsSchema: channelParamsSchemas['products:openSource'],
+        // 打开货源页（FR-6.5「打开货源页」按钮）：只读动作；仅放行 1688 域（防任意 URL 外开）
+        handle: async (payload: ProductsOpenSourceParams) => {
+          if (!deps.products) throw new Error('E-IPC-DEP-MISSING: products 链路未装配');
+          const host = new URL(payload.link).hostname;
+          if (host !== 'detail.1688.com' && !host.endsWith('.1688.com')) {
+            throw new Error(`${IPC_ERRORS.INVALID_PARAMS}: products:openSource 仅放行 1688 域链接（got ${host}）`);
+          }
+          return validateExit(ProductsOpenSourceResultSchema, await deps.products.openSource(payload), 'products:openSource');
         },
       },
     ],

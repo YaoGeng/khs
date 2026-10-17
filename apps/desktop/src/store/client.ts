@@ -9,7 +9,7 @@
  *   当前批不重放（replay）——丢失面与 ADR-8「日志类可丢、任务类以事件流水可重建」口径一致。
  * 本模块 electron-free（transport 注入），vitest 以内存 transport + 真实 worker 内核直测。
  */
-import { STORE_ERROR_CODES, type CircuitEventFilter, type CircuitEventInput, type CircuitEventRowView, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type CreateTaskInput, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KeywordHitRowView, type KnnHit, type KnnQuery, type LogQueryFilter, type LogRowInput, type LogRowView, type LlmCallFilter, type LlmCallInput, type LlmCallRowView, type NoteInput, type NoteQueryFilter, type NoteRowView, type ReportInput, type ReportRowView, type SourcingCandidateFilter, type SourcingCandidateInput, type SourcingCandidateRowView, type StepInput, type StepRowView, type StoreRequest, type StoreResponse, type TaskEventInput, type TaskEventRowView, type TaskRowView, type TaskStatus, type TaskStatusInput, type KvValue } from './protocol';
+import { STORE_ERROR_CODES, type CircuitEventFilter, type CircuitEventInput, type CircuitEventRowView, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type CreateTaskInput, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KeywordHitRowView, type KnnHit, type KnnQuery, type LogQueryFilter, type LogRowInput, type LogRowView, type LlmCallFilter, type LlmCallInput, type LlmCallRowView, type MaterialInput, type MaterialRowView, type NoteInput, type NoteQueryFilter, type NoteRowView, type ProductFilter, type ProductInput, type ProductRowView, type ProductStatus, type ReportInput, type ReportRowView, type SourcingCandidateFilter, type SourcingCandidateInput, type SourcingCandidateRowView, type StepInput, type StepRowView, type StoreRequest, type StoreResponse, type TaskEventInput, type TaskEventRowView, type TaskRowView, type TaskStatus, type TaskStatusInput, type KvValue } from './protocol';
 import type { RetentionPolicy } from '@xinglian/logger';
 
 export interface StoreTransport {
@@ -102,6 +102,13 @@ export interface StoreClient {
   /** 幂等替换：同 task_id 旧批次先删后插（selection 任务重跑 = 全量替换） */
   insertSourcingCandidates(rows: SourcingCandidateInput[]): Promise<{ inserted: number }>;
   listSourcingCandidates(filter?: SourcingCandidateFilter): Promise<SourcingCandidateRowView[]>;
+  /** 商品实体 upsert（T-M2-04）：product_id 冲突更新可变字段，status 不覆盖 */
+  upsertProduct(product: ProductInput): Promise<{ productId: string }>;
+  setProductStatus(productId: string, status: ProductStatus): Promise<{ productId: string; status: string }>;
+  listProducts(filter?: ProductFilter): Promise<ProductRowView[]>;
+  /** 素材留存：image 按 (product, source_url) 去重追加；desc 每商品单行替换 */
+  insertMaterials(rows: MaterialInput[]): Promise<{ inserted: number }>;
+  listMaterials(productId: string): Promise<MaterialRowView[]>;
   /** 嵌入缓存 upsert：rowid 由 worker 分配并与 embeddings_vec 共享（BigInt） */
   upsertEmbedding(embedding: EmbeddingUpsertInput): Promise<EmbeddingUpsertResult>;
   knnTopK(query: KnnQuery): Promise<KnnHit[]>;
@@ -389,8 +396,19 @@ export function createStoreClient(options: StoreClientOptions): StoreClient {
       return data.stats;
     },
     insertSourcingCandidates: (rows: SourcingCandidateInput[]) => unwrap<{ inserted: number }>(dispatch(true, (id) => ({ id, type: 'insertSourcingCandidates', rows }))),
+    upsertProduct: (product: ProductInput) => unwrap<{ productId: string }>(dispatch(true, (id) => ({ id, type: 'upsertProduct', product }))),
+    setProductStatus: (productId: string, status: ProductStatus) => unwrap<{ productId: string; status: string }>(dispatch(true, (id) => ({ id, type: 'setProductStatus', productId, status }))),
+    insertMaterials: (rows: MaterialInput[]) => unwrap<{ inserted: number }>(dispatch(true, (id) => ({ id, type: 'insertMaterials', rows }))),
+    listMaterials: async (productId: string) => {
+      const data = await unwrap<{ rows: MaterialRowView[] }>(dispatch(false, (id) => ({ id, type: 'listMaterials', productId })));
+      return data.rows;
+    },
     listSourcingCandidates: async (filter?: SourcingCandidateFilter) => {
       const data = await unwrap<{ rows: SourcingCandidateRowView[] }>(dispatch(false, (id) => ({ id, type: 'listSourcingCandidates', filter: filter ?? {} })));
+      return data.rows;
+    },
+    listProducts: async (filter?: ProductFilter) => {
+      const data = await unwrap<{ rows: ProductRowView[] }>(dispatch(false, (id) => ({ id, type: 'listProducts', filter: filter ?? {} })));
       return data.rows;
     },
     upsertEmbedding: (embedding: EmbeddingUpsertInput) => unwrap(dispatch(false, (id) => ({ id, type: 'upsertEmbedding', embedding }))),

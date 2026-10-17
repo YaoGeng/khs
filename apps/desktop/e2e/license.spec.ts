@@ -180,10 +180,13 @@ test.describe.serial('license 锁定状态机 e2e（FR-1.5/FR-1.6）', () => {
           expect(await entries.nth(i).isDisabled()).toBe(false);
         }
         if (total > 0) {
-          // 点占位执行按钮（真实写入口——dashboard 镜像开关/insight 爆款按钮——点击不出占位提示）
+          // 点占位执行按钮出占位提示；真实写入口（dashboard 镜像开关/insight 爆款按钮/
+          // T-M2-04 sourcing 收藏询盘——需勾选数据才可见）只断言 enabled 不点击
           const placeholder = entries.filter({ hasText: '占位' });
-          await (placeholder.count() > 0 ? placeholder.first() : entries.first()).click();
-          await expect(section.locator('[data-entry-msg]')).toBeVisible();
+          if (await placeholder.count() > 0) {
+            await placeholder.first().click();
+            await expect(section.locator('[data-entry-msg]')).toBeVisible();
+          }
         }
       }
 

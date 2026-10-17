@@ -284,3 +284,56 @@ export const embeddingsCache = sqliteTable(
     index('idx_embeddings_cache_last_used').on(t.lastUsedAt),
   ],
 );
+
+/* -------------------- M2 store v5（0005 迁移投影；DDL 真源 migrations.ts upV5） -------------------- */
+
+/**
+ * 商品实体（T-M2-04；02 §14.1 products 行）。product_id = 1688 offerId 全局唯一，
+ * 重复勾选 upsert；status：候选/对接中/已对接（应用层校验）；scores_json 存勾选时点
+ * 五维分快照；sourcing_candidates 保持快照语义不动（历史保真）。
+ */
+export const products = sqliteTable(
+  'products',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    productId: text('product_id').notNull(),
+    title: text('title').notNull(),
+    priceMin: real('price_min'),
+    priceMax: real('price_max'),
+    /** 起批量（详情深读补；搜索层阶梯可推时填） */
+    moq: integer('moq'),
+    /** 月销解析值（parseMonthlySales） */
+    sales: integer('sales'),
+    repurchase: real('repurchase'),
+    /** {name, address} JSON */
+    supplierJson: text('supplier_json'),
+    /** 五维分快照 JSON（勾选时点，审计可回放） */
+    scoresJson: text('scores_json'),
+    link: text('link').notNull(),
+    status: text('status').notNull().default('候选'),
+    taskId: text('task_id').notNull(),
+    keyword: text('keyword'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('ux_products_product_id').on(t.productId),
+    index('idx_products_status').on(t.status),
+    index('idx_products_task').on(t.taskId),
+  ],
+);
+
+/** 素材留存（FR-6.5；02 §14.1 materials 行）：kind=image（本地 path + sha256）/desc（文案描述文本） */
+export const materials = sqliteTable(
+  'materials',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    productId: text('product_id').notNull(),
+    kind: text('kind').notNull(),
+    path: text('path'),
+    sourceUrl: text('source_url'),
+    hash: text('hash'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [index('idx_materials_product').on(t.productId, t.kind)],
+);

@@ -193,8 +193,9 @@ export class SelectionViewService {
     return { selections };
   }
 
-  /** selection:candidates —— 某任务 TopN 候选 + 置顶集（重算由渲染层按 config 权重现算） */
-  async listCandidates(taskId: string): Promise<SelectionCandidatesResult> {
+  /** selection:candidates —— 某任务 TopN 候选 + 置顶集（重算由渲染层按 config 权重现算；
+ *   checked 勾选集归 outreach kv，组合根合并后返回契约全形——T-M2-04） */
+  async listCandidates(taskId: string): Promise<Omit<SelectionCandidatesResult, 'checked'>> {
     await this.deps.store.whenReady();
     const candidates = await this.deps.store.listSourcingCandidates({ taskId, limit: 500 });
     return { candidates, pinned: await this.readPinned(taskId) };

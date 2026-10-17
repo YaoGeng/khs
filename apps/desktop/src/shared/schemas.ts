@@ -666,6 +666,8 @@ export const SelectionCandidatesResultSchema = z.object({
   candidates: z.array(SelectionCandidateViewSchema),
   /** 该任务置顶的 offerId 集（kv `selection:pinned:<taskId>`） */
   pinned: z.array(z.string()),
+  /** T-M2-04（FR-6.3）：该任务勾选的 offerId 集（kv `selection:checked:<taskId>`） */
+  checked: z.array(z.string()),
 });
 
 export const SelectionConfigParamsSchema = z.strictObject({});
@@ -738,6 +740,168 @@ export type SelectionSetPinnedParams = z.infer<typeof SelectionSetPinnedParamsSc
 export type SelectionSetPinnedResult = z.infer<typeof SelectionSetPinnedResultSchema>;
 export type SelectionInsertFixtureParams = z.infer<typeof SelectionInsertFixtureParamsSchema>;
 export type SelectionInsertFixtureResult = z.infer<typeof SelectionInsertFixtureResultSchema>;
+
+/* selection:setChecked / outreach:* / products:* —— T-M2-04（selection DAG 后半；
+ * FR-6.3 勾选 → FR-6.4 收藏+询盘（发送前确认弹窗红线）→ FR-6.5 素材留存 + 商品卡片） */
+
+export const SelectionSetCheckedParamsSchema = z.strictObject({
+  taskId: z.string().min(1).max(64),
+  offerId: z.string().min(1).max(64),
+  checked: z.boolean(),
+});
+
+export const SelectionSetCheckedResultSchema = z.object({
+  taskId: z.string(),
+  offerIds: z.array(z.string()),
+});
+
+export const OutreachFlowSchema = z.enum(['favorite', 'followShop', 'inquiry']);
+export type OutreachFlow = z.infer<typeof OutreachFlowSchema>;
+
+export const OutreachStartParamsSchema = z.strictObject({
+  taskId: z.string().min(1).max(64),
+  favorite: z.boolean(),
+  followShop: z.boolean(),
+  inquiry: z.boolean(),
+  /** 询盘采购数量（话术模板；确认弹窗内可改） */
+  quantity: z.number().int().min(1).max(100_000),
+});
+
+export const OutreachFlowOutcomeSchema = z.enum([
+  'done',
+  'clicked-unverified',
+  'sent',
+  'sent-unverified',
+  'skipped',
+  'button-missing',
+  'entry-missing',
+  'chat-window-missing',
+]);
+
+export const OutreachOfferOutcomeSchema = z.object({
+  offerId: z.string(),
+  title: z.string(),
+  favorite: OutreachFlowOutcomeSchema.nullable(),
+  followShop: OutreachFlowOutcomeSchema.nullable(),
+  inquiry: OutreachFlowOutcomeSchema.nullable(),
+  productSaved: z.boolean(),
+  materialsSaved: z.number().int().nonnegative(),
+  error: z.string().optional(),
+});
+
+export const OutreachStartResultSchema = z.object({
+  runId: z.string(),
+  taskId: z.string(),
+  status: z.enum(['completed', 'cancelled', 'failed']),
+  offers: z.array(OutreachOfferOutcomeSchema),
+});
+
+export const OutreachDecideParamsSchema = z.strictObject({
+  confirmId: z.string().min(8).max(64),
+  decision: z.enum(['confirm', 'skip', 'cancel']),
+  /** inquiry confirm 时用户编辑后的最终话术（其余 flow 忽略） */
+  message: z.string().max(2000).nullable().optional(),
+});
+
+export const OutreachDecideResultSchema = z.object({
+  /** false = confirmId 不存在/已收口（渲染层据此回落 status 轮询） */
+  accepted: z.boolean(),
+});
+
+export const OutreachStatusParamsSchema = z.strictObject({});
+
+export const OutreachStatusResultSchema = z.object({
+  active: z.boolean(),
+  taskId: z.string().nullable(),
+  phase: z.string(),
+  offersDone: z.number().int().nonnegative(),
+  offersTotal: z.number().int().nonnegative(),
+  pendingConfirm: z
+    .object({
+      confirmId: z.string(),
+      offerId: z.string(),
+      offerTitle: z.string(),
+      flow: OutreachFlowSchema,
+      description: z.string(),
+      message: z.string().nullable(),
+      quantity: z.number().int().nullable(),
+    })
+    .nullable(),
+  lastSummary: z
+    .object({
+      runId: z.string(),
+      taskId: z.string(),
+      status: z.enum(['completed', 'cancelled', 'failed']),
+      offers: z.array(OutreachOfferOutcomeSchema),
+    })
+    .nullable(),
+});
+
+export const ProductsListParamsSchema = z.strictObject({
+  taskId: z.string().min(1).max(64).optional(),
+  status: z.enum(['候选', '对接中', '已对接']).optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+});
+
+export const ProductCardViewSchema = z.object({
+  productId: z.string(),
+  title: z.string(),
+  priceMin: z.number().nullable(),
+  priceMax: z.number().nullable(),
+  moq: z.number().nullable(),
+  sales: z.number().nullable(),
+  supplier: z.object({ name: z.string().nullable(), address: z.string().nullable() }).nullable(),
+  link: z.string(),
+  status: z.string(),
+  taskId: z.string(),
+  keyword: z.string().nullable(),
+  /** 素材行（image 本地 path 列表 + desc；FR-6.5 商品卡片展示面） */
+  imagePaths: z.array(z.string()),
+  descText: z.string().nullable(),
+  updatedAt: z.string(),
+});
+
+export const ProductsListResultSchema = z.object({ products: z.array(ProductCardViewSchema) });
+
+export const ProductsOpenSourceParamsSchema = z.strictObject({
+  productId: z.string().min(1).max(64),
+  link: z.string().url(),
+});
+
+export const ProductsOpenSourceResultSchema = z.object({ opened: z.boolean() });
+
+/** main→renderer 推送 payload（PUSH_CHANNELS 白名单通道；preload onPush 门面） */
+export const OutreachConfirmPushSchema = z.object({
+  confirmId: z.string(),
+  offerId: z.string(),
+  offerTitle: z.string(),
+  flow: OutreachFlowSchema,
+  description: z.string(),
+  /** inquiry = 预填话术（弹窗可编辑后随 outreach:decide 回传） */
+  message: z.string().nullable(),
+  quantity: z.number().int().nullable(),
+});
+
+export const OutreachProgressPushSchema = z.object({
+  taskId: z.string(),
+  phase: z.enum(['running', 'completed', 'cancelled', 'failed']),
+  done: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  offerId: z.string().optional(),
+});
+
+export type SelectionSetCheckedParams = z.infer<typeof SelectionSetCheckedParamsSchema>;
+export type SelectionSetCheckedResult = z.infer<typeof SelectionSetCheckedResultSchema>;
+export type OutreachStartParams = z.infer<typeof OutreachStartParamsSchema>;
+export type OutreachStartResult = z.infer<typeof OutreachStartResultSchema>;
+export type OutreachDecideParams = z.infer<typeof OutreachDecideParamsSchema>;
+export type OutreachDecideResult = z.infer<typeof OutreachDecideResultSchema>;
+export type OutreachStatusResult = z.infer<typeof OutreachStatusResultSchema>;
+export type ProductsListParams = z.infer<typeof ProductsListParamsSchema>;
+export type ProductsListResult = z.infer<typeof ProductsListResultSchema>;
+export type ProductsOpenSourceParams = z.infer<typeof ProductsOpenSourceParamsSchema>;
+export type ProductCardView = z.infer<typeof ProductCardViewSchema>;
+export type ProductsOpenSourceResult = z.infer<typeof ProductsOpenSourceResultSchema>;
 
 /* usage:* —— FR-2.5 用量面板 + FR-2.6 全局 RPM（m1 todo 12；聚合数据源=llm_calls 计量元数据） */
 
@@ -938,6 +1102,11 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'mirror:start': MirrorStartParamsSchema,
   'mirror:stop': MirrorStopParamsSchema,
   'notes:list': NotesListParamsSchema,
+  'outreach:decide': OutreachDecideParamsSchema,
+  'outreach:start': OutreachStartParamsSchema,
+  'outreach:status': OutreachStatusParamsSchema,
+  'products:list': ProductsListParamsSchema,
+  'products:openSource': ProductsOpenSourceParamsSchema,
   'report:chartData': ReportChartDataParamsSchema,
   'report:exportPdf': ReportExportPdfParamsSchema,
   'report:insertFixture': ReportInsertFixtureParamsSchema,
@@ -950,6 +1119,7 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'selection:config': SelectionConfigParamsSchema,
   'selection:insertFixture': SelectionInsertFixtureParamsSchema,
   'selection:list': SelectionListParamsSchema,
+  'selection:setChecked': SelectionSetCheckedParamsSchema,
   'selection:setPinned': SelectionSetPinnedParamsSchema,
   'selection:setWeights': SelectionSetWeightsParamsSchema,
   'tasks:createDemo': TasksCreateDemoParamsSchema,

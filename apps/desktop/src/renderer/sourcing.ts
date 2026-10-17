@@ -9,6 +9,9 @@
  * - 权重面板：五维 0-100 滑杆 → selection:setWeights 持久化（全局）。
  * - 排序/筛选：综合分/五维/价格/销量列排序 + 检索词下拉 + 标题/供应商模糊过滤；
  *   置顶行恒定居首（FR-6.3）。
+ * - T-M2-04：勾选列（FR-6.3，selection:setChecked）→ 收藏/询盘执行（outreach:start，
+ *   FR-6.4 每候选确认弹窗——outreach:confirm 推送 + outreach:decide 回传，永远人工）
+ *   → 商品卡片列表（FR-6.5，products:list + products:openSource 打开货源页）。
  * html data-* 标记为 e2e 断言面（沿用壳层既有模式）。
  */
 const bridge = window.xinglian;
@@ -29,6 +32,23 @@ const sortDirBtn = document.getElementById('sourcing-sort-dir') as HTMLButtonEle
 const hintLine = document.getElementById('sourcing-hint');
 const tableWrap = document.getElementById('sourcing-table-wrap');
 const tbody = document.getElementById('sourcing-tbody');
+// T-M2-04：勾选 + 收藏/询盘执行 + 确认弹窗 + 商品卡片
+const outreachOptions = document.getElementById('sourcing-outreach-options');
+const outreachQty = document.getElementById('sourcing-outreach-qty') as HTMLInputElement | null;
+const outreachFavorite = document.getElementById('sourcing-outreach-favorite') as HTMLInputElement | null;
+const outreachInquiry = document.getElementById('sourcing-outreach-inquiry') as HTMLInputElement | null;
+const outreachRunBtn = document.getElementById('sourcing-outreach-run') as HTMLButtonElement | null;
+const outreachCount = document.getElementById('sourcing-outreach-count');
+const confirmDialog = document.getElementById('outreach-confirm-dialog');
+const confirmDesc = document.getElementById('outreach-confirm-desc');
+const confirmOffer = document.getElementById('outreach-confirm-offer');
+const confirmMsgLabel = document.getElementById('outreach-confirm-msg-label');
+const confirmMsg = document.getElementById('outreach-confirm-msg') as HTMLTextAreaElement | null;
+const confirmYesBtn = document.getElementById('outreach-confirm-yes') as HTMLButtonElement | null;
+const confirmSkipBtn = document.getElementById('outreach-confirm-skip') as HTMLButtonElement | null;
+const confirmCancelBtn = document.getElementById('outreach-confirm-cancel') as HTMLButtonElement | null;
+const productsSection = document.getElementById('products-section');
+const productsGrid = document.getElementById('products-grid');
 
 type DimensionId = 'relevance' | 'price' | 'sales' | 'supplier' | 'gallery';
 
@@ -91,6 +111,7 @@ const state = {
   activeTaskId: null as string | null,
   candidates: [] as CandidateView[],
   pinned: new Set<string>(),
+  checked: new Set<string>(),
   dimensions: [] as DimensionMeta[],
   weights: null as Record<DimensionId, number> | null,
   customized: false,
@@ -99,6 +120,99 @@ const state = {
   sort: 'total',
   sortDir: 'desc' as 'asc' | 'desc',
 };
+
+/* ------------------------------ T-M2-04：商品卡片视图 ------------------------------ */
+
+interface ProductCard {
+  productId: string;
+  title: string;
+  priceMin: number | null;
+  priceMax: number | null;
+  moq: number | null;
+  sales: number | null;
+  supplier: { name: string | null; address: string | null } | null;
+  link: string;
+  status: string;
+  taskId: string;
+  keyword: string | null;
+  imagePaths: string[];
+  descText: string | null;
+  updatedAt: string;
+}
+
+async function refreshProductCards(): Promise<void> {
+  if (!productsSection || !productsGrid) return;
+  try {
+    const result = await invoke<{ products: ProductCard[] }>('products:list', {});
+    productsGrid.textContent = '';
+    productsSection.hidden = result.products.length === 0;
+    root.dataset.productsCount = String(result.products.length);
+    for (const card of result.products) {
+      productsGrid.appendChild(renderProductCard(card));
+    }
+  } catch (error) {
+    console.warn('[renderer] products:list failed:', error);
+    root.dataset.productsCount = 'error';
+  }
+}
+
+function renderProductCard(card: ProductCard): HTMLElement {
+  const el = document.createElement('article');
+  el.className = 'product-card';
+  el.dataset.productId = card.productId;
+  el.dataset.status = card.status;
+
+  const img = document.createElement('img');
+  img.className = 'product-card-img';
+  img.alt = card.title.slice(0, 30);
+  if (card.imagePaths[0]) img.src = card.imagePaths[0];
+  el.appendChild(img);
+
+  const title = document.createElement('h5');
+  title.className = 'product-card-title';
+  title.textContent = card.title;
+  el.appendChild(title);
+
+  const meta = document.createElement('p');
+  meta.className = 'product-card-meta';
+  const price = card.priceMin !== null ? `¥${card.priceMin}${card.priceMax !== null && card.priceMax !== card.priceMin ? `~${card.priceMax}` : ''}` : '价格—';
+  const sales = card.sales !== null ? `${card.sales >= 10_000 ? `${(card.sales / 10_000).toFixed(1)}万` : card.sales}件` : '销量—';
+  meta.textContent = `${price} · ${sales}${card.supplier?.name ? ` · ${card.supplier.name}` : ''}`;
+  el.appendChild(meta);
+
+  const statusRow = document.createElement('p');
+  statusRow.className = 'product-card-status';
+  statusRow.textContent = card.status;
+  el.appendChild(statusRow);
+  if (card.descText) {
+    const desc = document.createElement('p');
+    desc.className = 'product-card-desc';
+    desc.textContent = card.descText.slice(0, 80);
+    desc.title = card.descText;
+    el.appendChild(desc);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'product-card-actions';
+  const openBtn = document.createElement('button');
+  openBtn.type = 'button';
+  openBtn.className = 'btn btn-ghost product-open-source';
+  openBtn.textContent = '打开货源页';
+  openBtn.setAttribute('aria-label', `打开货源页 ${card.title.slice(0, 20)}`);
+  openBtn.addEventListener('click', () => {
+    void invoke('products:openSource', { productId: card.productId, link: card.link })
+      .then(() => {
+        root.dataset.productOpen = 'done';
+      })
+      .catch((error: unknown) => {
+        console.warn('[renderer] products:openSource failed:', error);
+        root.dataset.productOpen = 'failed';
+      });
+  });
+  actions.appendChild(openBtn);
+  el.appendChild(actions);
+  return el;
+}
 
 async function invoke<T>(channel: string, payload?: unknown): Promise<T> {
   if (!bridge) throw new Error('bridge missing');
@@ -333,6 +447,21 @@ function renderTable(): void {
     tr.dataset.displayTotal = String(displayTotal(candidate));
     const pinned = state.pinned.has(candidate.offerId);
     tr.dataset.pinned = String(pinned);
+    const checked = state.checked.has(candidate.offerId);
+    tr.dataset.checked = String(checked);
+
+    // T-M2-04（FR-6.3）：勾选列——执行收藏/询盘的目标集
+    const checkTd = document.createElement('td');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'sourcing-check';
+    checkbox.dataset.offerId = candidate.offerId;
+    checkbox.checked = checked;
+    checkbox.setAttribute('aria-label', `勾选候选 ${candidate.title.slice(0, 20)}`);
+    checkbox.addEventListener('change', () => {
+      void toggleChecked(candidate.offerId, checkbox.checked);
+    });
+    checkTd.appendChild(checkbox);
 
     const pinTd = document.createElement('td');
     const pinBtn = document.createElement('button');
@@ -377,13 +506,14 @@ function renderTable(): void {
     totalTd.className = 'sourcing-total';
     totalTd.textContent = String(displayTotal(candidate));
 
-    tr.append(pinTd, rankTd, titleTd, keywordTd, priceTd, salesTd, supplierTd, dimensionCell(candidate), totalTd);
+    tr.append(checkTd, pinTd, rankTd, titleTd, keywordTd, priceTd, salesTd, supplierTd, dimensionCell(candidate), totalTd);
     tbody.appendChild(tr);
   }
   root.dataset.sourcingCount = String(rows.length);
   root.dataset.sourcingSort = state.sort;
   root.dataset.sourcingSortDir = state.sortDir;
   root.dataset.sourcingKeyword = state.keyword;
+  root.dataset.sourcingChecked = String(state.checked.size);
 }
 
 async function selectTask(taskId: string): Promise<void> {
@@ -392,20 +522,131 @@ async function selectTask(taskId: string): Promise<void> {
   if (searchInput) searchInput.value = '';
   state.search = '';
   try {
-    const result = await invoke<{ candidates: CandidateView[]; pinned: string[] }>('selection:candidates', { taskId });
+    const result = await invoke<{ candidates: CandidateView[]; pinned: string[]; checked: string[] }>('selection:candidates', { taskId });
     state.candidates = result.candidates;
     state.pinned = new Set(result.pinned);
+    state.checked = new Set(result.checked);
     root.dataset.sourcingLoaded = '1';
   } catch (error) {
     console.warn('[renderer] selection:candidates failed:', error);
     state.candidates = [];
     state.pinned = new Set();
+    state.checked = new Set();
     root.dataset.sourcingLoaded = 'error';
   }
   renderTaskCards();
   renderKeywordOptions();
   if (toolbar) toolbar.hidden = state.candidates.length === 0;
   renderTable();
+  syncOutreachUi();
+}
+
+/** T-M2-04（FR-6.3）：勾选集写面 + 执行入口随勾选数显隐 */
+async function toggleChecked(offerId: string, checked: boolean): Promise<void> {
+  if (!state.activeTaskId) return;
+  root.dataset.sourcingCheck = 'pending';
+  try {
+    const result = await invoke<{ taskId: string; offerIds: string[] }>('selection:setChecked', {
+      taskId: state.activeTaskId,
+      offerId,
+      checked,
+    });
+    state.checked = new Set(result.offerIds);
+    root.dataset.sourcingCheck = 'done';
+    renderTable();
+    syncOutreachUi();
+  } catch (error) {
+    console.warn('[renderer] selection:setChecked failed:', error);
+    root.dataset.sourcingCheck = 'failed';
+  }
+}
+
+/** 执行入口/选项行显隐（有勾选才出现） */
+function syncOutreachUi(): void {
+  if (outreachRunBtn) outreachRunBtn.hidden = state.checked.size === 0;
+  if (outreachOptions) outreachOptions.hidden = state.checked.size === 0;
+  if (outreachCount) outreachCount.textContent = String(state.checked.size);
+}
+
+/* ------------------------------ T-M2-04：收藏/询盘执行（FR-6.4 确认弹窗） ------------------------------ */
+
+interface OutreachConfirmView {
+  confirmId: string;
+  offerId: string;
+  offerTitle: string;
+  flow: 'favorite' | 'followShop' | 'inquiry';
+  description: string;
+  message: string | null;
+  quantity: number | null;
+}
+
+let activeConfirmId: string | null = null;
+
+/** 唯一确认弹窗渲染点：推送（outreach:confirm）与 status 轮询共用 */
+function showConfirmDialog(req: OutreachConfirmView): void {
+  if (!confirmDialog || !confirmDesc || !confirmOffer) return;
+  activeConfirmId = req.confirmId;
+  confirmDesc.textContent = req.description;
+  confirmOffer.textContent = `候选：${req.offerTitle}（offer ${req.offerId}）`;
+  if (confirmMsgLabel && confirmMsg) {
+    const isInquiry = req.flow === 'inquiry';
+    confirmMsgLabel.hidden = !isInquiry;
+    if (isInquiry && req.message) confirmMsg.value = req.message;
+  }
+  confirmDialog.hidden = false;
+  root.dataset.outreach = 'awaiting-confirm';
+  root.dataset.outreachFlow = req.flow;
+  confirmYesBtn?.focus();
+}
+
+function hideConfirmDialog(): void {
+  if (confirmDialog) confirmDialog.hidden = true;
+  activeConfirmId = null;
+  if (root.dataset.outreach === 'awaiting-confirm') root.dataset.outreach = 'running';
+}
+
+async function decide(decision: 'confirm' | 'skip' | 'cancel'): Promise<void> {
+  if (!activeConfirmId) return;
+  const confirmId = activeConfirmId;
+  const message = confirmMsg?.value ?? null;
+  root.dataset.outreachDecide = 'pending';
+  try {
+    const result = await invoke<{ accepted: boolean }>('outreach:decide', { confirmId, decision, message });
+    root.dataset.outreachDecide = result.accepted ? 'accepted' : 'stale';
+  } catch (error) {
+    console.warn('[renderer] outreach:decide failed:', error);
+    root.dataset.outreachDecide = 'failed';
+  }
+  hideConfirmDialog();
+}
+
+async function startOutreachRun(): Promise<void> {
+  if (!state.activeTaskId || !outreachRunBtn) return;
+  const quantity = Math.max(1, Math.trunc(Number(outreachQty?.value ?? 10) || 10));
+  const options = {
+    taskId: state.activeTaskId,
+    favorite: outreachFavorite?.checked ?? true,
+    followShop: false,
+    inquiry: outreachInquiry?.checked ?? true,
+    quantity,
+  };
+  outreachRunBtn.disabled = true;
+  root.dataset.outreach = 'running';
+  try {
+    const summary = await invoke<{ runId: string; status: string; offers: Array<{ offerId: string }> }>('outreach:start', options);
+    root.dataset.outreach = summary.status;
+    root.dataset.outreachOffers = String(summary.offers.length);
+    if (statusLine) {
+      statusLine.textContent = `收藏/询盘批次${summary.status === 'completed' ? '完成' : summary.status === 'cancelled' ? '已取消' : '失败'}（${summary.offers.length} 个候选）——商品卡片已刷新。`;
+    }
+    await refreshProductCards();
+  } catch (error) {
+    root.dataset.outreach = 'failed';
+    if (statusLine) statusLine.textContent = `收藏/询盘执行失败：${String((error as Error).message).slice(0, 120)}`;
+  } finally {
+    outreachRunBtn.disabled = false;
+    syncOutreachUi();
+  }
 }
 
 async function togglePin(offerId: string, pinned: boolean): Promise<void> {
@@ -503,6 +744,32 @@ export function initSourcingView(): void {
     void applyWeights(weights);
   });
 
+  // T-M2-04：确认弹窗三按钮（FR-6.4 红线：永远人工）
+  confirmYesBtn?.addEventListener('click', () => {
+    void decide('confirm');
+  });
+  confirmSkipBtn?.addEventListener('click', () => {
+    void decide('skip');
+  });
+  confirmCancelBtn?.addEventListener('click', () => {
+    void decide('cancel');
+  });
+  outreachRunBtn?.addEventListener('click', () => {
+    void startOutreachRun();
+  });
+
+  // main→renderer 推送（PUSH_CHANNELS 白名单）：确认请求 + 批次进度
+  bridge?.onPush('outreach:confirm', (payload) => {
+    showConfirmDialog(payload as OutreachConfirmView);
+  });
+  bridge?.onPush('outreach:progress', (payload) => {
+    const p = payload as { phase: string; done: number; total: number };
+    if (p.phase === 'running') {
+      root.dataset.outreach = 'running';
+      if (statusLine) statusLine.textContent = `收藏/询盘执行中：${p.done}/${p.total}…（每候选经确认弹窗后执行）`;
+    }
+  });
+
   weightsResetBtn?.addEventListener('click', () => {
     const defaults = {} as Record<DimensionId, number>;
     for (const dim of state.dimensions) defaults[dim.id] = dim.default;
@@ -532,4 +799,5 @@ export function initSourcingView(): void {
   });
 
   void refreshSourcingView();
+  void refreshProductCards();
 }

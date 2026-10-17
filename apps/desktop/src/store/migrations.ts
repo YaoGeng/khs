@@ -336,12 +336,70 @@ function downV4(db: SqliteDatabase): void {
   `);
 }
 
+/**
+ * v5（M2 T-M2-04）：商品实体 + 素材留存（02 §14.1 products/materials 行）。
+ * - products = 「勾选后」的商品实体（sourcing_candidates 保持快照语义不动，历史保真）；
+ *   product_id = 1688 offerId 全局唯一（重复勾选 upsert 不重建）；status 枚举
+ *   候选/对接中/已对接（§14.1），应用层校验（与全库 DDL 无 CHECK 的口径一致）；
+ *   scores_json 存勾选时点五维分快照（审计可回放），supplier_json 存 {name,address}。
+ * - materials = 素材留存（FR-6.5）：kind=image|desc，image 落本地 path+sha256 hash，
+ *   desc 存文案描述文本（path 可空、source_url 空）；publish 链路（M3）按 product_id 取用。
+ */
+function upV5(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE products (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id     TEXT    NOT NULL,
+      title          TEXT    NOT NULL,
+      price_min      REAL,
+      price_max      REAL,
+      moq            INTEGER,
+      sales          INTEGER,
+      repurchase     REAL,
+      supplier_json  TEXT,
+      scores_json    TEXT,
+      link           TEXT    NOT NULL,
+      status         TEXT    NOT NULL DEFAULT '候选',
+      task_id        TEXT    NOT NULL,
+      keyword        TEXT,
+      created_at     TEXT    NOT NULL,
+      updated_at     TEXT    NOT NULL
+    );
+    CREATE UNIQUE INDEX ux_products_product_id ON products (product_id);
+    CREATE INDEX idx_products_status ON products (status);
+    CREATE INDEX idx_products_task ON products (task_id);
+
+    CREATE TABLE materials (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id  TEXT    NOT NULL,
+      kind        TEXT    NOT NULL,
+      path        TEXT,
+      source_url  TEXT,
+      hash        TEXT,
+      created_at  TEXT    NOT NULL
+    );
+    CREATE INDEX idx_materials_product ON materials (product_id, kind);
+  `);
+}
+
+function downV5(db: SqliteDatabase): void {
+  db.exec(`
+    DROP INDEX IF EXISTS idx_materials_product;
+    DROP TABLE IF EXISTS materials;
+    DROP INDEX IF EXISTS idx_products_task;
+    DROP INDEX IF EXISTS idx_products_status;
+    DROP INDEX IF EXISTS ux_products_product_id;
+    DROP TABLE IF EXISTS products;
+  `);
+}
+
 /** 迁移链：只追加不回改（发布后已应用版本不可变更，M1+ 走 0004+） */
 export const MIGRATIONS: readonly MigrationStep[] = [
   { version: 1, name: '0001-initial-m0-tables', up: upV1, down: downV1 },
   { version: 2, name: '0002-consents-compliance', up: upV2, down: downV2 },
   { version: 3, name: '0003-insight-m1-tables', up: upV3, down: downV3 },
   { version: 4, name: '0004-m2-sourcing-candidates', up: upV4, down: downV4 },
+  { version: 5, name: '0005-m2-products-materials', up: upV5, down: downV5 },
 ];
 
 function ensureLedger(db: SqliteDatabase): void {

@@ -227,12 +227,24 @@
                 </select>
               </label>
               <button class="btn btn-ghost" type="button" id="sourcing-sort-dir" data-dir="desc" aria-label="切换升降序">降序 ↓</button>
+              <!-- T-M2-04（FR-6.3/6.4）：勾选集执行入口——收藏/询盘（发送前确认弹窗，FR-6.4 红线
+                   永远人工；按钮为真实工作流写入口，license 锁定生效） -->
+              <span class="sourcing-outreach-options" id="sourcing-outreach-options" hidden>
+                <label class="sourcing-filter-label">数量
+                  <input id="sourcing-outreach-qty" type="number" min="1" max="100000" value="10" style="width:5.5em" />
+                </label>
+                <label class="sourcing-filter-label"><input type="checkbox" id="sourcing-outreach-favorite" checked />收藏</label>
+                <label class="sourcing-filter-label"><input type="checkbox" id="sourcing-outreach-inquiry" checked />询盘</label>
+              </span>
+              <button class="btn btn-primary workflow-entry" type="button" id="sourcing-outreach-run" data-write-entry hidden
+                aria-label="对勾选候选执行收藏与询盘">收藏 / 询盘（已选 <span id="sourcing-outreach-count">0</span>）</button>
             </div>
             <p class="sourcing-hint" id="sourcing-hint" hidden></p>
             <div class="sourcing-table-wrap" id="sourcing-table-wrap" hidden>
               <table class="sourcing-table" id="sourcing-table">
                 <thead>
                   <tr>
+                    <th>勾选</th>
                     <th>置顶</th>
                     <th>#</th>
                     <th>商品</th>
@@ -246,6 +258,28 @@
                 </thead>
                 <tbody id="sourcing-tbody"></tbody>
               </table>
+            </div>
+            <!-- T-M2-04（FR-6.4 红线）：收藏/询盘人工确认弹窗——永远人工，不受自动化档位影响 -->
+            <div class="outreach-confirm-dialog" id="outreach-confirm-dialog" hidden
+              role="dialog" aria-modal="true" aria-labelledby="outreach-confirm-title">
+              <div class="outreach-confirm-card">
+                <h4 id="outreach-confirm-title">确认对外操作</h4>
+                <p class="outreach-confirm-desc" id="outreach-confirm-desc"></p>
+                <p class="outreach-confirm-offer" id="outreach-confirm-offer"></p>
+                <label class="outreach-confirm-msg-label" id="outreach-confirm-msg-label" hidden>询盘话术（可编辑）
+                  <textarea id="outreach-confirm-msg" rows="5" spellcheck="false"></textarea>
+                </label>
+                <div class="outreach-confirm-actions">
+                  <button class="btn btn-primary" type="button" id="outreach-confirm-yes">确认执行</button>
+                  <button class="btn btn-ghost" type="button" id="outreach-confirm-skip">跳过此候选</button>
+                  <button class="btn btn-ghost" type="button" id="outreach-confirm-cancel">取消整批</button>
+                </div>
+              </div>
+            </div>
+            <!-- T-M2-04（FR-6.5）：商品卡片列表（素材留存展示 + 打开货源页） -->
+            <div class="products-section" id="products-section" hidden>
+              <h4>商品卡片（勾选后入库）</h4>
+              <div class="products-grid" id="products-grid"></div>
             </div>
           </section>
           <section class="view" id="view-publish" data-view="publish">

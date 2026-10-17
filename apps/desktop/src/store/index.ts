@@ -4,7 +4,7 @@
  */
 export { createStoreClient, StoreClientError } from './client';
 export type { StoreClient, StoreClientOptions, StoreStats, StoreTransport } from './client';
-export { EMBEDDINGS_RETENTION_DAYS, STORE_ERROR_CODES, TASK_STATUS_VALUES, isTaskStatus } from './protocol';
+export { EMBEDDINGS_RETENTION_DAYS, PRODUCT_STATUSES, STORE_ERROR_CODES, TASK_STATUS_VALUES, isTaskStatus } from './protocol';
 export type {
   CircuitEventFilter,
   CircuitEventInput,
@@ -23,9 +23,15 @@ export type {
   LogRowInput,
   LogRowView,
   LlmCallInput,
+  MaterialInput,
+  MaterialRowView,
   NoteInput,
   NoteQueryFilter,
   NoteRowView,
+  ProductFilter,
+  ProductInput,
+  ProductRowView,
+  ProductStatus,
   ReportInput,
   ReportRowView,
   SourcingCandidateFilter,
@@ -65,5 +71,7 @@ export {
   kvConfig,
   collectRunStats,
   embeddingsCache,
+  products,
+  materials,
 } from './schema';
 export type { ConsentInput, ConsentRowView, ConsentSubject } from './protocol';

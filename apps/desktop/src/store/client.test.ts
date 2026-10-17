@@ -133,7 +133,7 @@ describe('client 基本链路（真实 worker 内核 + 真实 SQLite）', () => 
     const harness = makeHarness();
     const client = makeClient(harness);
     const version = await client.whenReady();
-    expect(version).toBe(4);
+    expect(version).toBe(5);
 
     const created = await client.createTask({ id: 't-1', kind: 'demo' });
     expect(created.created).toBe(true);

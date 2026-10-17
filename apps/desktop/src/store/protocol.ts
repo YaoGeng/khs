@@ -360,6 +360,78 @@ export interface SourcingCandidateFilter {
   limit?: number;
 }
 
+/** 商品实体状态（02 §14.1：候选/对接中/已对接；T-M2-06 转场消费「已对接」） */
+export const PRODUCT_STATUSES = ['候选', '对接中', '已对接'] as const;
+export type ProductStatus = (typeof PRODUCT_STATUSES)[number];
+
+/** 商品实体输入（T-M2-04；FR-6.5 商品卡片入库）。重复勾选按 product_id upsert——
+ * 可变字段（标题/价格/销量/供应商/评分快照）更新，status 不随 upsert 覆盖
+ * （状态推进走 setProductStatus，防重复勾选把「已对接」打回「候选」）。 */
+export interface ProductInput {
+  /** 1688 offerId */
+  productId: string;
+  title: string;
+  priceMin?: number | null;
+  priceMax?: number | null;
+  moq?: number | null;
+  /** 月销解析值（parseMonthlySales） */
+  sales?: number | null;
+  repurchase?: number | null;
+  supplier?: { name: string | null; address: string | null } | null;
+  /** 五维分快照（DimensionScore[] 原样，JSON 落库审计可回放） */
+  scores?: unknown;
+  link: string;
+  taskId: string;
+  keyword?: string | null;
+}
+
+export interface ProductRowView {
+  id: number;
+  productId: string;
+  title: string;
+  priceMin: number | null;
+  priceMax: number | null;
+  moq: number | null;
+  sales: number | null;
+  repurchase: number | null;
+  /** 已 JSON.parse 的 {name,address}（worker 侧解析；损坏行返回 null） */
+  supplier: { name: string | null; address: string | null } | null;
+  /** 已 JSON.parse 的五维分快照 */
+  scores: unknown;
+  link: string;
+  status: string;
+  taskId: string;
+  keyword: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductFilter {
+  taskId?: string;
+  status?: string;
+  /** 默认 100，上限 500 */
+  limit?: number;
+}
+
+/** 素材行输入（FR-6.5）：image = 本地 path + sha256；desc = 文案描述文本（path 空） */
+export interface MaterialInput {
+  productId: string;
+  kind: 'image' | 'desc';
+  path?: string | null;
+  sourceUrl?: string | null;
+  hash?: string | null;
+}
+
+export interface MaterialRowView {
+  id: number;
+  productId: string;
+  kind: string;
+  path: string | null;
+  sourceUrl: string | null;
+  hash: string | null;
+  createdAt: string;
+}
+
 /** embeddings_cache 行写入（不存原文，只有 sha256）；rowid 由 worker 分配并与 vec 表共享 */
 export interface EmbeddingUpsertInput {
   provider: string;
@@ -437,6 +509,11 @@ export type StoreRequest =
   | (RequestBase & { type: 'getCollectRunStats'; runId: string })
   | (RequestBase & { type: 'insertSourcingCandidates'; rows: SourcingCandidateInput[] })
   | (RequestBase & { type: 'listSourcingCandidates'; filter: SourcingCandidateFilter })
+  | (RequestBase & { type: 'upsertProduct'; product: ProductInput })
+  | (RequestBase & { type: 'setProductStatus'; productId: string; status: ProductStatus })
+  | (RequestBase & { type: 'listProducts'; filter: ProductFilter })
+  | (RequestBase & { type: 'insertMaterials'; rows: MaterialInput[] })
+  | (RequestBase & { type: 'listMaterials'; productId: string })
   | (RequestBase & { type: 'upsertEmbedding'; embedding: EmbeddingUpsertInput })
   | (RequestBase & { type: 'knnTopK'; query: KnnQuery })
   | (RequestBase & { type: 'pruneEmbeddingsCache' });

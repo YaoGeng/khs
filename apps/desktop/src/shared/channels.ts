@@ -36,6 +36,14 @@
  * - viral:list / viral:refresh / viral:generateRationale——爆款清单 v1（确定性热度分
  *   读时纯算术 + LLM 解读单次调用；refresh/generateRationale 为 insight 业务写面，
  *   EULA 门与 gate:confirm 同口径）。
+ * M2 T-M2-04（05：selection DAG 后半）：
+ * - selection:setChecked——候选勾选写面（FR-6.3，kv 集合，setPinned 同款设置性质）；
+ * - outreach:start / outreach:decide / outreach:status——收藏/询盘执行批次
+ *   （start 为 sourcing 视图业务写入口，EULA 门与 collect:start 同口径；每候选收藏与
+ *   询盘发送各经 confirm 闸——FR-6.4 红线永远人工确认，不受 FR-12.7 档位影响；
+ *   decide 回传用户决定 + 可编辑话术；status 供渲染层轮询对齐）；
+ * - products:list / products:openSource——商品卡片列表（FR-6.5 展示面）+ 打开货源页
+ *   （shell.openExternal；只读动作不设 EULA 门）。
  */
 export const IPC_CHANNELS = [
   'app:info',
@@ -70,6 +78,11 @@ export const IPC_CHANNELS = [
   'mirror:start',
   'mirror:stop',
   'notes:list',
+  'outreach:decide',
+  'outreach:start',
+  'outreach:status',
+  'products:list',
+  'products:openSource',
   'report:chartData',
   'report:exportPdf',
   'report:insertFixture',
@@ -79,6 +92,7 @@ export const IPC_CHANNELS = [
   'selection:config',
   'selection:insertFixture',
   'selection:list',
+  'selection:setChecked',
   'selection:setPinned',
   'selection:setWeights',
   'tasks:createDemo',
@@ -99,10 +113,14 @@ export type IpcChannel = (typeof IPC_CHANNELS)[number];
 /**
  * main→renderer 推送通道白名单（单向推送，非 invoke 面，不进 IPC_CHANNELS 注册表）。
  * preload 的 onPush 门面只放行这里的通道；payload 契约见 schemas.ts 对应 *PushSchema。
+ * M2 T-M2-04：outreach:confirm（收藏/询盘人工确认请求——FR-6.4 红线弹窗数据）+
+ * outreach:progress（批次进度；渲染层据 phase 驱动执行按钮态）。
  */
 export const MIRROR_FRAME_CHANNEL = 'mirror:frame';
+export const OUTREACH_CONFIRM_CHANNEL = 'outreach:confirm';
+export const OUTREACH_PROGRESS_CHANNEL = 'outreach:progress';
 
-export const PUSH_CHANNELS = [MIRROR_FRAME_CHANNEL] as const;
+export const PUSH_CHANNELS = [MIRROR_FRAME_CHANNEL, OUTREACH_CONFIRM_CHANNEL, OUTREACH_PROGRESS_CHANNEL] as const;
 
 export type PushChannel = (typeof PUSH_CHANNELS)[number];
 
@@ -224,6 +242,19 @@ export const GATE_ERRORS = {
   NOT_KEYWORD_CONFIRM: 'E-GATE-NOT-KEYWORD-CONFIRM',
   /** 无挂起闸门记录（kv 指针缺失） */
   NOT_PENDING: 'E-GATE-NOT-PENDING',
+} as const;
+
+/**
+ * 收藏/询盘执行稳定错误码（T-M2-04；renderer/e2e 据此渲染引导）。
+ * 红线语义：BUSY = 单浏览器串行（ADR-6）；DETACHED = 浏览器未接管先引导接管；
+ * EMPTY/NO_CANDIDATE = 勾选面与候选快照不一致的诚实反馈（不臆造批次）。
+ */
+export const OUTREACH_ERRORS = {
+  BUSY: 'E-OUTREACH-BUSY',
+  DETACHED: 'E-OUTREACH-BROWSER-DETACHED',
+  EMPTY: 'E-OUTREACH-EMPTY',
+  NO_CANDIDATE: 'E-OUTREACH-NO-CANDIDATE',
+  CONFIRM_ID_INVALID: 'E-OUTREACH-CONFIRM-ID-INVALID',
 } as const;
 
 /** 平台 → 首页 URL 与 Profile 子目录名（FR-3.3：每平台独立 Profile 目录持久化登录态） */

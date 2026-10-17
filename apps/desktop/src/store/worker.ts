@@ -7,7 +7,7 @@
  * 事务粒度（ADR-8 §7.2）：insertLogs 分片 ≤100 行/事务；其余单行写各自成事务。
  */
 import { openAndMigrate } from './db';
-import { EMBEDDINGS_RETENTION_DAYS, STORE_ERROR_CODES, isTaskStatus, type CircuitEventFilter, type CircuitEventInput, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KnnQuery, type LlmCallFilter, type NoteInput, type NoteQueryFilter, type NoteRowView, type ReportInput, type ReportRowView, type SourcingCandidateFilter, type SourcingCandidateInput, type StoreRequest, type StoreResponse, type CreateTaskInput, type LogQueryFilter, type LlmCallInput, type StepInput, type TaskEventInput, type TaskStatusInput, type RetentionPolicy } from './protocol';
+import { EMBEDDINGS_RETENTION_DAYS, PRODUCT_STATUSES, STORE_ERROR_CODES, isTaskStatus, type CircuitEventFilter, type CircuitEventInput, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KnnQuery, type LlmCallFilter, type MaterialInput, type NoteInput, type NoteQueryFilter, type NoteRowView, type ProductFilter, type ProductInput, type ReportInput, type ReportRowView, type SourcingCandidateFilter, type SourcingCandidateInput, type StoreRequest, type StoreResponse, type CreateTaskInput, type LogQueryFilter, type LlmCallInput, type StepInput, type TaskEventInput, type TaskStatusInput, type RetentionPolicy } from './protocol';
 
 type SqliteDatabase = import('better-sqlite3').SqliteDatabase;
 
@@ -642,6 +642,151 @@ export function handleStoreRequest(db: SqliteDatabase, request: StoreRequest): {
             supplierName: (row.supplier_name as string | null) ?? null,
             supplierAddress: (row.supplier_address as string | null) ?? null,
             sourceUrl: (row.source_url as string | null) ?? null,
+            createdAt: String(row.created_at),
+          })),
+        };
+      }
+
+      case 'upsertProduct': {
+        // 重复勾选幂等：product_id 冲突时更新可变字段，status 不覆盖（推进走 setProductStatus）
+        const p = request.product as ProductInput;
+        const now = new Date().toISOString();
+        db.prepare(
+          `INSERT INTO products
+           (product_id, title, price_min, price_max, moq, sales, repurchase, supplier_json,
+            scores_json, link, status, task_id, keyword, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '候选', ?, ?, ?, ?)
+           ON CONFLICT(product_id) DO UPDATE SET
+             title = excluded.title,
+             price_min = excluded.price_min,
+             price_max = excluded.price_max,
+             moq = excluded.moq,
+             sales = excluded.sales,
+             repurchase = excluded.repurchase,
+             supplier_json = excluded.supplier_json,
+             scores_json = excluded.scores_json,
+             link = excluded.link,
+             task_id = excluded.task_id,
+             keyword = excluded.keyword,
+             updated_at = excluded.updated_at`,
+        ).run(
+          p.productId,
+          p.title,
+          p.priceMin ?? null,
+          p.priceMax ?? null,
+          p.moq ?? null,
+          p.sales ?? null,
+          p.repurchase ?? null,
+          p.supplier ? JSON.stringify(p.supplier) : null,
+          p.scores === undefined ? null : JSON.stringify(p.scores),
+          p.link,
+          p.taskId,
+          p.keyword ?? null,
+          now,
+          now,
+        );
+        return { productId: p.productId };
+      }
+
+      case 'setProductStatus': {
+        const { productId, status } = request as { productId: string; status: string };
+        if (!(PRODUCT_STATUSES as readonly string[]).includes(status)) {
+          throw new Error(`${STORE_ERROR_CODES.BAD_REQUEST}: 非法商品状态: ${String(status)}`);
+        }
+        const result = db
+          .prepare('UPDATE products SET status = ?, updated_at = ? WHERE product_id = ?')
+          .run(status, new Date().toISOString(), productId);
+        if (Number(result.changes) === 0) {
+          throw new Error(`${STORE_ERROR_CODES.BAD_REQUEST}: 商品不存在: ${productId}`);
+        }
+        return { productId, status };
+      }
+
+      case 'listProducts': {
+        const filter = request.filter as ProductFilter;
+        const limit = Math.min(Math.max(1, filter.limit ?? 100), 500);
+        const conds: string[] = [];
+        const params: unknown[] = [];
+        if (filter.taskId !== undefined) { conds.push('task_id = ?'); params.push(filter.taskId); }
+        if (filter.status !== undefined) { conds.push('status = ?'); params.push(filter.status); }
+        const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
+        const rows = db
+          .prepare(`SELECT * FROM products ${where} ORDER BY updated_at DESC, id DESC LIMIT ?`)
+          .all(...params, limit) as Array<Record<string, unknown>>;
+        return {
+          rows: rows.map((row) => ({
+            id: Number(row.id),
+            productId: String(row.product_id),
+            title: String(row.title),
+            priceMin: (row.price_min as number | null) ?? null,
+            priceMax: (row.price_max as number | null) ?? null,
+            moq: (row.moq as number | null) ?? null,
+            sales: (row.sales as number | null) ?? null,
+            repurchase: (row.repurchase as number | null) ?? null,
+            supplier: parseJsonOrNull(row.supplier_json as string | null) as { name: string | null; address: string | null } | null,
+            scores: parseJsonOrNull(row.scores_json as string | null),
+            link: String(row.link),
+            status: String(row.status),
+            taskId: String(row.task_id),
+            keyword: (row.keyword as string | null) ?? null,
+            createdAt: String(row.created_at),
+            updatedAt: String(row.updated_at),
+          })),
+        };
+      }
+
+      case 'insertMaterials': {
+        // 素材留存（FR-6.5）：追加式；同 product 同 source_url 的图片行去重（重跑勾选不重建）
+        const rows = request.rows as MaterialInput[];
+        if (rows.length === 0) return { inserted: 0 };
+        if (rows.length > MAX_BATCH_ROWS) {
+          throw new Error(`${STORE_ERROR_CODES.BAD_REQUEST}: 素材批量超限: ${rows.length} > ${MAX_BATCH_ROWS}`);
+        }
+        const at = new Date().toISOString();
+        let inserted = 0;
+        db.transaction(() => {
+          const insertImage = db.prepare(
+            `INSERT INTO materials (product_id, kind, path, source_url, hash, created_at)
+             SELECT ?, ?, ?, ?, ?, ?
+             WHERE NOT EXISTS (
+               SELECT 1 FROM materials WHERE product_id = ? AND kind = 'image' AND source_url = ?
+             )`,
+          );
+          // desc 每商品单行：重跑勾选 = 替换为最新文案描述（素材图集追加去重）
+          const deleteDesc = db.prepare('DELETE FROM materials WHERE product_id = ? AND kind = ?');
+          const insertDesc = db.prepare(
+            'INSERT INTO materials (product_id, kind, path, source_url, hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+          );
+          for (const r of rows) {
+            if (r.kind === 'image') {
+              if (r.sourceUrl === null || r.sourceUrl === undefined) continue;
+              const result = insertImage.run(
+                r.productId, r.kind, r.path ?? null, r.sourceUrl, r.hash ?? null, at,
+                r.productId, r.sourceUrl,
+              );
+              inserted += Number(result.changes);
+            } else {
+              deleteDesc.run(r.productId, r.kind);
+              insertDesc.run(r.productId, r.kind, r.path ?? null, r.sourceUrl ?? null, r.hash ?? null, at);
+              inserted += 1;
+            }
+          }
+        })();
+        return { inserted };
+      }
+
+      case 'listMaterials': {
+        const rows = db
+          .prepare('SELECT * FROM materials WHERE product_id = ? ORDER BY id ASC')
+          .all(request.productId as string) as Array<Record<string, unknown>>;
+        return {
+          rows: rows.map((row) => ({
+            id: Number(row.id),
+            productId: String(row.product_id),
+            kind: String(row.kind),
+            path: (row.path as string | null) ?? null,
+            sourceUrl: (row.source_url as string | null) ?? null,
+            hash: (row.hash as string | null) ?? null,
             createdAt: String(row.created_at),
           })),
         };

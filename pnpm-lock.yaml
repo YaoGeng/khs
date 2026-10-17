@@ -103,6 +103,9 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      linkedom:
+        specifier: ^0.18.13
+        version: 0.18.13
 
   apps/server:
     dependencies:

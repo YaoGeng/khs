@@ -179,3 +179,73 @@ describe('notes 内核（upsert 快照/首采时间/主题登记语义）', () =
     expect(capped).toHaveLength(3); // 全表仅 3 行——上限钳制不放大结果
   });
 });
+
+describe('store v5：products + materials（T-M2-04；FR-6.5 商品卡片/素材留存内核）', () => {
+  function req<T>(request: Parameters<typeof handleStoreRequest>[1]): T {
+    return handleStoreRequest(db, request).data as T;
+  }
+
+  it('upsertProduct：新建 status=候选；冲突更新可变字段但 status 不覆盖（防重复勾选打回）', () => {
+    const base = {
+      productId: '880000000001',
+      title: '冰丝防晒帽UPF50+',
+      priceMin: 3.5,
+      priceMax: 3.5,
+      sales: 34_000,
+      supplier: { name: '台州市椒江顺新鞋帽厂', address: null },
+      scores: [{ name: 'relevance', score: 100 }],
+      link: 'https://detail.1688.com/offer/880000000001.html',
+      taskId: 'task-1',
+      keyword: '防晒帽',
+    };
+    req({ id: 1, type: 'upsertProduct', product: base });
+    req({ id: 2, type: 'setProductStatus', productId: '880000000001', status: '已对接' });
+    // 重复勾选（同 offer 再入）：可变字段更新、status 保持「已对接」
+    req({ id: 3, type: 'upsertProduct', product: { ...base, title: '冰丝防晒帽UPF50+（更新）', sales: 40_000 } });
+    const rows = req<{ rows: Array<{ title: string; sales: number | null; status: string; supplier: { name: string | null } | null }> }>({
+      id: 4, type: 'listProducts', filter: { taskId: 'task-1' },
+    }).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.title).toBe('冰丝防晒帽UPF50+（更新）');
+    expect(rows[0]?.sales).toBe(40_000);
+    expect(rows[0]?.status).toBe('已对接');
+    expect(rows[0]?.supplier).toEqual({ name: '台州市椒江顺新鞋帽厂', address: null });
+  });
+
+  it('setProductStatus：非法状态被 BAD_REQUEST 拒绝；不存在商品报错', () => {
+    req({ id: 1, type: 'upsertProduct', product: { productId: 'x1', title: 't', link: 'https://detail.1688.com/offer/x1.html', taskId: 'k' } });
+    expect(() => handleStoreRequest(db, { id: 2, type: 'setProductStatus', productId: 'x1', status: '未知' as never })).toThrowError(/E-STORE-BAD-REQUEST/);
+    expect(() => handleStoreRequest(db, { id: 3, type: 'setProductStatus', productId: 'ghost', status: '对接中' })).toThrowError(/E-STORE-BAD-REQUEST.*商品不存在/);
+  });
+
+  it('insertMaterials：image 按 (product, source_url) 去重追加；desc 每商品单行替换', () => {
+    const img = (n: number): { productId: string; kind: 'image'; path: string; sourceUrl: string; hash: string } => ({
+      productId: 'x1',
+      kind: 'image',
+      path: `C:/tmp/materials/x1/${n}.jpg`,
+      sourceUrl: `https://cbu01.alicdn.com/img/ibank/fix-${n}.jpg`,
+      hash: `hash-${n}`,
+    });
+    const first = req<{ inserted: number }>({ id: 1, type: 'insertMaterials', rows: [img(1), img(2)] });
+    expect(first.inserted).toBe(2);
+    // 同源重跑：去重不重建
+    const dedup = req<{ inserted: number }>({ id: 2, type: 'insertMaterials', rows: [img(1), img(3)] });
+    expect(dedup.inserted).toBe(1);
+    // desc 重跑 = 替换单行
+    req({ id: 3, type: 'insertMaterials', rows: [{ productId: 'x1', kind: 'desc', path: 'C:/tmp/materials/x1/desc.txt', hash: 'h0' }] });
+    const again = req<{ inserted: number }>({ id: 4, type: 'insertMaterials', rows: [{ productId: 'x1', kind: 'desc', path: 'C:/tmp/materials/x1/desc.txt', hash: 'h1' }] });
+    expect(again.inserted).toBe(1);
+    const mats = req<{ rows: Array<{ kind: string; sourceUrl: string | null }> }>({ id: 5, type: 'listMaterials', productId: 'x1' }).rows;
+    expect(mats.filter((m) => m.kind === 'image')).toHaveLength(3);
+    expect(mats.filter((m) => m.kind === 'desc')).toHaveLength(1);
+  });
+
+  it('listProducts：status/task 过滤 + limit 收口', () => {
+    for (const [id, status] of [['a', '候选'], ['b', '对接中'], ['c', '已对接']] as const) {
+      req({ id: 1, type: 'upsertProduct', product: { productId: id, title: id, link: `https://detail.1688.com/offer/${id}.html`, taskId: 't9' } });
+      if (status !== '候选') req({ id: 2, type: 'setProductStatus', productId: id, status });
+    }
+    expect(req<{ rows: unknown[] }>({ id: 3, type: 'listProducts', filter: { taskId: 't9' } }).rows).toHaveLength(3);
+    expect(req<{ rows: unknown[] }>({ id: 4, type: 'listProducts', filter: { status: '已对接' } }).rows).toHaveLength(1);
+  });
+});

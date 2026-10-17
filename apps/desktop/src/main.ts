@@ -6,7 +6,7 @@
  * → 开主窗口（安全基线 webPreferences）→ did-finish-load 结算冷启动样本（C-3 实测）
  * → 延迟加载重模块（C-3 招一；store worker 的 fork 为异步旁路，不阻塞窗口路径）。
  */
-import { app, BrowserWindow, Notification } from 'electron';
+import { app, BrowserWindow, Notification, shell } from 'electron';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
@@ -23,6 +23,8 @@ import { attachMigrationReport, createStoreService, resolveStorePaths, runPreWin
 import { createCollectBinding, type CollectBinding } from './main/collect-binding';
 import { SelectionService, createFixtureSearchPortFromFile } from './tasks/selection-service';
 import { createCdpSourcingPort1688 } from './browser/sourcing-port';
+import { createCdpOutreachPort1688, createFixtureOutreachPort } from './browser/outreach-port';
+import { OutreachService } from './main/outreach-service';
 import { createElectronSafeStoragePort } from './main/safe-storage-port';
 import { createGatewayKeyReader, createKeyService, type KeyService, type SafeStoragePort } from './main/key-service';
 import { createReportService, type ReportLlmConfig, type ReportService, type StructuredGateway } from './main/report-service';
@@ -402,6 +404,39 @@ if (!gotLock) {
     // shared↔agents 五维镜像一致性断言——漂移即启动期可见）
     const selectionViewService = createSelectionViewService({ store: storeClient, runner: storeService.runner });
 
+    // T-M2-04：收藏/询盘执行服务（FR-6.3 勾选 → FR-6.4 confirm 红线弹窗 → FR-6.5 素材+卡片）。
+    // fixture seam XINGLIAN_OUTREACH_FIXTURE=1 = 内存会话回放（e2e 全链路不碰真站；
+    // 真实写操作位点校准见 adapters-1688 v1.1.1，会话窗内部位点待用户在场联调）。
+    const outreachFixture = process.env.XINGLIAN_OUTREACH_FIXTURE === '1';
+    const outreachService = new OutreachService({
+      store: storeClient,
+      port: outreachFixture
+        ? () => Promise.resolve(createFixtureOutreachPort())
+        : () =>
+            Promise.resolve(
+              createCdpOutreachPort1688({
+                connection: async () => {
+                  const session = await browserService!.prepareAutomationTab();
+                  return session.connection;
+                },
+                gate: () => browserService!.whenAutomationAllowed(),
+                delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+                logger: storeService!.logger,
+              }),
+            ),
+      browserState: outreachFixture
+        ? () => Promise.resolve('attached')
+        : async () => (await browserService?.status())?.state ?? 'detached',
+      logger: storeService!.logger,
+      notify: showDesktopNotification,
+      // main→renderer 确认/进度推送（PUSH_CHANNELS 白名单；preload onPush 门面）
+      push: (channel, payload) => {
+        const win = BrowserWindow.getAllWindows()[0];
+        if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+      },
+      materialsDir: join(app.getPath('userData'), 'materials'),
+    });
+
     registerIpcHandlers({
       appInfo: () => ({
         appVersion: app.getVersion(),
@@ -493,10 +528,16 @@ if (!gotLock) {
       // 05 T-M2-03：选品候选清单（selection:*；FR-6.2 权重可调/FR-6.3 对比表格）
       selection: {
         list: () => selectionViewService.listSelections(),
-        candidates: (params) => selectionViewService.listCandidates(params.taskId),
+        // T-M2-04：candidates = 视图读面 + 勾选集合并（checked 归 outreach kv，组合根组装）
+        candidates: async (params) => {
+          const result = await selectionViewService.listCandidates(params.taskId);
+          return { ...result, checked: await outreachService.listChecked(params.taskId) };
+        },
         config: () => selectionViewService.getConfig(),
         setWeights: (params) => selectionViewService.setWeights(params.weights),
         setPinned: (params) => selectionViewService.setPinned(params),
+        setChecked: (params) =>
+          outreachService.setChecked(params.taskId, params.offerId, params.checked).then((offerIds) => ({ taskId: params.taskId, offerIds })),
         // QA 播种专用（缺省显式报未就绪）：仅 debug 门控装配
         ...(process.env.XINGLIAN_DEBUG_HOOKS === '1'
           ? {
@@ -504,6 +545,21 @@ if (!gotLock) {
                 selectionViewService.insertFixture(params),
             }
           : {}),
+      },
+      // T-M2-04：收藏/询盘执行（outreach:*；FR-6.4 红线确认弹窗 + 审计）
+      outreach: {
+        start: (params) => outreachService.startRun(params.taskId, params),
+        decide: async (params) => ({ accepted: await outreachService.decide(params.confirmId, params.decision, params.message ?? null) }),
+        status: () => Promise.resolve(outreachService.status()),
+      },
+      // T-M2-04：商品卡片（products:*；FR-6.5 素材留存展示面）
+      products: {
+        list: async (params) => ({ products: await outreachService.listProductCards(params) }),
+        // 打开货源页（FR-6.5「打开货源页」按钮）：ipc-core 已拦非 1688 域，这里真实外开
+        openSource: async (params) => {
+          await shell.openExternal(params.link);
+          return { opened: true };
+        },
       },
     });
 

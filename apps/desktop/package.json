@@ -36,6 +36,7 @@
     "drizzle-kit": "^0.31.11",
     "electron": "^33",
     "electron-builder": "^25",
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "linkedom": "^0.18.13"
   }
 }
