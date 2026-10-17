@@ -154,11 +154,14 @@ export function createCdpSourcingPort1688(deps: CdpSourcingPortDeps): SourcingSe
      */
     async search(keyword, limit): Promise<SourcingCandidate[]> {
       await deps.gate();
-      const connection = await deps.connection();
       const maxAttempts = 3;
       let lastError: unknown;
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
+          // deps.connection()（= prepareAutomationTab，内含平台页会话的 Page.enable）
+          // 与 searchOnce 一样会抛瞬态 CdpProtocolError，必须同在重试环内
+          //（2026-10-18 第三轮首跑取证：kw1-3 全成功，kw4 挂在 connection() 的 Page.enable）。
+          const connection = await deps.connection();
           return await searchOnce(connection, keyword, limit, deps.logger, { interval, timeout, now, delay: deps.delay });
         } catch (error) {
           lastError = error;
