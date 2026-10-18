@@ -95,6 +95,11 @@ const ZONE_SPECS = [
   { name: '§7.5 平台适配层（DSL v1.1）', heading: /^### 7\.5 /, minLevel: 3 },
   { name: '§12.1 服务划分', heading: /^### 12\.1 /, minLevel: 3 },
   { name: '§13 接口设计（摘要）', heading: /^## 13\. /, minLevel: 2 },
+  // T-M2-06 追加（2026-10-18）：§14.1 客户端 SQLite 表——products.status 枚举三态→工作流六态
+  // （FR-7.3 四列看板需要 待发布/推广中/已完成 跨阶段态；应用层枚举，无 DDL 变更）。
+  // 授权链：docs/01 FR-7.3（四列看板 + 卡片拖拽流转）→ docs/05 M2 卡表 T-M2-06（FR-7 链路）→
+  // .omo/plans/m2-workflow-plan.md 设计决策 1/5。
+  { name: '§14.1 客户端 SQLite 表（T-M2-06 授权：products 状态枚举工作流六态化）', heading: /^### 14\.1 /, minLevel: 3 },
 ];
 
 /** 返回 {zones:[{name,start,end}]}（1-based 闭区间）或 {error} */
