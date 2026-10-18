@@ -641,8 +641,25 @@ async function startOutreachRun(): Promise<void> {
     }
     await refreshProductCards();
   } catch (error) {
+    const message = String((error as Error).message);
     root.dataset.outreach = 'failed';
-    if (statusLine) statusLine.textContent = `收藏/询盘执行失败：${String((error as Error).message).slice(0, 120)}`;
+    if (message.includes('E-OUTREACH-BROWSER-DETACHED')) {
+      // 浏览器未接管是唯一「还没开始就失败」的常态路径：直接替用户打开 1688 受控浏览器
+      //（可见窗口、登录态自动继承），完成后用户再点一次执行（openPlatform 成功后按钮恢复）
+      root.dataset.outreachHint = 'browser-opening';
+      if (statusLine) statusLine.textContent = '受控浏览器未接管——正在打开 1688 平台浏览器（登录态自动继承），窗口就绪后再次点击「收藏 / 询盘」。';
+      void invoke('browser:openPlatform', { platform: '1688' })
+        .then(() => {
+          root.dataset.outreachHint = 'browser-opened';
+          if (statusLine) statusLine.textContent = '1688 受控浏览器已打开——请确认商品标签页动作后，再次点击「收藏 / 询盘」。';
+        })
+        .catch((openError: unknown) => {
+          root.dataset.outreachHint = 'browser-open-failed';
+          if (statusLine) statusLine.textContent = `1688 浏览器打开失败：${String((openError as Error).message).slice(0, 120)}`;
+        });
+    } else if (statusLine) {
+      statusLine.textContent = `收藏/询盘执行失败：${message.slice(0, 140)}`;
+    }
   } finally {
     outreachRunBtn.disabled = false;
     syncOutreachUi();
