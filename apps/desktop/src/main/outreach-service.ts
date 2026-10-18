@@ -313,8 +313,9 @@ export class OutreachService {
     await this.deps.store.writeTaskEvent({
       taskId: row.taskId,
       type: 'PRODUCT_ENTER_PUBLISH',
-      fromState: '已对接',
-      toState: '待发布',
+      // fromState/toState 是任务宏状态机域（worker 校验），商品状态迁移放 payload（同 OUTREACH_* 口径）
+      fromState: null,
+      toState: null,
       payload: {
         productId,
         from: '已对接',
