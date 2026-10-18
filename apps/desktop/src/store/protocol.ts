@@ -360,8 +360,13 @@ export interface SourcingCandidateFilter {
   limit?: number;
 }
 
-/** 商品实体状态（02 §14.1：候选/对接中/已对接；T-M2-06 转场消费「已对接」） */
-export const PRODUCT_STATUSES = ['候选', '对接中', '已对接'] as const;
+/**
+ * 商品实体状态（02 §14.1 三态 + T-M2-06 工作流扩展）。前三个是选品阶段内态
+ * （看板「选品中」列），待发布/推广中/已完成是跨阶段工作流态（FR-7.3 四列看板）：
+ * 待发布唯一入口是 enterPublish（携带上下文），推广中/已完成 M2 无自动生产者
+ * （M3 发布/M4 推广后续卡），看板拖拽允许用户手动推进（显式意图标记）。
+ */
+export const PRODUCT_STATUSES = ['候选', '对接中', '已对接', '待发布', '推广中', '已完成'] as const;
 export type ProductStatus = (typeof PRODUCT_STATUSES)[number];
 
 /** 商品实体输入（T-M2-04；FR-6.5 商品卡片入库）。重复勾选按 product_id upsert——
@@ -409,6 +414,8 @@ export interface ProductRowView {
 export interface ProductFilter {
   taskId?: string;
   status?: string;
+  /** 精确单行（T-M2-06 转场前状态校验数据源） */
+  productId?: string;
   /** 默认 100，上限 500 */
   limit?: number;
 }

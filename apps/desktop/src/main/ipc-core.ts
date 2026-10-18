@@ -37,6 +37,8 @@ import {
   OutreachStatusResultSchema,
   ProductsListResultSchema,
   ProductsOpenSourceResultSchema,
+  ProductsEnterPublishResultSchema,
+  ProductsSetStatusResultSchema,
   SourcingAkClearResultSchema,
   SourcingAkSetResultSchema,
   SourcingAkStatusResultSchema,
@@ -115,6 +117,10 @@ import {
   type OutreachStatusResult,
   type ProductsListResult,
   type ProductsOpenSourceResult,
+  type ProductsEnterPublishParams,
+  type ProductsEnterPublishResult,
+  type ProductsSetStatusParams,
+  type ProductsSetStatusResult,
   type SelectionCandidatesParams,
   type SelectionCandidatesResult,
   type SelectionConfigResult,
@@ -314,10 +320,16 @@ export interface OutreachIpcDeps {
   readonly status: () => Promise<OutreachStatusResult>;
 }
 
-/** 商品卡片链路依赖注入面（T-M2-04；FR-6.5）。list 只读不设门；openSource = 打开货源页。 */
+/**
+ * 商品卡片链路依赖注入面（T-M2-04；FR-6.5）。list 只读不设门；openSource = 打开货源页。
+ * T-M2-06：setStatus = 手动簿记面（FR-7.1 已对接判定 + FR-7.3 看板拖拽，本地写不设 EULA 门，
+ * 同 selection:setChecked 口径）；enterPublish = FR-7.2 一键转场（已对接→待发布 + 上下文摘要）。
+ */
 export interface ProductsIpcDeps {
   readonly list: (params: ProductsListParams) => Promise<ProductsListResult>;
   readonly openSource: (params: ProductsOpenSourceParams) => Promise<ProductsOpenSourceResult>;
+  readonly setStatus: (params: ProductsSetStatusParams) => Promise<ProductsSetStatusResult>;
+  readonly enterPublish: (params: ProductsEnterPublishParams) => Promise<ProductsEnterPublishResult>;
 }
 
 /**
@@ -1038,6 +1050,31 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
             throw new Error(`${IPC_ERRORS.INVALID_PARAMS}: products:openSource 仅放行 1688 域链接（got ${host}）`);
           }
           return validateExit(ProductsOpenSourceResultSchema, await deps.products.openSource(payload), 'products:openSource');
+        },
+      },
+    ],
+    [
+      'products:setStatus',
+      {
+        paramsSchema: channelParamsSchemas['products:setStatus'],
+        // T-M2-06（FR-7.1/7.3）：状态手动簿记面——已对接判定 + 看板拖拽流转。本地写
+        // （无对外副作用）不设 EULA 门（同 selection:setChecked 口径）；转场矩阵在
+        // service 内校验，违规迁移稳定错误 E-PRODUCT-TRANSITION-INVALID。
+        handle: async (payload: ProductsSetStatusParams) => {
+          if (!deps.products) throw new Error('E-IPC-DEP-MISSING: products 链路未装配');
+          return validateExit(ProductsSetStatusResultSchema, await deps.products.setStatus(payload), 'products:setStatus');
+        },
+      },
+    ],
+    [
+      'products:enterPublish',
+      {
+        paramsSchema: channelParamsSchemas['products:enterPublish'],
+        // T-M2-06（FR-7.2）：一键转场 已对接→待发布。仍为本地写（发布动作本体归 M3
+        // 且必经其自身闸门），不设 EULA 门；上下文摘要 + PRODUCT_ENTER_PUBLISH 审计在 service 内。
+        handle: async (payload: ProductsEnterPublishParams) => {
+          if (!deps.products) throw new Error('E-IPC-DEP-MISSING: products 链路未装配');
+          return validateExit(ProductsEnterPublishResultSchema, await deps.products.enterPublish(payload), 'products:enterPublish');
         },
       },
     ],

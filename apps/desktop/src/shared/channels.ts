@@ -44,6 +44,13 @@
  *   decide 回传用户决定 + 可编辑话术；status 供渲染层轮询对齐）；
  * - products:list / products:openSource——商品卡片列表（FR-6.5 展示面）+ 打开货源页
  *   （shell.openExternal；只读动作不设 EULA 门）。
+ * M2 T-M2-06（FR-7 工作流转场）：
+ * - products:setStatus——商品状态手动簿记面（已对接判定 FR-7.1 + 看板拖拽流转 FR-7.3；
+ *   选品中三态互转/待发布撤回与推进/推广中↔已完成；→待发布 唯一入口是 enterPublish，
+ *   违规迁移稳定错误 E-PRODUCT-TRANSITION-INVALID；本地簿记性质不设 EULA 门，
+ *   同 selection:setChecked 口径）；
+ * - products:enterPublish——一键转场（FR-7.2）：已对接 → 待发布，落 PRODUCT_ENTER_PUBLISH
+ *   审计事件 + 返回上下文摘要（素材计数/供应商/报告 topic，可推导引用不复制本体）。
  */
 export const IPC_CHANNELS = [
   'app:info',
@@ -81,8 +88,10 @@ export const IPC_CHANNELS = [
   'outreach:decide',
   'outreach:start',
   'outreach:status',
+  'products:enterPublish',
   'products:list',
   'products:openSource',
+  'products:setStatus',
   'report:chartData',
   'report:exportPdf',
   'report:insertFixture',
@@ -259,6 +268,17 @@ export const OUTREACH_ERRORS = {
   EMPTY: 'E-OUTREACH-EMPTY',
   NO_CANDIDATE: 'E-OUTREACH-NO-CANDIDATE',
   CONFIRM_ID_INVALID: 'E-OUTREACH-CONFIRM-ID-INVALID',
+} as const;
+
+/**
+ * 商品工作流转场稳定错误码（T-M2-06；renderer/e2e 据此渲染引导）。
+ * NOT_FOUND = 商品不存在；TRANSITION_INVALID = 违规状态迁移（→待发布 必须走
+ * enterPublish、跨阶段回退受限）；NOT_CONNECTED = 未「已对接」不可进入发布。
+ */
+export const PRODUCT_ERRORS = {
+  NOT_FOUND: 'E-PRODUCT-NOT-FOUND',
+  TRANSITION_INVALID: 'E-PRODUCT-TRANSITION-INVALID',
+  NOT_CONNECTED: 'E-PRODUCT-NOT-CONNECTED',
 } as const;
 
 /**

@@ -837,9 +837,16 @@ export const OutreachStatusResultSchema = z.object({
     .nullable(),
 });
 
+/**
+ * 商品工作流状态（T-M2-06；与 store/protocol PRODUCT_STATUSES 镜像——写面真源在
+ * store worker 校验，本枚举是 IPC 入参收敛面）。前三个 = 看板「选品中」列，
+ * 待发布/推广中/已完成 = 跨阶段工作流态（FR-7.3 四列看板）。
+ */
+export const PRODUCT_STATUS_SCHEMA = ['候选', '对接中', '已对接', '待发布', '推广中', '已完成'] as const;
+
 export const ProductsListParamsSchema = z.strictObject({
   taskId: z.string().min(1).max(64).optional(),
-  status: z.enum(['候选', '对接中', '已对接']).optional(),
+  status: z.enum(PRODUCT_STATUS_SCHEMA).optional(),
   limit: z.number().int().min(1).max(500).optional(),
 });
 
@@ -869,6 +876,40 @@ export const ProductsOpenSourceParamsSchema = z.strictObject({
 });
 
 export const ProductsOpenSourceResultSchema = z.object({ opened: z.boolean() });
+
+/* products:setStatus / products:enterPublish —— T-M2-06（FR-7 工作流转场） */
+
+export const ProductsSetStatusParamsSchema = z.strictObject({
+  productId: z.string().min(1).max(64),
+  status: z.enum(PRODUCT_STATUS_SCHEMA),
+});
+
+export const ProductsSetStatusResultSchema = z.object({
+  productId: z.string(),
+  status: z.string(),
+  updatedAt: z.string(),
+});
+
+export const ProductsEnterPublishParamsSchema = z.strictObject({
+  productId: z.string().min(1).max(64),
+});
+
+/** FR-7.2 转场上下文摘要（可推导引用 + 计数，不复制报告正文/素材本体）：
+ * 素材按 product_id 挂 materials、供应商在 products 行、报告结论经
+ * taskId → selection payload.reportId → reports 行，M3 发布链按此 join。 */
+export const ProductsEnterPublishResultSchema = z.object({
+  productId: z.string(),
+  status: z.literal('待发布'),
+  handoff: z.object({
+    taskId: z.string(),
+    /** selection payload 缺失/fixture（reportId=0）→ null 诚实降级 */
+    reportId: z.number().int().nullable(),
+    topic: z.string().nullable(),
+    materials: z.object({ images: z.number().int().nonnegative(), desc: z.boolean() }),
+    supplier: z.object({ name: z.string().nullable(), address: z.string().nullable() }).nullable(),
+  }),
+  updatedAt: z.string(),
+});
 
 /* --------------------- 1688 官方 API AK 配置（T-M2-05a；FR-2.7 同纪律） --------------------- */
 
@@ -930,6 +971,10 @@ export type ProductsListResult = z.infer<typeof ProductsListResultSchema>;
 export type ProductsOpenSourceParams = z.infer<typeof ProductsOpenSourceParamsSchema>;
 export type ProductCardView = z.infer<typeof ProductCardViewSchema>;
 export type ProductsOpenSourceResult = z.infer<typeof ProductsOpenSourceResultSchema>;
+export type ProductsSetStatusParams = z.infer<typeof ProductsSetStatusParamsSchema>;
+export type ProductsSetStatusResult = z.infer<typeof ProductsSetStatusResultSchema>;
+export type ProductsEnterPublishParams = z.infer<typeof ProductsEnterPublishParamsSchema>;
+export type ProductsEnterPublishResult = z.infer<typeof ProductsEnterPublishResultSchema>;
 export type SourcingAkStatusParams = z.infer<typeof SourcingAkStatusParamsSchema>;
 export type SourcingAkStatusResult = z.infer<typeof SourcingAkStatusResultSchema>;
 export type SourcingAkSetParams = z.infer<typeof SourcingAkSetParamsSchema>;
@@ -1139,8 +1184,10 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'outreach:decide': OutreachDecideParamsSchema,
   'outreach:start': OutreachStartParamsSchema,
   'outreach:status': OutreachStatusParamsSchema,
+  'products:enterPublish': ProductsEnterPublishParamsSchema,
   'products:list': ProductsListParamsSchema,
   'products:openSource': ProductsOpenSourceParamsSchema,
+  'products:setStatus': ProductsSetStatusParamsSchema,
   'sourcing:akClear': SourcingAkClearParamsSchema,
   'sourcing:akSet': SourcingAkSetParamsSchema,
   'sourcing:akStatus': SourcingAkStatusParamsSchema,

@@ -248,4 +248,22 @@ describe('store v5：products + materials（T-M2-04；FR-6.5 商品卡片/素材
     expect(req<{ rows: unknown[] }>({ id: 3, type: 'listProducts', filter: { taskId: 't9' } }).rows).toHaveLength(3);
     expect(req<{ rows: unknown[] }>({ id: 4, type: 'listProducts', filter: { status: '已对接' } }).rows).toHaveLength(1);
   });
+
+  it('setProductStatus：工作流六态全接受（T-M2-06 待发布/推广中/已完成——看板流转载体）', () => {
+    req({ id: 1, type: 'upsertProduct', product: { productId: 'wf1', title: 't', link: 'https://detail.1688.com/offer/wf1.html', taskId: 'k' } });
+    for (const [i, status] of (['已对接', '待发布', '推广中', '已完成'] as const).entries()) {
+      req({ id: i + 2, type: 'setProductStatus', productId: 'wf1', status });
+      const rows = req<{ rows: Array<{ status: string }> }>({ id: 10, type: 'listProducts', filter: { productId: 'wf1' } }).rows;
+      expect(rows[0]?.status).toBe(status);
+    }
+  });
+
+  it('listProducts：productId 精确筛选命中单行（转场前状态校验数据源）', () => {
+    for (const id of ['p1', 'p2']) {
+      req({ id: 1, type: 'upsertProduct', product: { productId: id, title: id, link: `https://detail.1688.com/offer/${id}.html`, taskId: 't9' } });
+    }
+    const rows = req<{ rows: Array<{ productId: string }> }>({ id: 3, type: 'listProducts', filter: { productId: 'p2' } }).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.productId).toBe('p2');
+  });
 });

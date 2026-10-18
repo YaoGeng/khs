@@ -709,6 +709,7 @@ export function handleStoreRequest(db: SqliteDatabase, request: StoreRequest): {
         const params: unknown[] = [];
         if (filter.taskId !== undefined) { conds.push('task_id = ?'); params.push(filter.taskId); }
         if (filter.status !== undefined) { conds.push('status = ?'); params.push(filter.status); }
+        if (filter.productId !== undefined) { conds.push('product_id = ?'); params.push(filter.productId); }
         const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
         const rows = db
           .prepare(`SELECT * FROM products ${where} ORDER BY updated_at DESC, id DESC LIMIT ?`)

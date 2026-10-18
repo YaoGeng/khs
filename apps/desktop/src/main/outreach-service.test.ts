@@ -44,7 +44,6 @@ function memoryStore(options: { candidates: Array<Record<string, unknown>> } = {
   const kv = new Map<string, string>();
   const events: Array<{ taskId: string; type: string; payload: Record<string, unknown> }> = [];
   const products = new Map<string, Record<string, unknown>>();
-  const productStatus = new Map<string, string>();
   const materials: Array<Record<string, unknown>> = [];
   const store = {
     whenReady: async () => {},
@@ -58,17 +57,38 @@ function memoryStore(options: { candidates: Array<Record<string, unknown>> } = {
       return { deleted: true };
     },
     listSourcingCandidates: async () => options.candidates,
-    getTask: async (taskId: string) => ({ id: taskId, status: 'completed' }) as unknown as TaskRow,
+    getTask: async (taskId: string) =>
+      ({ id: taskId, status: 'completed', payload: memoryTaskPayload }) as unknown as TaskRow,
     writeTaskEvent: async (event: { taskId: string; type: string; payload: Record<string, unknown> }) => {
       events.push(event);
       return { written: true, id: events.length };
     },
     upsertProduct: async (product: Record<string, unknown>) => {
-      products.set(product.productId as string, product);
+      const prev = products.get(product.productId as string) as Record<string, unknown> | undefined;
+      // worker 语义镜像：upsert 更新可变字段，status 不覆盖
+      products.set(product.productId as string, {
+        productId: product.productId,
+        title: product.title,
+        priceMin: product.priceMin ?? null,
+        priceMax: product.priceMax ?? null,
+        moq: product.moq ?? null,
+        sales: product.sales ?? null,
+        repurchase: product.repurchase ?? null,
+        supplier: product.supplier ?? null,
+        scores: product.scores ?? null,
+        link: product.link,
+        taskId: product.taskId,
+        keyword: product.keyword ?? null,
+        status: prev?.status ?? '候选',
+        updatedAt: new Date().toISOString(),
+      });
       return { productId: product.productId as string };
     },
     setProductStatus: async (productId: string, status: string) => {
-      productStatus.set(productId, status);
+      const row = products.get(productId);
+      if (!row) throw new Error(`E-STORE-BAD-REQUEST: 商品不存在: ${productId}`);
+      row.status = status;
+      row.updatedAt = new Date().toISOString();
       return { productId, status };
     },
     insertMaterials: async (rows: Array<Record<string, unknown>>) => {
@@ -76,11 +96,20 @@ function memoryStore(options: { candidates: Array<Record<string, unknown>> } = {
       for (const row of rows) materials.push(row);
       return { inserted: rows.length };
     },
-    listProducts: async () => [...products.values()],
-    listMaterials: async () => materials,
+    listProducts: async (filter: { taskId?: string; status?: string; productId?: string } = {}) =>
+      [...products.values()].filter(
+        (p) =>
+          (filter.taskId === undefined || p.taskId === filter.taskId) &&
+          (filter.status === undefined || p.status === filter.status) &&
+          (filter.productId === undefined || p.productId === filter.productId),
+      ),
+    listMaterials: async (productId: string) => materials.filter((m) => m.productId === productId),
   };
-  return { store, kv, events, products, productStatus, materials };
+  return { store, kv, events, products, materials };
 }
+
+/** getTask 返回的 selection payload（T-M2-06 enterPublish 上下文摘要数据源；null = payload 缺失） */
+let memoryTaskPayload: Record<string, unknown> | null = null;
 
 interface HarnessOptions {
   candidates?: Array<Record<string, unknown>>;
@@ -202,7 +231,7 @@ describe('T-M2-04 批量执行（FR-6.4 confirm 红线 + FR-6.5 入库）', () =
     expect(card[0]?.productId).toBe('880000000001');
     expect(card[0]?.priceMin).toBe(3.5);
     expect(card[0]?.sales).toBe(34_000);
-    expect(mem.productStatus.get('880000000001')).toBe('对接中');
+    expect((mem.products.get('880000000001') as Record<string, unknown> | undefined)?.status).toBe('对接中');
     // desc.txt 写盘 + 读面回读（FR-6.5 文案描述留存）
     expect(files.get(path.join(dir, 'materials', '880000000001', 'desc.txt'))).toContain('fixture 商品详情');
     expect(card[0]?.descText).toContain('fixture 商品详情');
@@ -250,7 +279,7 @@ describe('T-M2-04 批量执行（FR-6.4 confirm 红线 + FR-6.5 入库）', () =
     expect(summary.offers[0]?.favorite).toBe('skipped');
     expect(summary.offers[0]?.inquiry).toBe('skipped');
     expect(summary.offers[0]?.productSaved).toBe(true);
-    expect(mem.productStatus.size).toBe(0);
+    expect([...mem.products.values()].some((p) => p.status === '对接中')).toBe(false);
     const confirms = mem.events.filter((e) => e.type === 'OUTREACH_CONFIRM');
     expect(confirms.every((e) => e.payload.decision === 'skip')).toBe(true);
   });
@@ -349,5 +378,109 @@ describe('T-M2-04 话术模板（FR-6.4 三要素）', () => {
     expect(msg).toContain('素材');
     const short = composeInquiryMessage('短标题', 5);
     expect(short).toContain('「短标题」');
+  });
+});
+
+describe('T-M2-06 工作流转场（FR-7：已对接判定 + 进入发布携带上下文）', () => {
+  /** 直写内存 store 播种一个商品（可选状态/任务 payload/素材） */
+  function seed(
+    mem: ReturnType<typeof memoryStore>,
+    overrides: { productId?: string; status?: string; payload?: Record<string, unknown> | null; materials?: number } = {},
+  ): string {
+    memoryTaskPayload = overrides.payload ?? null;
+    const productId = overrides.productId ?? '880000000001';
+    void mem.store.upsertProduct({
+      productId,
+      title: '冰丝防晒帽UPF50+',
+      supplier: { name: '台州市椒江顺新鞋帽厂', address: '浙江 台州' },
+      link: `https://detail.1688.com/offer/${productId}.html`,
+      taskId: 'task-1',
+      keyword: '防晒帽',
+    });
+    if (overrides.status && overrides.status !== '候选') {
+      void mem.store.setProductStatus(productId, overrides.status);
+    }
+    for (let i = 0; i < (overrides.materials ?? 0); i += 1) {
+      void mem.store.insertMaterials([{ productId, kind: 'image', path: `C:/m/${productId}/${i}.jpg`, hash: `h${i}` }]);
+    }
+    return productId;
+  }
+
+  it('setStatus：转场矩阵合法项（已对接判定 / 撤回 / 手动推进）', async () => {
+    const { service, mem } = harness();
+    const id = seed(mem, { status: '候选' });
+    // FR-7.1：候选 → 已对接（手动标记）
+    const r1 = await service.setProductStatus(id, '已对接');
+    expect(r1.status).toBe('已对接');
+    // 撤回判定：已对接 → 对接中
+    await service.setProductStatus(id, '对接中');
+    // 选品中内部自由互转后再推进
+    await service.setProductStatus(id, '已对接');
+    await service.enterPublish(id);
+    // 待发布 → 已对接（撤回）、→ 推广中（手动推进，M2 无自动生产者）
+    await service.setProductStatus(id, '已对接');
+    await service.enterPublish(id);
+    const r2 = await service.setProductStatus(id, '推广中');
+    expect(r2.status).toBe('推广中');
+    // 推广中 → 已完成 / 回退待发布 / 已完成 → 推广中
+    await service.setProductStatus(id, '已完成');
+    await service.setProductStatus(id, '推广中');
+    const row = (await mem.store.listProducts({ productId: id }))[0] as Record<string, unknown>;
+    expect(row.status).toBe('推广中');
+  });
+
+  it('setStatus：非法迁移与未知商品拒绝（稳定错误码）', async () => {
+    const { service, mem } = harness();
+    const id = seed(mem, { status: '候选' });
+    // →待发布 唯一入口是 enterPublish（防绕过上下文携带）
+    await expect(service.setProductStatus(id, '待发布')).rejects.toThrow('E-PRODUCT-TRANSITION-INVALID');
+    await expect(service.setProductStatus(id, '推广中')).rejects.toThrow('E-PRODUCT-TRANSITION-INVALID');
+    await expect(service.setProductStatus('ghost', '已对接')).rejects.toThrow('E-PRODUCT-NOT-FOUND');
+    // 跨阶段回退受限：已完成 → 候选 / 推广中 → 候选
+    await service.setProductStatus(id, '已对接');
+    await service.enterPublish(id);
+    await service.setProductStatus(id, '推广中');
+    await service.setProductStatus(id, '已完成');
+    await expect(service.setProductStatus(id, '候选')).rejects.toThrow('E-PRODUCT-TRANSITION-INVALID');
+  });
+
+  it('enterPublish：已对接 → 待发布 + 上下文摘要 + PRODUCT_ENTER_PUBLISH 审计', async () => {
+    const { service, mem } = harness();
+    const id = seed(mem, {
+      status: '已对接',
+      payload: { selection: { topic: '防晒帽', topicId: 't-1', reportId: 7, idempotencyKey: 'k', keywords: ['防晒帽'] } },
+      materials: 2,
+    });
+    void mem.store.insertMaterials([{ productId: id, kind: 'desc', path: 'C:/m/desc.txt', hash: 'hd' }]);
+    const result = await service.enterPublish(id);
+    expect(result.productId).toBe(id);
+    expect(result.status).toBe('待发布');
+    expect(result.handoff).toEqual({
+      taskId: 'task-1',
+      reportId: 7,
+      topic: '防晒帽',
+      materials: { images: 2, desc: true },
+      supplier: { name: '台州市椒江顺新鞋帽厂', address: '浙江 台州' },
+    });
+    const audit = mem.events.find((e) => e.type === 'PRODUCT_ENTER_PUBLISH');
+    expect(audit?.taskId).toBe('task-1');
+    expect(audit?.payload).toMatchObject({ productId: id, from: '已对接', to: '待发布', reportId: 7, materialImages: 2 });
+    const row = (await mem.store.listProducts({ productId: id }))[0] as Record<string, unknown>;
+    expect(row.status).toBe('待发布');
+  });
+
+  it('enterPublish：payload 缺失/fixture reportId=0 → 诚实降级 null；未对接/重复转场拒绝', async () => {
+    const { service, mem } = harness();
+    const id = seed(mem, { status: '已对接', payload: null });
+    const result = await service.enterPublish(id);
+    expect(result.handoff.reportId).toBeNull();
+    expect(result.handoff.topic).toBeNull();
+    // 重复转场（已是待发布）拒绝
+    await expect(service.enterPublish(id)).rejects.toThrow('E-PRODUCT-NOT-CONNECTED');
+    // 未对接（候选）不可进入发布
+    const id2 = seed(mem, { productId: '880000000002', status: '候选' });
+    await expect(service.enterPublish(id2)).rejects.toThrow('E-PRODUCT-NOT-CONNECTED');
+    // 不存在商品
+    await expect(service.enterPublish('ghost')).rejects.toThrow('E-PRODUCT-NOT-FOUND');
   });
 });

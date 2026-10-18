@@ -581,6 +581,9 @@ if (!gotLock) {
           await shell.openExternal(params.link);
           return { opened: true };
         },
+        // T-M2-06：状态手动簿记 + 一键转场（FR-7 链路；转场矩阵/审计在 outreach-service）
+        setStatus: (params) => outreachService.setProductStatus(params.productId, params.status),
+        enterPublish: (params) => outreachService.enterPublish(params.productId),
       },
       // T-M2-05a：1688 官方 API AK 配置（sourcing:ak*；masked 出口，密文纪律归 ak-store）
       sourcingAk: {

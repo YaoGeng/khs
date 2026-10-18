@@ -23,7 +23,9 @@ import type { Logger } from '@xinglian/logger';
 import { parsePriceRange, parseMonthlySales } from '@xinglian/agents';
 import type { StoreClient, MaterialInput } from '../store';
 import { RiskBlockedError, type OutreachPort, type OfferSession } from '../browser/outreach-port';
-import type { PushChannel } from '../shared/channels';
+import { PRODUCT_ERRORS, type PushChannel } from '../shared/channels';
+import type { ProductsEnterPublishResult, ProductsSetStatusResult } from '../shared/schemas';
+import type { ProductStatus } from '../store/protocol';
 
 /** 勾选集 kv 键（FR-6.3；task 维度） */
 export const checkedKey = (taskId: string): string => `selection:checked:${taskId}`;
@@ -159,6 +161,20 @@ const DEFAULT_OFFER_GAP_MS = 20_000;
 
 const DEFAULT_CONFIRM_TIMEOUT_MS = 10 * 60_000;
 
+/**
+ * T-M2-06 状态手动簿记转场矩阵（FR-7.1 已对接判定 + FR-7.3 看板拖拽）。
+ * →待发布 一律不在矩阵内：唯一入口是 enterPublish（上下文携带 + 审计，防绕过）。
+ * 推广中/已完成 M2 无自动生产者（M3/M4 后续卡），手动推进 = 用户显式意图标记。
+ */
+export const PRODUCT_TRANSITIONS: Readonly<Record<string, readonly ProductStatus[]>> = {
+  候选: ['对接中', '已对接'],
+  对接中: ['候选', '已对接'],
+  已对接: ['候选', '对接中'],
+  待发布: ['已对接', '推广中', '已完成'],
+  推广中: ['待发布', '已完成'],
+  已完成: ['推广中'],
+};
+
 export class OutreachService {
   private readonly deps: OutreachServiceDeps;
   private readonly now: () => number;
@@ -250,7 +266,85 @@ export class OutreachService {
     );
   }
 
-  /** 状态查询面（outreach:status；渲染层轮询/重载后对齐） */  status(): OutreachStatusView {
+  /**
+   * 商品状态手动簿记（T-M2-06；FR-7.1 已对接判定 + FR-7.3 看板拖拽写面）。
+   * 转场矩阵校验：违规迁移稳定错误 E-PRODUCT-TRANSITION-INVALID（→待发布 必须走 enterPublish）；
+   * 商品不存在 E-PRODUCT-NOT-FOUND。纯本地簿记，无对外副作用。
+   */
+  async setProductStatus(productId: string, status: ProductStatus): Promise<ProductsSetStatusResult> {
+    await this.deps.store.whenReady();
+    const rows = await this.deps.store.listProducts({ productId });
+    const row = rows[0];
+    if (!row) throw new Error(`${PRODUCT_ERRORS.NOT_FOUND}: 商品不存在: ${productId}`);
+    const allowed = PRODUCT_TRANSITIONS[row.status] ?? [];
+    if (!allowed.includes(status)) {
+      throw new Error(`${PRODUCT_ERRORS.TRANSITION_INVALID}: 不允许的状态迁移 ${row.status} → ${status}（→待发布 请走「进入发布」）`);
+    }
+    await this.deps.store.setProductStatus(productId, status);
+    this.deps.logger.networkMeta('product:status-set', { productId, from: row.status, to: status });
+    const updated = (await this.deps.store.listProducts({ productId }))[0];
+    return { productId, status, updatedAt: updated?.updatedAt ?? new Date().toISOString() };
+  }
+
+  /**
+   * 一键进入发布（T-M2-06；FR-7.2）：已对接 → 待发布，唯一转场入口。
+   * 上下文「携带」= 可推导引用 + 审计快照，不复制报告正文/素材本体（单一事实源）：
+   * 素材按 product_id 挂 materials、供应商在 products 行、报告结论经
+   * taskId → selection payload.reportId → reports 行，M3 发布链按此 join 无需重复录入。
+   * payload 缺失/fixture reportId=0 → null 诚实降级。审计 PRODUCT_ENTER_PUBLISH。
+   */
+  async enterPublish(productId: string): Promise<ProductsEnterPublishResult> {
+    await this.deps.store.whenReady();
+    const rows = await this.deps.store.listProducts({ productId });
+    const row = rows[0];
+    if (!row) throw new Error(`${PRODUCT_ERRORS.NOT_FOUND}: 商品不存在: ${productId}`);
+    if (row.status !== '已对接') {
+      throw new Error(`${PRODUCT_ERRORS.NOT_CONNECTED}: 商品未「已对接」，不可进入发布（当前 ${row.status}）`);
+    }
+    const selection = ((await this.deps.store.getTask(row.taskId)) as { payload?: { selection?: { reportId?: unknown; topic?: unknown } } } | null)
+      ?.payload?.selection;
+    const reportId = typeof selection?.reportId === 'number' && Number.isInteger(selection.reportId) && selection.reportId > 0 ? selection.reportId : null;
+    const topic = typeof selection?.topic === 'string' && selection.topic.length > 0 ? selection.topic : null;
+    const mats = await this.deps.store.listMaterials(productId);
+    const images = mats.filter((m) => m.kind === 'image').length;
+    const hasDesc = mats.some((m) => m.kind === 'desc');
+    await this.deps.store.setProductStatus(productId, '待发布');
+    const at = new Date().toISOString();
+    await this.deps.store.writeTaskEvent({
+      taskId: row.taskId,
+      type: 'PRODUCT_ENTER_PUBLISH',
+      fromState: '已对接',
+      toState: '待发布',
+      payload: {
+        productId,
+        from: '已对接',
+        to: '待发布',
+        reportId,
+        topic,
+        materialImages: images,
+        materialDesc: hasDesc,
+        supplier: row.supplier,
+        at,
+      },
+    });
+    this.deps.logger.networkMeta('product:enter-publish', { productId, taskId: row.taskId, reportId, images });
+    const updated = (await this.deps.store.listProducts({ productId }))[0];
+    return {
+      productId,
+      status: '待发布',
+      handoff: {
+        taskId: row.taskId,
+        reportId,
+        topic,
+        materials: { images, desc: hasDesc },
+        supplier: row.supplier,
+      },
+      updatedAt: updated?.updatedAt ?? at,
+    };
+  }
+
+  /** 状态查询面（outreach:status；渲染层轮询/重载后对齐） */
+  status(): OutreachStatusView {
     return {
       active: this.running || this.pending !== null,
       taskId: this.progress.taskId,
