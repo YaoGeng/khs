@@ -901,3 +901,31 @@ body {
 .sourcing-ak input { flex: 1 1 260px; min-width: 200px; font-size: 13px; }
 .sourcing-ak-status { font-size: 12px; color: #57606a; }
 .sourcing-ak-note { flex-basis: 100%; margin: 4px 0 0; font-size: 11px; color: #6e7781; line-height: 1.5; }
+
+/* T-M2-06：转场卡片动作与上下文摘要（FR-7.1/7.2） */
+.product-card-handoff { margin: 0; font-size: 11px; color: #0550ae; background: #ddf4ff; border-radius: 6px; padding: 4px 6px; line-height: 1.5; }
+.product-card-status[data-status="待发布"] { color: #0550ae; background: #ddf4ff; }
+.product-card-status[data-status="推广中"] { color: #8250df; background: #fbefff; }
+.product-card-status[data-status="已完成"] { color: #57606a; background: #eff2f5; }
+
+/* T-M2-06：工作流看板 v1（FR-7.3；c端原型 .kanban 形制） */
+.board-hint { font-size: 11px; font-weight: 400; color: #6e7781; margin-left: 8px; }
+.board-status { margin: 0 0 8px; font-size: 12px; color: #57606a; }
+.kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.kanban .col { background: #eef0f4; border-radius: 10px; padding: 10px; min-height: 220px; display: flex; flex-direction: column; gap: 8px; }
+.kanban .col.drag-over { outline: 2px dashed #0969da; outline-offset: -2px; }
+.kanban .col-h { display: flex; align-items: center; gap: 7px; padding: 2px 4px 4px; }
+.kanban .col-h .t { font-size: 12px; font-weight: 600; color: #1f2328; }
+.kanban .col-h .n { font-size: 10px; background: #fff; color: #57606a; padding: 1px 6px; border-radius: 8px; font-weight: 600; }
+.kcard { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 8px 10px; cursor: grab; display: flex; flex-direction: column; gap: 4px; }
+.kcard.dragging { opacity: 0.5; }
+.kcard .kt { font-size: 12px; font-weight: 600; line-height: 1.4; max-height: 2.8em; overflow: hidden; }
+.kcard .km { font-size: 11px; color: #57606a; font-variant-numeric: tabular-nums; }
+.kcard .km-mats { font-size: 11px; color: #6e7781; }
+.kcard .kf { display: flex; align-items: center; gap: 6px; }
+.kcard .tag { font-size: 10px; border-radius: 999px; padding: 1px 8px; background: #eff2f5; color: #57606a; }
+.kcard .tag[data-status="候选"], .kcard .tag[data-status="对接中"] { background: #fff8c5; color: #7d4e00; }
+.kcard .tag[data-status="已对接"] { background: #dafbe1; color: #116329; }
+.kcard .tag[data-status="待发布"] { background: #ddf4ff; color: #0550ae; }
+.kcard .tag[data-status="推广中"] { background: #fbefff; color: #8250df; }
+.kcard .tag[data-status="已完成"] { background: #eff2f5; color: #57606a; }

@@ -13,6 +13,7 @@ import { initInsightView, refreshInsightView } from './insight';
 import { initUsageView, refreshUsagePanel } from './usage';
 import { initReportView } from './reportView';
 import { initSourcingView, refreshSourcingView } from './sourcing';
+import { initBoardView, refreshBoardView } from './board';
 
 const bridge = window.xinglian;
 
@@ -45,6 +46,8 @@ function switchView(view: string, title: string): void {
   if (topbarTitle && title) topbarTitle.textContent = title;
   /* 洞察视图每次激活即刷新（采集列表/闸门可能已被后台任务推进） */
   if (view === 'insight') refreshInsightView();
+  /* 工作台视图每次激活即刷新看板（转场可能已被选品页推进——T-M2-06 FR-7.3） */
+  if (view === 'dashboard') void refreshBoardView();
   /* 选品视图每次激活即刷新（候选/任务可能已被后台选品管道推进） */
   if (view === 'sourcing') void refreshSourcingView();
   /* 设置视图激活即刷新用量面板（报告跑完回来看消耗）+ 自动化档位回显 */
@@ -1136,6 +1139,13 @@ try {
   initSourcingView();
 } catch (error) {
   console.warn('[renderer] sourcing view init failed:', error);
+}
+
+// T-M2-06（FR-7.3）：工作台看板 v1（四列拖拽流转）
+try {
+  initBoardView();
+} catch (error) {
+  console.warn('[renderer] board view init failed:', error);
 }
 
 // m1 todo 12（FR-2.5/2.6）：用量面板（settings 视图内 usage-card）

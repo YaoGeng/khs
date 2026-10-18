@@ -104,6 +104,12 @@
             <p class="license-lock-banner" data-license-lock hidden>已锁定：license 缺失或过期（FR-1.6）——工作流执行入口不可用；历史与日志仍可访问。</p>
             <button class="btn btn-primary workflow-entry" type="button" data-write-entry>执行入口（占位）</button>
             <p class="entry-msg" data-entry-msg hidden>M0 占位：工作流引擎随 M1+ 交付。</p>
+            <!-- T-M2-06（FR-7.3）：工作流看板 v1——四列（选品中/待发布/推广中/已完成）+ 卡片拖拽流转 -->
+            <section class="dashboard-card" id="board-card">
+              <h3>工作流看板 <span class="board-hint">卡片可拖拽流转（FR-7.3）；「已对接」卡拖入待发布 = 进入发布（FR-7.2）</span></h3>
+              <p class="board-status" id="board-status">加载中…</p>
+              <div class="kanban" id="board-kanban"></div>
+            </section>
             <!-- M2 产品卡①：应用内浏览器镜像预览（CDP screencast 只读投流；交互仍在受控浏览器窗口） -->
             <section class="dashboard-card" id="mirror-card">
               <h3>受控浏览器镜像预览（只读）</h3>

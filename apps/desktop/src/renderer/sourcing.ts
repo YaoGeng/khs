@@ -14,6 +14,8 @@
  *   → 商品卡片列表（FR-6.5，products:list + products:openSource 打开货源页）。
  * html data-* 标记为 e2e 断言面（沿用壳层既有模式）。
  */
+import { refreshBoardView } from './board';
+
 const bridge = window.xinglian;
 const root = document.documentElement;
 
@@ -146,6 +148,47 @@ interface ProductCard {
   updatedAt: string;
 }
 
+/** T-M2-06（FR-7.1）：手动标记已对接——出现「进入发布」按钮（转场矩阵主进程校验） */
+async function markConnected(productId: string): Promise<void> {
+  root.dataset.productStatusAction = 'pending';
+  try {
+    await invoke('products:setStatus', { productId, status: '已对接' });
+    root.dataset.productStatusAction = 'done';
+  } catch (error) {
+    console.warn('[renderer] products:setStatus failed:', error);
+    root.dataset.productStatusAction = 'failed';
+    root.dataset.productStatusError = String((error as Error).message).slice(0, 80);
+    if (statusLine) statusLine.textContent = `标记失败：${String((error as Error).message).slice(0, 120)}`;
+  }
+  await refreshProductCards();
+}
+
+/** T-M2-06（FR-7.2）：一键进入发布——已对接 → 待发布，上下文摘要落审计并回显 */
+async function enterPublish(productId: string): Promise<void> {
+  root.dataset.productEnterPublish = 'pending';
+  try {
+    const result = await invoke<{ productId: string; status: string; handoff: { topic: string | null; materials: { images: number; desc: boolean }; supplier: { name: string | null } | null } }>(
+      'products:enterPublish',
+      { productId },
+    );
+    root.dataset.productEnterPublish = 'done';
+    root.dataset.productPublished = productId;
+    if (statusLine) {
+      const bits = [`素材 ${result.handoff.materials.images} 张${result.handoff.materials.desc ? '+文案' : ''}`];
+      if (result.handoff.topic) bits.push(`报告「${result.handoff.topic}」`);
+      if (result.handoff.supplier?.name) bits.push(`供应商 ${result.handoff.supplier.name}`);
+      statusLine.textContent = `已进入发布清单（${bits.join(' · ')}）——发布工作流将自动携带上下文（M3 交付）。`;
+    }
+  } catch (error) {
+    console.warn('[renderer] products:enterPublish failed:', error);
+    root.dataset.productEnterPublish = 'failed';
+    root.dataset.productEnterPublishError = String((error as Error).message).slice(0, 80);
+    if (statusLine) statusLine.textContent = `进入发布失败：${String((error as Error).message).slice(0, 120)}`;
+  }
+  await refreshProductCards();
+  await refreshBoardView();
+}
+
 async function refreshProductCards(): Promise<void> {
   if (!productsSection || !productsGrid) return;
   try {
@@ -189,6 +232,7 @@ function renderProductCard(card: ProductCard): HTMLElement {
   const statusRow = document.createElement('p');
   statusRow.className = 'product-card-status';
   statusRow.textContent = card.status;
+  statusRow.dataset.status = card.status;
   el.appendChild(statusRow);
   if (card.descText) {
     const desc = document.createElement('p');
@@ -197,9 +241,41 @@ function renderProductCard(card: ProductCard): HTMLElement {
     desc.title = card.descText;
     el.appendChild(desc);
   }
+  // T-M2-06（FR-7.2）：待发布卡的上下文摘要行（可推导字段，与 enterPublish 审计同源）
+  if (card.status === '待发布') {
+    const handoff = document.createElement('p');
+    handoff.className = 'product-card-handoff';
+    handoff.textContent = `进入发布：素材 ${card.imagePaths.length} 张${card.descText ? ' + 文案描述' : ''}${card.supplier?.name ? ` · 供应商 ${card.supplier.name}` : ''}——发布工作流将自动携带，无需重复录入`;
+    el.appendChild(handoff);
+  }
 
   const actions = document.createElement('div');
   actions.className = 'product-card-actions';
+  // T-M2-06（FR-7.1）：已对接判定——手动标记后出现「进入发布」
+  if (card.status === '候选' || card.status === '对接中') {
+    const markBtn = document.createElement('button');
+    markBtn.type = 'button';
+    markBtn.className = 'btn btn-ghost product-mark-connected';
+    markBtn.dataset.productId = card.productId;
+    markBtn.textContent = '标记已对接';
+    markBtn.setAttribute('aria-label', `标记已对接 ${card.title.slice(0, 20)}`);
+    markBtn.addEventListener('click', () => {
+      void markConnected(card.productId);
+    });
+    actions.appendChild(markBtn);
+  }
+  if (card.status === '已对接') {
+    const publishBtn = document.createElement('button');
+    publishBtn.type = 'button';
+    publishBtn.className = 'btn btn-primary product-enter-publish';
+    publishBtn.dataset.productId = card.productId;
+    publishBtn.textContent = '进入发布';
+    publishBtn.setAttribute('aria-label', `进入发布 ${card.title.slice(0, 20)}`);
+    publishBtn.addEventListener('click', () => {
+      void enterPublish(card.productId);
+    });
+    actions.appendChild(publishBtn);
+  }
   const openBtn = document.createElement('button');
   openBtn.type = 'button';
   openBtn.className = 'btn btn-ghost product-open-source';
