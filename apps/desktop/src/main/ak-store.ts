@@ -57,10 +57,12 @@ export function createAkStore(deps: {
   const readValue = async (): Promise<string | null> => {
     const value = await deps.store.kvGet(KV_AK);
     if (value === null || value === undefined) return null;
-    if (Buffer.isBuffer(value)) {
+    // 密文过 store worker 进程边界后可能丢失 Buffer 原型（结构化克隆为普通 Uint8Array），
+    // 必须 instanceof Uint8Array 统一收口（Buffer 是其子类），否则密文字节会被当原文解析
+    if (value instanceof Uint8Array) {
       if (!deps.safeStorage) return null;
       try {
-        return deps.safeStorage.decryptString(value);
+        return deps.safeStorage.decryptString(Buffer.from(value));
       } catch {
         return null;
       }

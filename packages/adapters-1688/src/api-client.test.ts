@@ -17,21 +17,37 @@ import {
 } from './api-client.js';
 
 describe('extractAkKeys（AI版 AK 拆分：前 32 = secret，其余 = id）', () => {
-  it('base64url 形态：先解码再拆分', () => {
+  it('base64url 形态（无 padding 且长度合法，即原文长度 %3==0）：先解码再拆分', () => {
     const secret = 'S'.repeat(32);
-    const raw = Buffer.from(`${secret}AKID12345`, 'utf8').toString('base64url');
-    const parts = extractAkKeys(raw);
-    expect(parts).toEqual({ accessKeyId: 'AKID12345', accessKeySecret: secret });
+    const raw = Buffer.from(`${secret}AKID123`, 'utf8').toString('base64url'); // 39 字节 → 52 字符无 padding
+    expect(raw.length % 4).toBe(0);
+    expect(extractAkKeys(raw)).toEqual({ accessKeyId: 'AKID123', accessKeySecret: secret });
+  });
+
+  it('带 = padding 的标准 base64（clawhub 实发形态）：先解码再拆分', () => {
+    const secret = 'S'.repeat(32);
+    const raw = Buffer.from(`${secret}AKID-0000`, 'utf8').toString('base64'); // 带 = padding
+    expect(raw).toMatch(/=+$/);
+    expect(extractAkKeys(raw)).toEqual({ accessKeyId: 'AKID-0000', accessKeySecret: secret });
+  });
+
+  it('无 padding 的 base64 形态 → Python b64decode 会因 padding 抛错 → 回退原文拆分', () => {
+    const secret = 'S'.repeat(32);
+    const decoded = `${secret}AKID12345`;
+    const raw = Buffer.from(decoded, 'utf8').toString('base64').replace(/=+$/, '');
+    expect(raw.length % 4).not.toBe(0);
+    // 回退原文：secret = base64 文本前 32 位（如实转写 Python 语义，哪怕形态奇怪）
+    expect(extractAkKeys(raw)).toEqual({ accessKeyId: raw.slice(32), accessKeySecret: raw.slice(0, 32) });
   });
 
   it('原文形态（base64url 字符集外 → 直接按原文拆分）', () => {
-    // 含 ':' 不在 base64url 字符集 → charset 门直接走原文
+    // 含 ':' 不在 base64 字符集 → charset 门直接走原文
     const raw = `${'K'.repeat(32)}:ID123`;
     expect(extractAkKeys(raw)).toEqual({ accessKeyId: ':ID123', accessKeySecret: 'K'.repeat(32) });
   });
 
   it('可 base64 解码但解码产物非合法 UTF-8 → 回退原文（对齐 Python 异常回退）', () => {
-    const raw = Buffer.alloc(40, 0xff).toString('base64url');
+    const raw = Buffer.alloc(39, 0xff).toString('base64'); // 52 字符带 padding，解码产物全 0xFF
     const parts = extractAkKeys(raw);
     expect(parts).not.toBeNull();
     expect(parts?.accessKeySecret).toBe(raw.slice(0, 32));

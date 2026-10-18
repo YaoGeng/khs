@@ -24,7 +24,7 @@ import { createCollectBinding, type CollectBinding } from './main/collect-bindin
 import { SelectionService, createFixtureSearchPortFromFile } from './tasks/selection-service';
 import { createCdpSourcingPort1688 } from './browser/sourcing-port';
 import { createRoutedSearchPort } from './main/sourcing-api-port';
-import { createAkStore } from './main/ak-store';
+import { createAkStore, maskAkId } from './main/ak-store';
 import { createCdpOutreachPort1688, createFixtureOutreachPort } from './browser/outreach-port';
 import { OutreachService } from './main/outreach-service';
 import { createElectronSafeStoragePort } from './main/safe-storage-port';
@@ -586,9 +586,10 @@ if (!gotLock) {
       sourcingAk: {
         status: async () => {
           const [status, ak] = await Promise.all([akStore.status(), akStore.get()]);
-          // configured 以「可解析出有效 AK」为准（元数据在而值损坏时如实报未配置）
+          // configured 以「可解析出有效 AK」为准；masked 从实时解析推导（解析器修正后
+          // 旧 meta 里的掩码不再误导 UI），值损坏时如实报未配置
           if (!ak) return { configured: false, accessKeyIdMasked: null, encryption: null, setAt: null };
-          return { ...status, configured: true };
+          return { configured: true, accessKeyIdMasked: maskAkId(ak.accessKeyId), encryption: status.encryption, setAt: status.setAt };
         },
         set: async (params) => akStore.setRaw(params.raw),
         clear: async () => {

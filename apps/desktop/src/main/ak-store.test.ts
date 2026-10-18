@@ -31,7 +31,8 @@ function fakeSafeStorage(available = true): SafeStoragePort & { decryptCalls: nu
   } as SafeStoragePort & { decryptCalls: number };
 }
 
-const RAW_AK = Buffer.from(`${'S'.repeat(32)}AKID-1234`, 'utf8').toString('base64url');
+// 官方 clawhub 实发形态：带 = padding 的标准 base64（新语义 %4==0 才解码，padding 必带）
+const RAW_AK = Buffer.from(`${'S'.repeat(32)}AKID-1234`, 'utf8').toString('base64');
 
 describe('createAkStore', () => {
   it('set + get 往返：密文落库（Buffer），get 还原 id/secret 拆分', async () => {
@@ -91,6 +92,18 @@ describe('createAkStore', () => {
     await store.clear();
     expect(await store.status()).toEqual({ configured: false, accessKeyIdMasked: null, encryption: null, setAt: null });
     expect(await store.get()).toBeNull();
+  });
+
+  it('kv 返回普通 Uint8Array（store worker 进程边界丢失 Buffer 原型）→ 仍按密文解密', async () => {
+    const kv = fakeKv();
+    const safe = fakeSafeStorage();
+    const store = createAkStore({ store: kv, safeStorage: safe });
+    await store.setRaw(RAW_AK);
+    const stored = kv.map.get('sourcing:ak:v1') as Buffer;
+    // 模拟超出 KvValue 契约的运行时形态（结构化克隆后 Buffer 原型丢失）——故显式断言转换
+    kv.map.set('sourcing:ak:v1', new Uint8Array(stored) as unknown as KvValue);
+    expect(Buffer.isBuffer(kv.map.get('sourcing:ak:v1'))).toBe(false);
+    expect(await store.get()).toMatchObject({ accessKeyId: 'AKID-1234' });
   });
 
   it('maskAkId：`****` + akId 后 4 位', () => {

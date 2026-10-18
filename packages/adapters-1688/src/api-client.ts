@@ -37,14 +37,17 @@ export interface AkParts {
 }
 
 /**
- * AK 原始串 → {id, secret}。base64url 解码失败或解码结果非合法 UTF-8 时回退原文
- * （Python 版行为：解码异常即 pass）；长度 < 32 或拆分后 id 为空 → null（无法构成有效调用方）。
+ * AK 原始串 → {id, secret}。官方语义（_auth.py）：`urlsafe_b64decode` 成功且解码结果
+ * 为合法 UTF-8 才采用解码串，否则回退原文。Python b64decode 只接受**带正确 padding
+ * 的** base64（标准 +/ 与 urlsafe -_ 字符集均可，`=` 结尾合法），长度非 4 的倍数直接抛
+ * 异常回退——此处严格对齐：charset 含 `=`、长度必须 %4==0 才尝试解码；解码产物经
+ * fatal UTF-8 校验。长度 < 32 或拆分后 id 为空 → null（无法构成有效调用方）。
  */
 export function extractAkKeys(raw: string): AkParts | null {
   let candidate = raw;
-  if (/^[A-Za-z0-9_-]+$/.test(raw) && raw.length % 4 !== 1) {
+  if (/^[A-Za-z0-9+/_-]+={0,2}$/.test(raw) && raw.length % 4 === 0) {
     try {
-      const decoded = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(raw, 'base64url'));
+      const decoded = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(raw, 'base64'));
       if (decoded.length > 0) candidate = decoded;
     } catch {
       /* 非 UTF-8 解码结果 → 按原文处理（对齐 Python 回退） */

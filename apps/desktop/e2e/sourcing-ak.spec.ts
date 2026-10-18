@@ -20,8 +20,8 @@ import { ensureEulaAccepted } from './helpers';
 const pkgRoot = path.join(__dirname, '..');
 const requireFromDesktop = createRequire(path.join(pkgRoot, 'noop.js'));
 
-/** 合法形态 AK（base64url(32 位 secret + akId)）——e2e 只落存储不发起任何真实 API 调用 */
-const RAW_AK = Buffer.from(`${'S'.repeat(32)}E2EAKID-9876`, 'utf8').toString('base64url');
+/** 合法形态 AK（带 = padding 的标准 base64，同 clawhub 实发形态）——e2e 只落存储不发起任何真实 API 调用 */
+const RAW_AK = Buffer.from(`${'S'.repeat(32)}E2EAKID-9876`, 'utf8').toString('base64');
 
 test.describe.serial('1688 官方 API AK 配置（T-M2-05a）', () => {
   let userData: string;
