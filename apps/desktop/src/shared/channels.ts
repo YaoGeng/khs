@@ -214,11 +214,12 @@ export const KEY_ERRORS = {
 } as const;
 
 /**
- * 选品五维 id（05 T-M2-03 / FR-6.2 权重调整面）。与 packages/agents selection-agent
+ * 选品维度 id（05 T-M2-03 / FR-6.2 权重调整面；repurchase 为 T-M2-05b 补 PRD
+ * 「销量/复购」口径，仅官方 API 检索通道有数据）。与 packages/agents selection-agent
  * SELECTION_DIMENSIONS 键集互链镜像（渲染 bundle 不携带 agents 包，镜像面靠
  * selection-view-service 启动期一致性断言守护——键集不符即抛，防两表漂移）。
  */
-export const SELECTION_DIMENSIONS_SCHEMA = ['relevance', 'price', 'sales', 'supplier', 'gallery'] as const;
+export const SELECTION_DIMENSIONS_SCHEMA = ['relevance', 'price', 'sales', 'supplier', 'gallery', 'repurchase'] as const;
 
 export type SelectionDimensionId = (typeof SELECTION_DIMENSIONS_SCHEMA)[number];
 

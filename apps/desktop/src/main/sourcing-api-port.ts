@@ -13,6 +13,31 @@
 import type { SourcingCandidate, SourcingSearchPort } from '@xinglian/agents';
 import { searchOffers1688, type AkParts, type FetchLike } from '@xinglian/adapters-1688';
 
+/**
+ * API stats 原始记录 → 候选 stats 归一化（T-M2-05b）。
+ * 实测形状（2026-10-18 真 AK 探针）：repurchaseRate="0.19…"（小数字符串）、
+ * goodRates=100（0-100 数值）、downstreamOffer="298"、last30DaysSales="100+"；
+ * 缺失/垃圾值 → null（复购维按无数据中性计，不臆造）。
+ */
+function normalizeStats(stats: Record<string, unknown> | null): SourcingCandidate['stats'] {
+  if (!stats) return null;
+  const num = (v: unknown): number | null => {
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string') {
+      const m = /(\d+(?:\.\d+)?)/.exec(v);
+      if (m) return Number(m[1]);
+    }
+    return null;
+  };
+  const repurchaseRate = num(stats.repurchaseRate);
+  return {
+    repurchaseRate: repurchaseRate !== null && repurchaseRate >= 0 && repurchaseRate <= 1 ? repurchaseRate : null,
+    goodRates: num(stats.goodRates),
+    downstreamOffer: num(stats.downstreamOffer),
+    last30DaysSales: num(stats.last30DaysSales),
+  };
+}
+
 export function createApiSourcingPort1688(deps: {
   fetchImpl: FetchLike;
   /** 每次调用现取（组合根闭包 akStore.get；secret 不出主进程） */
@@ -33,6 +58,7 @@ export function createApiSourcingPort1688(deps: {
         supplierAddress: null,
         galleryCount: null,
         sourceUrl: `https://detail.1688.com/offer/${item.offerId}.html`,
+        stats: normalizeStats(item.stats),
       }));
       deps.logger?.networkMeta?.('sourcing:api-search', {
         keyword,

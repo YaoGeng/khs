@@ -55,7 +55,7 @@ const akSaveBtn = document.getElementById('sourcing-ak-save') as HTMLButtonEleme
 const akClearBtn = document.getElementById('sourcing-ak-clear') as HTMLButtonElement | null;
 const akStatus = document.getElementById('sourcing-ak-status');
 
-type DimensionId = 'relevance' | 'price' | 'sales' | 'supplier' | 'gallery';
+type DimensionId = 'relevance' | 'price' | 'sales' | 'supplier' | 'gallery' | 'repurchase';
 
 interface DimensionMeta {
   id: DimensionId;
@@ -102,13 +102,14 @@ interface CandidateView {
   createdAt: string;
 }
 
-/** 维度短标签（紧凑五维格用；id 集来自 selection:config，本地缩写映射） */
+/** 维度短标签（紧凑维度格用；id 集来自 selection:config，本地缩写映射） */
 const DIMENSION_SHORT: Record<string, string> = {
   relevance: '相关',
   price: '价格',
   sales: '销量',
   supplier: '供应',
   gallery: '素材',
+  repurchase: '复购',
 };
 
 const state = {

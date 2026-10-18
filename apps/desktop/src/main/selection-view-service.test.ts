@@ -133,20 +133,23 @@ describe('recomputeTotal（FR-6.2 权重重算算术）', () => {
         60 * SELECTION_DIMENSIONS.price.weight +
         40 * SELECTION_DIMENSIONS.sales.weight +
         70 * SELECTION_DIMENSIONS.supplier.weight +
-        40 * SELECTION_DIMENSIONS.gallery.weight,
+        40 * SELECTION_DIMENSIONS.gallery.weight +
+        50 * SELECTION_DIMENSIONS.repurchase.weight,
     );
     expect(recomputeTotal(dimensions, defaultSelectionWeights())).toBe(agentTotal);
   });
 
-  it('权重是相对值：整体放大不改结果（60/40/40/30/30 ≡ 默认）', () => {
+  it('权重是相对值：整体放大不改结果（2× 默认 ≡ 默认）', () => {
     const dimensions = dims({ relevance: 80, price: 20, sales: 90, supplier: 55, gallery: 0 });
-    const doubled = { relevance: 60, price: 40, sales: 40, supplier: 30, gallery: 30 } as const;
+    const doubled = { relevance: 50, price: 30, sales: 40, supplier: 20, gallery: 30, repurchase: 30 } as const;
     expect(recomputeTotal(dimensions, doubled)).toBe(recomputeTotal(dimensions, defaultSelectionWeights()));
   });
 
   it('单维权重 → 综合分 = 该维分；损坏 dimensions → null', () => {
     const dimensions = dims({ relevance: 77 });
-    expect(recomputeTotal(dimensions, { relevance: 100, price: 0, sales: 0, supplier: 0, gallery: 0 })).toBe(77);
+    expect(
+      recomputeTotal(dimensions, { relevance: 100, price: 0, sales: 0, supplier: 0, gallery: 0, repurchase: 0 }),
+    ).toBe(77);
     expect(recomputeTotal(null, defaultSelectionWeights())).toBeNull();
     expect(recomputeTotal([ { name: 'x' } ], defaultSelectionWeights())).toBeNull();
   });
@@ -157,19 +160,35 @@ describe('config / setWeights（kv 往返）', () => {
     const deps = makeDeps();
     const svc = createSelectionViewService(deps);
     const before = await svc.getConfig();
-    expect(before.weights).toEqual({ relevance: 30, price: 20, sales: 20, supplier: 15, gallery: 15 });
+    expect(before.weights).toEqual({ relevance: 25, price: 15, sales: 20, supplier: 10, gallery: 15, repurchase: 15 });
     expect(before.customized).toBe(false);
-    expect(before.dimensions).toHaveLength(5);
-    expect(before.dimensions[0]).toMatchObject({ id: 'relevance', title: '关键词相关性', default: 30 });
+    expect(before.dimensions).toHaveLength(6);
+    expect(before.dimensions[0]).toMatchObject({ id: 'relevance', title: '关键词相关性', default: 25 });
+    expect(before.dimensions[5]).toMatchObject({ id: 'repurchase', title: '复购信号', default: 15 });
 
-    const after = await svc.setWeights({ relevance: 50, price: 10, sales: 20, supplier: 10, gallery: 10 });
-    expect(after.weights).toEqual({ relevance: 50, price: 10, sales: 20, supplier: 10, gallery: 10 });
+    const after = await svc.setWeights({ relevance: 50, price: 10, sales: 20, supplier: 10, gallery: 10, repurchase: 10 });
+    expect(after.weights).toEqual({ relevance: 50, price: 10, sales: 20, supplier: 10, gallery: 10, repurchase: 10 });
     expect(after.customized).toBe(true);
-    expect(JSON.parse(deps.kv.get('selection:weights') ?? '{}')).toEqual({ relevance: 50, price: 10, sales: 20, supplier: 10, gallery: 10 });
+    expect(JSON.parse(deps.kv.get('selection:weights') ?? '{}')).toEqual({
+      relevance: 50, price: 10, sales: 20, supplier: 10, gallery: 10, repurchase: 10,
+    });
+  });
+
+  it('旧五键 kv（无 repurchase）→ 用户值保留 + repurchase 按默认补齐（向后兼容）', async () => {
+    const deps = makeDeps();
+    deps.kv.set('selection:weights', JSON.stringify({ relevance: 60, price: 10, sales: 10, supplier: 10, gallery: 10 }));
+    const config = await createSelectionViewService(deps).getConfig();
+    expect(config.weights).toEqual({ relevance: 60, price: 10, sales: 10, supplier: 10, gallery: 10, repurchase: 15 });
+    expect(config.customized).toBe(true);
   });
 
   it('kv 损坏（缺维/非整数/全零）→ 回退默认且 customized=false', async () => {
-    for (const bad of ['{"relevance":50}', '{"relevance":1.5,"price":20,"sales":20,"supplier":15,"gallery":15}', '{"relevance":0,"price":0,"sales":0,"supplier":0,"gallery":0}', 'not-json']) {
+    for (const bad of [
+      '{"relevance":50}',
+      '{"relevance":1.5,"price":20,"sales":20,"supplier":15,"gallery":15,"repurchase":15}',
+      '{"relevance":0,"price":0,"sales":0,"supplier":0,"gallery":0,"repurchase":0}',
+      'not-json',
+    ]) {
       const deps = makeDeps();
       deps.kv.set('selection:weights', bad);
       const config = await createSelectionViewService(deps).getConfig();
@@ -273,7 +292,7 @@ describe('insertFixture（QA 播种）+ listCandidates', () => {
     const view = await svc.listCandidates(result.taskId);
     expect(view.candidates).toHaveLength(2);
     expect(view.pinned).toEqual([]);
-    expect(view.candidates[0]).toMatchObject({ offerId: '1001', rank: 1, total: 84, supplierName: '义乌某某厂' });
+    expect(view.candidates[0]).toMatchObject({ offerId: '1001', rank: 1, total: 78, supplierName: '义乌某某厂' });
     // 缺省 dimensions 确定性：同一 offerId 两次生成分数一致 → total 一致
     expect(view.candidates[1]?.total).toBe(recomputeTotal(view.candidates[1]?.dimensions, defaultSelectionWeights()));
   });

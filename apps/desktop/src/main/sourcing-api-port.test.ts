@@ -47,6 +47,25 @@ describe('createApiSourcingPort1688', () => {
     });
     expect(count()).toBe(0);
   });
+
+  it('stats 归一化（T-M2-05b）：字符串数值提取 + 越界归 null（真 AK 实测形状）', async () => {
+    const { fetchImpl } = fetchWith({
+      success: true,
+      model: { data: {
+        // 2026-10-18 探针实测形态：repurchaseRate 小数字符串 / goodRates 0-100 数值 /
+        // downstreamOffer 数字字符串 / last30DaysSales "N+"
+        'a': { title: 'x', price: '1', stats: { repurchaseRate: '0.1918238993710692', goodRates: 100, downstreamOffer: '298', last30DaysSales: '100+' } },
+        'b': { title: 'y', price: '1', stats: { repurchaseRate: 1.5, goodRates: '垃圾', downstreamOffer: '', last30DaysSales: null } },
+        'c': { title: 'z', price: '1', stats: null },
+      } },
+    });
+    const port = createApiSourcingPort1688({ fetchImpl, ak: async () => AK });
+    const items = await port.search('kw', 10);
+    expect(items[0].stats).toEqual({ repurchaseRate: 0.1918238993710692, goodRates: 100, downstreamOffer: 298, last30DaysSales: 100 });
+    // repurchaseRate 越界（>1）→ null（复购维走无数据中性）；垃圾字符串提取不出 → null
+    expect(items[1].stats).toEqual({ repurchaseRate: null, goodRates: null, downstreamOffer: null, last30DaysSales: null });
+    expect(items[2].stats).toBeNull();
+  });
 });
 
 describe('createRoutedSearchPort（AK 有走 API、无走 CDP；不静默回落）', () => {

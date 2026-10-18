@@ -58,14 +58,14 @@ function fakePort(byKeyword: Record<string, SourcingCandidate[]>): SourcingSearc
 }
 
 describe('generateSelection（选品 Agent v1）', () => {
-  it('五维齐备 + 加权总分：维度名/权重与 SELECTION_DIMENSIONS 一致，理由为中文', async () => {
+  it('六维齐备 + 加权总分：维度名/权重与 SELECTION_DIMENSIONS 一致，理由为中文', async () => {
     const result = await generateSelection(
       { keywords: [{ term: '冰丝防晒衣' }] },
       { search: fakePort({ 冰丝防晒衣: [cand('8801', '冰丝防晒衣女夏季UPF50+')] }) },
     );
     expect(result.top).toHaveLength(1);
     const dims = result.top[0].dimensions;
-    expect(dims.map((d) => d.name)).toEqual(['relevance', 'price', 'sales', 'supplier', 'gallery']);
+    expect(dims.map((d) => d.name)).toEqual(['relevance', 'price', 'sales', 'supplier', 'gallery', 'repurchase']);
     for (const d of dims) {
       expect(d.weight).toBe(SELECTION_DIMENSIONS[d.name].weight);
       expect(d.reason.length).toBeGreaterThan(2);
@@ -74,6 +74,37 @@ describe('generateSelection（选品 Agent v1）', () => {
     }
     const total = dims.reduce((s, d) => s + d.score * d.weight, 0);
     expect(result.top[0].total).toBeCloseTo(Math.round(total * 100) / 100, 2);
+  });
+
+  it('复购维（T-M2-05b）：绝对计分 0.4→满分；无 stats 中性 30；高复购改变排序', async () => {
+    const result = await generateSelection(
+      { keywords: [{ term: '冰丝防晒衣' }] },
+      {
+        search: fakePort({
+          冰丝防晒衣: [
+            cand('hi', '冰丝防晒衣高分款', { stats: { repurchaseRate: 0.4 } }),
+            cand('mid', '冰丝防晒衣中分款', { stats: { repurchaseRate: 0.2 } }),
+            cand('zero', '冰丝防晒衣零分款', { stats: { repurchaseRate: 0 } }),
+            cand('none', '冰丝防晒衣无数据款（CDP 通道）'),
+          ],
+        }),
+      },
+    );
+    const dim = (id: string) => result.top.find((t) => t.offerId === id)!.dimensions[5];
+    expect(dim('hi')).toMatchObject({ score: 100, reason: expect.stringContaining('高复购') });
+    expect(dim('mid')!.score).toBe(50);
+    expect(dim('zero')!.score).toBe(0);
+    expect(dim('none')).toMatchObject({ score: 30, reason: expect.stringContaining('无复购数据') });
+    // >0.4 截断到满分上限；高复购候选排前（同相关性下复购维拉开差距）
+    const capped = await generateSelection(
+      { keywords: [{ term: '冰丝防晒衣' }] },
+      { search: fakePort({ 冰丝防晒衣: [cand('x', '冰丝防晒衣超高分', { stats: { repurchaseRate: 0.9 } })] }) },
+    );
+    expect(capped.top[0].dimensions[5].score).toBe(100);
+    expect(result.top[0].offerId).toBe('hi');
+    // 无数据款（30）仍高于零复购款（0）：中性不惩罚
+    expect(result.top[2].offerId).toBe('none');
+    expect(result.top[3].offerId).toBe('zero');
   });
 
   it('推荐流防御：标题与关键词零重叠的候选整条剔除（入 excludedJunk 统计，不入 Top）', async () => {
@@ -224,10 +255,11 @@ describe('generateSelection（选品 Agent v1）', () => {
       generateSelection(input, { search: fakePort({ 冰丝防晒衣: pool }), now: () => new Date('2026-10-16T00:00:00Z') });
     const r1 = await run();
     const r2 = await run();
-    // selectionId 是每次运行的 UUID，确定性对比剔除之；其余字段（含排序/分值/理由）必须逐位相等
-    const { selectionId: _id1, ...rest1 } = r1;
-    const { selectionId: _id2, ...rest2 } = r2;
-    expect(rest1).toEqual(rest2);
+    // selectionId 是每次运行的 UUID，确定性对比剔除之（undefined 键 toEqual 视同缺失）；
+    // 其余字段（含排序/分值/理由）必须逐位相等
+    const r1s = { ...r1, selectionId: undefined };
+    const r2s = { ...r2, selectionId: undefined };
+    expect(r1s).toEqual(r2s);
   });
 
   it('空输入/空结果口径：零关键词抛错；端口空返回 → 空 Top + 统计归零', async () => {

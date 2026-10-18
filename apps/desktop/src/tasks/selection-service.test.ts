@@ -175,7 +175,7 @@ describe('selection-service（T-M2-03）', () => {
     expect(rows).toHaveLength(3);
     expect(rows.map((r) => r.rank).sort((a, b) => a - b)).toEqual([1, 2, 3]);
     const dims = rows[0].dimensions as Array<{ name: string; score: number; reason: string }>;
-    expect(dims.map((d) => d.name)).toEqual(['relevance', 'price', 'sales', 'supplier', 'gallery']);
+    expect(dims.map((d) => d.name)).toEqual(['relevance', 'price', 'sales', 'supplier', 'gallery', 'repurchase']);
     expect(dims.every((d) => d.reason.length > 2)).toBe(true);
 
     // stats kv + 三步检查点

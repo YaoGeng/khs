@@ -5,7 +5,8 @@
  * - 权重调整重算 = 读时纯算术：库内 rank/total 保留 selection-agent 的原始评分
  *   （溯源不动），渲染层按 kv 当前权重现算 displayTotal/序——不回写、不重跑检索。
  * - 置顶 = 用户显式 UI 偏好，落 kv `selection:pinned:<taskId>`（offerId 集），
- *   不触碰候选行本身；权重落 kv `selection:weights`（全局，五维 0-100 相对权重）。
+ *   不触碰候选行本身；权重落 kv `selection:weights`（全局，六维 0-100 相对权重；
+ *   T-M2-05b 起 repurchase 缺键的旧 kv 按默认值补齐，向后兼容）。
  * - excludedJunk 是「匿名检索吃到推荐流 → 需登录 1688」的可观测信号（T-M2-01
  *   取证结论），任务卡如实展示，不臆造候选、不自动重试。
  * - shared/channels SELECTION_DIMENSIONS_SCHEMA 与 agents SELECTION_DIMENSIONS 是
@@ -85,7 +86,9 @@ export function defaultSelectionWeights(): SelectionWeights {
   return weights;
 }
 
-/** kv 侧权重表校验：五维齐全 + 0-100 整数 + 非全零；不符 → null（读面回退默认） */
+/** kv 侧权重表校验：0-100 整数 + 非全零；不符 → null（读面回退默认）。
+ *  向后兼容（T-M2-05b 六维化）：旧 kv 只存五键 → 缺失的 repurchase 用该维默认值
+ *  补齐（一次性迁移语义，保存时即写全六键）；其余键缺失仍视为损坏 → null。 */
 function parseWeights(value: unknown): SelectionWeights | null {
   if (typeof value !== 'object' || value === null) return null;
   const raw = value as Record<string, unknown>;
@@ -93,6 +96,11 @@ function parseWeights(value: unknown): SelectionWeights | null {
   let sum = 0;
   for (const id of SELECTION_DIMENSIONS_SCHEMA) {
     const w = raw[id];
+    if (w === undefined && id === 'repurchase') {
+      weights[id] = Math.round(SELECTION_DIMENSIONS.repurchase.weight * 100);
+      sum += weights[id];
+      continue;
+    }
     if (typeof w !== 'number' || !Number.isInteger(w) || w < 0 || w > 100) return null;
     weights[id] = w;
     sum += w;

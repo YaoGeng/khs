@@ -3,7 +3,9 @@
  *
  * 边界与口径：
  * - **确定性评分，无 LLM**（任务卡原文「确定性评分（维度分+理由）」）：同输入恒同输出，
- *   五维加权（相关性/价格/销量/供应商/素材），每维 0~100 + 中文理由，权重常量可审计。
+ *   六维加权（相关性/价格/销量/供应商/素材/复购——复购维 T-M2-05b 补 PRD FR-6.2
+ *   「销量/复购/回头率」口径，仅官方 API 通道有数据，CDP 通道按无数据中性计），
+ *   每维 0~100 + 中文理由，权重常量可审计。
  * - **检索经注入 Port**（SourcingSearchPort）：本包不持有浏览器/CDP——执行侧由组合根
  *   注入（真实实现 = CdpAutomation + adapters-1688 DSL，随 selection-service 卡接线；
  *   单测/fixture 注入假实现）。Agent 只负责编排：多词扇出 → 跨词去重 → 分词队列评分
@@ -30,6 +32,14 @@ export interface SourcingCandidate {
   supplierAddress?: string | null;
   galleryCount?: number | null;
   sourceUrl?: string | null;
+  /** 官方 API stats（T-M2-05b；仅 API 通道产出，CDP 浏览器检索无此字段 → 复购维按无数据中性计）。
+   *  数值已由执行侧从 API 字符串形态归一化（repurchaseRate 0-1、goodRates 0-100）。 */
+  stats?: {
+    repurchaseRate?: number | null;
+    goodRates?: number | null;
+    downstreamOffer?: number | null;
+    last30DaysSales?: number | null;
+  } | null;
 }
 
 /** 检索端口：单关键词 → 原始候选（真实实现 = CDP + adapters-1688；测试注入假实现） */
@@ -69,11 +79,12 @@ export function parseMonthlySales(text: string | null | undefined): number | nul
 /* ------------------------------ 评分维度 ------------------------------ */
 
 export const SELECTION_DIMENSIONS = {
-  relevance: { weight: 0.3, title: '关键词相关性' },
-  price: { weight: 0.2, title: '价格竞争力' },
+  relevance: { weight: 0.25, title: '关键词相关性' },
+  price: { weight: 0.15, title: '价格竞争力' },
   sales: { weight: 0.2, title: '销量信号' },
-  supplier: { weight: 0.15, title: '供应商资质' },
+  supplier: { weight: 0.1, title: '供应商资质' },
   gallery: { weight: 0.15, title: '素材完备度' },
+  repurchase: { weight: 0.15, title: '复购信号' },
 } as const;
 
 export interface DimensionScore {
@@ -165,6 +176,24 @@ function scoreGallery(count: number | null | undefined): { score: number; reason
   if (n <= 2) return { score: 40, reason: `图集 ${n} 张（偏少）` };
   if (n <= 5) return { score: 70, reason: `图集 ${n} 张` };
   return { score: 100, reason: `图集 ${n} 张（充足）` };
+}
+
+/**
+ * 复购信号（T-M2-05b，PRD FR-6.2「销量/复购/回头率」的确定性落地）：
+ * repurchaseRate 0-1 绝对计分（行业复购普遍 10-40% 置间，250 线性系数使 0.4 → 满分），
+ * 不做队列分位——复购率跨商品可比，且 API 通道同词队列常含无 stats 噪声行。
+ * 无 stats（CDP 浏览器检索通道）→ 中性 30，不惩罚不奖励。
+ */
+function scoreRepurchase(candidate: SourcingCandidate): { score: number; reason: string } {
+  const rate = candidate.stats?.repurchaseRate;
+  if (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0) {
+    return { score: 30, reason: '无复购数据（浏览器检索通道不提供）' };
+  }
+  const score = Math.min(100, Math.round(rate * 250));
+  const pct = (Math.min(rate, 0.4) * 100).toFixed(1);
+  if (rate >= 0.3) return { score, reason: `复购率 ${pct}%（高复购信号）` };
+  if (rate >= 0.15) return { score, reason: `复购率 ${pct}%（良好）` };
+  return { score, reason: `复购率 ${pct}%` };
 }
 
 /* ------------------------------ 编排与产出 ------------------------------ */
@@ -272,12 +301,14 @@ export async function generateSelection(
         : { score: 25, reason: '无销量信号' };
       const supplier = scoreSupplier(c);
       const gallery = scoreGallery(c.galleryCount);
+      const repurchase = scoreRepurchase(c);
       const dimensions: DimensionScore[] = [
         { name: 'relevance', ...SELECTION_DIMENSIONS.relevance, ...relevance },
         { name: 'price', ...SELECTION_DIMENSIONS.price, ...priceScore },
         { name: 'sales', ...SELECTION_DIMENSIONS.sales, ...salesScore },
         { name: 'supplier', ...SELECTION_DIMENSIONS.supplier, ...supplier },
         { name: 'gallery', ...SELECTION_DIMENSIONS.gallery, ...gallery },
+        { name: 'repurchase', ...SELECTION_DIMENSIONS.repurchase, ...repurchase },
       ];
       const total = Math.round(
         dimensions.reduce((sum, d) => sum + d.score * d.weight, 0) * 100,

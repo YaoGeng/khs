@@ -20,11 +20,11 @@ const pkgRoot = path.join(__dirname, '..');
 const requireFromDesktop = createRequire(path.join(pkgRoot, 'noop.js'));
 const electronPath = requireFromDesktop('electron') as string;
 
-const DIMENSION_IDS = ['relevance', 'price', 'sales', 'supplier', 'gallery'] as const;
+const DIMENSION_IDS = ['relevance', 'price', 'sales', 'supplier', 'gallery', 'repurchase'] as const;
 
-/** 显式五维分（e2e 排序可控性的前提；缺省会生成难预测的确定性分） */
+/** 显式六维分（e2e 排序可控性的前提；缺省会生成难预测的确定性分） */
 function dims(scores: Record<(typeof DIMENSION_IDS)[number], number>): Array<{ name: string; title: string; score: number; weight: number; reason: string }> {
-  const titles: Record<string, string> = { relevance: '关键词相关性', price: '价格竞争力', sales: '销量信号', supplier: '供应商资质', gallery: '素材完备度' };
+  const titles: Record<string, string> = { relevance: '关键词相关性', price: '价格竞争力', sales: '销量信号', supplier: '供应商资质', gallery: '素材完备度', repurchase: '复购信号' };
   return DIMENSION_IDS.map((name) => ({ name, title: titles[name], score: scores[name], weight: 0, reason: `e2e 理由-${name}` }));
 }
 
@@ -57,7 +57,7 @@ test.describe.serial('候选清单 UI（05 T-M2-03）', () => {
     page = await electronApp.firstWindow();
     await page.waitForSelector('html[data-app-mounted="1"]', { timeout: 30_000 });
     await ensureEulaAccepted(page);
-    // 播种：默认权重（30/20/20/15/15）下综合分 222=76 > 333=60 > 111=44（显式维度分）
+    // 播种：默认权重（25/15/20/10/15/15）下综合分 222=80 > 333=60 > 111=40（显式维度分）
     await invoke(page, 'selection:insertFixture', {
       topic: 'e2e-防晒帽选品',
       keywords: ['防晒帽——e2e 理由', '空顶帽——e2e 理由'],
@@ -71,7 +71,7 @@ test.describe.serial('候选清单 UI（05 T-M2-03）', () => {
           supplierName: '义乌某帽厂',
           supplierAddress: '浙江 金华',
           sourceUrl: 'https://detail.1688.com/offer/111.html',
-          dimensions: dims({ relevance: 100, price: 20, sales: 20, supplier: 20, gallery: 20 }),
+          dimensions: dims({ relevance: 100, price: 20, sales: 20, supplier: 20, gallery: 20, repurchase: 20 }),
         },
         {
           offerId: '222',
@@ -80,7 +80,7 @@ test.describe.serial('候选清单 UI（05 T-M2-03）', () => {
           priceText: '8.80',
           salesText: '已售 2万+',
           supplierName: '广州某贸易行',
-          dimensions: dims({ relevance: 20, price: 100, sales: 100, supplier: 100, gallery: 100 }),
+          dimensions: dims({ relevance: 20, price: 100, sales: 100, supplier: 100, gallery: 100, repurchase: 100 }),
         },
         {
           offerId: '333',
@@ -89,7 +89,7 @@ test.describe.serial('候选清单 UI（05 T-M2-03）', () => {
           priceText: '8.80',
           salesText: '已售 2万+',
           supplierName: '青岛某体育用品厂',
-          dimensions: dims({ relevance: 60, price: 60, sales: 60, supplier: 60, gallery: 60 }),
+          dimensions: dims({ relevance: 60, price: 60, sales: 60, supplier: 60, gallery: 60, repurchase: 60 }),
         },
       ],
     });
@@ -107,26 +107,27 @@ test.describe.serial('候选清单 UI（05 T-M2-03）', () => {
     }
   });
 
-  test('A. 任务卡 + 对比表格：默认权重综合分降序 + 五维理由 tooltip', async () => {
+  test('A. 任务卡 + 对比表格：默认权重综合分降序 + 六维理由 tooltip', async () => {
     await expect(page.locator('.sourcing-task-card[data-status="completed"] h3')).toHaveText('e2e-防晒帽选品');
     await expect(page.locator('.sourcing-task-card .sourcing-task-meta')).toContainText('候选 3 条');
 
-    /* 默认排序 = 综合分降序：222(76) > 333(60) > 111(44) */
+    /* 默认排序 = 综合分降序：222(80) > 333(60) > 111(40) */
     expect(await offerOrder(page)).toEqual(['222', '333', '111']);
-    await expect(page.locator('tr[data-offer-id="222"] td.sourcing-total')).toHaveText('76');
+    await expect(page.locator('tr[data-offer-id="222"] td.sourcing-total')).toHaveText('80');
     await expect(page.locator('tr[data-offer-id="333"] td.sourcing-total')).toHaveText('60');
-    await expect(page.locator('tr[data-offer-id="111"] td.sourcing-total')).toHaveText('44');
+    await expect(page.locator('tr[data-offer-id="111"] td.sourcing-total')).toHaveText('40');
 
-    /* 五维 chips（FR-6.2 可解释面）+ 悬停理由 tooltip */
+    /* 六维 chips（FR-6.2 可解释面）+ 悬停理由 tooltip */
     await expect(page.locator('tr[data-offer-id="111"] .sourcing-dim-chip[data-dimension="relevance"]')).toHaveText('相关 100');
     const reasons = (await page.locator('tr[data-offer-id="111"] td.sourcing-dims').getAttribute('title')) ?? '';
     expect(reasons).toContain('关键词相关性 100：e2e 理由-relevance');
     expect(reasons).toContain('价格竞争力 20：e2e 理由-price');
+    expect(reasons).toContain('复购信号 20：e2e 理由-repurchase');
 
     /* 权重面板 = Agent 默认（未自定义） */
     await expect(page.locator('#sourcing-weights-note')).toContainText('Agent 默认权重');
     const relevanceSlider = page.locator('#sourcing-weight-sliders input[data-dimension="relevance"]');
-    await expect(relevanceSlider).toHaveValue('30');
+    await expect(relevanceSlider).toHaveValue('25');
   });
 
   test('B. 权重重算（FR-6.2）：relevance=100 其余 0 → 顺序与综合分重排', async () => {
