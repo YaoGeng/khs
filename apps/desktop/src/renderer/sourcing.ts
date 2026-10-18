@@ -26,6 +26,9 @@ const weightSliders = document.getElementById('sourcing-weight-sliders');
 const weightsApplyBtn = document.getElementById('sourcing-weights-apply') as HTMLButtonElement | null;
 const weightsResetBtn = document.getElementById('sourcing-weights-reset') as HTMLButtonElement | null;
 const weightsNote = document.getElementById('sourcing-weights-note');
+// T-M2-07：偏好画像回流（FR-6.7）——摘要 + 开关
+const preferenceToggle = document.getElementById('sourcing-preference-toggle') as HTMLInputElement | null;
+const preferenceNote = document.getElementById('sourcing-preference-note');
 const toolbar = document.getElementById('sourcing-toolbar');
 const keywordFilter = document.getElementById('sourcing-keyword-filter') as HTMLSelectElement | null;
 const searchInput = document.getElementById('sourcing-search') as HTMLInputElement | null;
@@ -104,6 +107,16 @@ interface CandidateView {
   createdAt: string;
 }
 
+/** T-M2-07：偏好画像块（selection:config.preference 镜像；dimBias/effectiveWeights 读时融合产物） */
+interface PreferenceInfoView {
+  enabled: boolean;
+  adopted: number;
+  dismissed: number;
+  sampleInsufficient: boolean;
+  dimBias: Partial<Record<DimensionId, number>>;
+  effectiveWeights: Record<DimensionId, number>;
+}
+
 /** 维度短标签（紧凑维度格用；id 集来自 selection:config，本地缩写映射） */
 const DIMENSION_SHORT: Record<string, string> = {
   relevance: '相关',
@@ -114,15 +127,25 @@ const DIMENSION_SHORT: Record<string, string> = {
   repurchase: '复购',
 };
 
+/** selection:config 出口视图（T-M2-07 起含 preference 块） */
+interface ConfigView {
+  dimensions: DimensionMeta[];
+  weights: Record<DimensionId, number>;
+  customized: boolean;
+  preference: PreferenceInfoView;
+}
+
 const state = {
   selections: [] as SelectionSummaryView[],
   activeTaskId: null as string | null,
   candidates: [] as CandidateView[],
   pinned: new Set<string>(),
   checked: new Set<string>(),
+  dismissed: new Set<string>(),
   dimensions: [] as DimensionMeta[],
   weights: null as Record<DimensionId, number> | null,
   customized: false,
+  preference: null as PreferenceInfoView | null,
   keyword: '',
   search: '',
   sort: 'total',
@@ -313,9 +336,12 @@ function parseDimensions(value: unknown): DimensionScoreView[] | null {
   return dims.length > 0 ? dims : null;
 }
 
-/** 读时重算综合分（与主进程 recomputeTotal 同式：Σ score × w/Σw；权重缺失回退库内 total） */
+/** 综合分权重源：偏好回流生效（开 + 样本足）→ effectiveWeights（乘性微调，可解释可见）；
+ *  其余 → 用户显式权重。权重缺失回退库内 total（Agent 原始评分溯源不动）。 */
 function displayTotal(candidate: CandidateView): number {
-  const weights = state.weights;
+  const preference = state.preference;
+  const weights =
+    preference && preference.enabled && !preference.sampleInsufficient ? preference.effectiveWeights : state.weights;
   if (!weights) return candidate.total;
   const dims = parseDimensions(candidate.dimensions);
   if (!dims) return candidate.total;
@@ -531,6 +557,8 @@ function renderTable(): void {
     tr.dataset.pinned = String(pinned);
     const checked = state.checked.has(candidate.offerId);
     tr.dataset.checked = String(checked);
+    const dismissed = state.dismissed.has(candidate.offerId);
+    tr.dataset.dismissed = String(dismissed); // T-M2-07：淘汰行标记（e2e 断言面）
 
     // T-M2-04（FR-6.3）：勾选列——执行收藏/询盘的目标集
     const checkTd = document.createElement('td');
@@ -557,6 +585,20 @@ function renderTable(): void {
       void togglePin(candidate.offerId, !state.pinned.has(candidate.offerId));
     });
     pinTd.appendChild(pinBtn);
+
+    // T-M2-07（FR-6.7）：显式淘汰列——勾选的对偶信号，本地学习「不要什么」
+    const dismissTd = document.createElement('td');
+    const dismissBtn = document.createElement('button');
+    dismissBtn.type = 'button';
+    dismissBtn.className = 'btn btn-ghost sourcing-dismiss-btn';
+    dismissBtn.dataset.offerId = candidate.offerId;
+    dismissBtn.dataset.dismissed = String(dismissed);
+    dismissBtn.textContent = dismissed ? '🚫 已淘汰' : '🚫 淘汰';
+    dismissBtn.setAttribute('aria-label', dismissed ? `取消淘汰 ${candidate.title.slice(0, 20)}` : `淘汰 ${candidate.title.slice(0, 20)}`);
+    dismissBtn.addEventListener('click', () => {
+      void toggleDismissed(candidate.offerId, !state.dismissed.has(candidate.offerId));
+    });
+    dismissTd.appendChild(dismissBtn);
 
     const rankTd = document.createElement('td');
     rankTd.textContent = String(index + 1);
@@ -588,7 +630,7 @@ function renderTable(): void {
     totalTd.className = 'sourcing-total';
     totalTd.textContent = String(displayTotal(candidate));
 
-    tr.append(checkTd, pinTd, rankTd, titleTd, keywordTd, priceTd, salesTd, supplierTd, dimensionCell(candidate), totalTd);
+    tr.append(checkTd, pinTd, dismissTd, rankTd, titleTd, keywordTd, priceTd, salesTd, supplierTd, dimensionCell(candidate), totalTd);
     tbody.appendChild(tr);
   }
   root.dataset.sourcingCount = String(rows.length);
@@ -596,6 +638,7 @@ function renderTable(): void {
   root.dataset.sourcingSortDir = state.sortDir;
   root.dataset.sourcingKeyword = state.keyword;
   root.dataset.sourcingChecked = String(state.checked.size);
+  root.dataset.sourcingDismissed = String(state.dismissed.size);
 }
 
 async function selectTask(taskId: string): Promise<void> {
@@ -604,16 +647,18 @@ async function selectTask(taskId: string): Promise<void> {
   if (searchInput) searchInput.value = '';
   state.search = '';
   try {
-    const result = await invoke<{ candidates: CandidateView[]; pinned: string[]; checked: string[] }>('selection:candidates', { taskId });
+    const result = await invoke<{ candidates: CandidateView[]; pinned: string[]; checked: string[]; dismissed: string[] }>('selection:candidates', { taskId });
     state.candidates = result.candidates;
     state.pinned = new Set(result.pinned);
     state.checked = new Set(result.checked);
+    state.dismissed = new Set(result.dismissed);
     root.dataset.sourcingLoaded = '1';
   } catch (error) {
     console.warn('[renderer] selection:candidates failed:', error);
     state.candidates = [];
     state.pinned = new Set();
     state.checked = new Set();
+    state.dismissed = new Set();
     root.dataset.sourcingLoaded = 'error';
   }
   renderTaskCards();
@@ -766,19 +811,80 @@ async function togglePin(offerId: string, pinned: boolean): Promise<void> {
   }
 }
 
+/** T-M2-07（FR-6.7）：显式淘汰切换——勾选的对偶信号；互斥（淘汰自动移出勾选集，主进程保证） */
+async function toggleDismissed(offerId: string, dismissed: boolean): Promise<void> {
+  if (!state.activeTaskId) return;
+  root.dataset.sourcingDismiss = 'pending';
+  try {
+    const result = await invoke<{ taskId: string; offerIds: string[] }>('selection:setDismissed', {
+      taskId: state.activeTaskId,
+      offerId,
+      dismissed,
+    });
+    state.dismissed = new Set(result.offerIds);
+    if (dismissed) state.checked.delete(offerId); // 互斥镜像：本地同步移出勾选集
+    root.dataset.sourcingDismiss = 'done';
+    renderTable();
+    syncOutreachUi();
+  } catch (error) {
+    console.warn('[renderer] selection:setDismissed failed:', error);
+    root.dataset.sourcingDismiss = 'failed';
+  }
+}
+
+/** T-M2-07：偏好回流开关（关 → 综合分按用户显式权重重算，画像派生不受影响） */
+async function setPreferenceEnabled(enabled: boolean): Promise<void> {
+  root.dataset.sourcingPreference = 'pending';
+  try {
+    const config = await invoke<ConfigView>('selection:setPreferenceEnabled', { enabled });
+    state.weights = config.weights;
+    state.customized = config.customized;
+    state.preference = config.preference;
+    if (preferenceToggle) preferenceToggle.checked = config.preference.enabled;
+    root.dataset.sourcingPreference = config.preference.enabled ? 'on' : 'off';
+    renderPreferenceInfo();
+    renderTable();
+  } catch (error) {
+    console.warn('[renderer] selection:setPreferenceEnabled failed:', error);
+    root.dataset.sourcingPreference = 'failed';
+  }
+}
+
+/** 画像摘要行（诚实口径：样本不足明说；生效时给样本数与方向示例） */
+function renderPreferenceInfo(): void {
+  if (!preferenceNote) return;
+  const p = state.preference;
+  if (!p) {
+    preferenceNote.textContent = '';
+    return;
+  }
+  if (!p.enabled) {
+    preferenceNote.textContent = `偏好回流已关闭（画像样本：${p.adopted} 勾选 / ${p.dismissed} 淘汰，仍在记录）`;
+    return;
+  }
+  if (p.sampleInsufficient) {
+    preferenceNote.textContent = `样本不足，暂不加权（已记 ${p.adopted} 勾选 / ${p.dismissed} 淘汰；采纳 ≥3 且对照 ≥5 后自动微调）`;
+    return;
+  }
+  const top = (Object.entries(p.dimBias) as Array<[DimensionId, number]>)
+    .filter(([, v]) => v !== 0)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0];
+  const topText = top ? `，最强信号「${DIMENSION_SHORT[top[0]] ?? top[0]}」${top[1] > 0 ? '+' : ''}${Math.round(top[1] * 100)}%` : '';
+  preferenceNote.textContent = `已按 ${p.adopted} 勾选 / ${p.dismissed} 淘汰自动微调综合分（用户权重不被覆盖${topText}）`;
+}
+
 async function applyWeights(weights: Record<DimensionId, number>): Promise<void> {
   if (!weightsApplyBtn) return;
   weightsApplyBtn.disabled = true;
   root.dataset.sourcingWeights = 'pending';
   try {
-    const config = await invoke<{ dimensions: DimensionMeta[]; weights: Record<DimensionId, number>; customized: boolean }>(
-      'selection:setWeights',
-      { weights },
-    );
+    const config = await invoke<ConfigView>('selection:setWeights', { weights });
     state.weights = config.weights;
     state.customized = config.customized;
+    state.preference = config.preference;
     root.dataset.sourcingWeights = 'applied';
     renderWeightSliders();
+    renderPreferenceInfo();
     renderTable();
   } catch (error) {
     console.warn('[renderer] selection:setWeights failed:', error);
@@ -856,12 +962,14 @@ export async function refreshSourcingView(): Promise<void> {
   try {
     const [listResult, config] = await Promise.all([
       invoke<{ selections: SelectionSummaryView[] }>('selection:list'),
-      invoke<{ dimensions: DimensionMeta[]; weights: Record<DimensionId, number>; customized: boolean }>('selection:config'),
+      invoke<ConfigView>('selection:config'),
     ]);
     state.selections = listResult.selections;
     state.dimensions = config.dimensions;
     state.weights = config.weights;
     state.customized = config.customized;
+    state.preference = config.preference;
+    if (preferenceToggle) preferenceToggle.checked = config.preference.enabled;
     root.dataset.sourcingLoaded = '1';
   } catch (error) {
     console.warn('[renderer] selection:list/config failed:', error);
@@ -871,6 +979,7 @@ export async function refreshSourcingView(): Promise<void> {
   }
   renderTaskCards();
   renderWeightSliders();
+  renderPreferenceInfo();
   const activeExists = state.selections.some((s) => s.taskId === state.activeTaskId);
   const target = activeExists ? state.activeTaskId : (state.selections[0]?.taskId ?? null);
   if (target) {
@@ -932,6 +1041,11 @@ export function initSourcingView(): void {
     const defaults = {} as Record<DimensionId, number>;
     for (const dim of state.dimensions) defaults[dim.id] = dim.default;
     void applyWeights(defaults);
+  });
+
+  // T-M2-07：偏好回流开关（FR-6.7 本地学习可关——关 = 综合分按用户显式权重）
+  preferenceToggle?.addEventListener('change', () => {
+    void setPreferenceEnabled(preferenceToggle.checked);
   });
 
   keywordFilter?.addEventListener('change', () => {

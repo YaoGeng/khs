@@ -780,6 +780,13 @@ body {
 
 .sourcing-weights-note { font-size: 12px; color: #57606a; }
 
+/* T-M2-07（FR-6.7 偏好回流）：画像摘要 + 开关 */
+.sourcing-preference { display: flex; gap: 10px; align-items: baseline; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #d0d7de; }
+
+.sourcing-preference-toggle-label { font-size: 13px; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+
+.sourcing-preference-note { font-size: 12px; color: #57606a; }
+
 .sourcing-toolbar { display: flex; gap: 12px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
 
 .sourcing-filter-label { font-size: 13px; display: flex; gap: 6px; align-items: center; }
@@ -795,6 +802,10 @@ body {
 .sourcing-table th { background: #f6f8fa; color: #57606a; font-weight: 600; white-space: nowrap; }
 
 .sourcing-table tr[data-pinned='true'] { background: #fff8c5; }
+
+/* T-M2-07：淘汰行置灰（信号已入偏好画像流水；勾选列由互斥保证为空） */
+.sourcing-table tr[data-dismissed='true'] { background: #f6f8fa; }
+.sourcing-table tr[data-dismissed='true'] .sourcing-title { color: #8c959f; text-decoration: line-through; }
 
 .sourcing-title { max-width: 320px; }
 

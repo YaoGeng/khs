@@ -221,6 +221,15 @@
                 <button class="btn btn-ghost" type="button" id="sourcing-weights-reset">恢复默认</button>
                 <span class="sourcing-weights-note" id="sourcing-weights-note"></span>
               </div>
+              <!-- T-M2-07（FR-6.7 偏好回流）：画像摘要 + 开关——勾选/淘汰行为本地学习自动微调权重，
+                   用户显式权重不被覆盖（关 → 综合分按显式权重重算）；样本不足时如实提示 -->
+              <div class="sourcing-preference" id="sourcing-preference-panel">
+                <label class="sourcing-preference-toggle-label">
+                  <input type="checkbox" id="sourcing-preference-toggle" checked />
+                  偏好回流
+                </label>
+                <span class="sourcing-preference-note" id="sourcing-preference-note"></span>
+              </div>
             </div>
             <div class="sourcing-toolbar" id="sourcing-toolbar" hidden>
               <label class="sourcing-filter-label">关键词
@@ -261,6 +270,7 @@
                   <tr>
                     <th>勾选</th>
                     <th>置顶</th>
+                    <th>淘汰</th>
                     <th>#</th>
                     <th>商品</th>
                     <th>关键词</th>
