@@ -14,12 +14,14 @@
  *
  * 红线（02:321）：不做任何风控绕过；触熔断立即停窗并记录升级。
  */
-/* global process, console, URL */
+/* global process, console, URL, Buffer */
 import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { createHash, createPrivateKey, randomUUID, sign as edSign } from 'node:crypto';
+import { hostname, cpus, networkInterfaces } from 'node:os';
 
 const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const DESKTOP = join(ROOT, 'apps', 'desktop');
@@ -100,6 +102,7 @@ function doctor() {
 
 function launch(extraEnv = {}) {
   doctor();
+  ensureDevLicense();
   const env = {
     ...process.env,
     XINGLIAN_COLLECT_DAILY_LIMIT: process.env.XINGLIAN_COLLECT_DAILY_LIMIT ?? '50',
@@ -110,6 +113,75 @@ function launch(extraEnv = {}) {
   console.log('[pilot] 启动桌面端（真实 CDP 模式；触熔断立即停窗——02:321 红线）');
   const child = spawn(electronPath, ['out/main.js'], { cwd: DESKTOP, env, stdio: 'inherit', windowsHide: false });
   child.on('exit', (code) => process.exit(code ?? 0));
+}
+
+/* -------------------- dev license（FR-1.6 锁定面的开发期 seam；真机联网激活归 M5） --------------------
+ * 工作流执行入口（.workflow-entry，含 T-M2-04 收藏/询盘）受 license 锁定：pilot/dev 直跑默认无
+ * license → 按钮全量禁用，UI 链路走不通。本 seam 用仓库内置 M0 测试密钥对（apps/server/keys，
+ * 与 desktop 内置公钥同源）签发 license 并维护 envelope：每次 launch 续 72h 宽限（模拟在线
+ * 复验的 lastVerifiedAt 推进）。验签/宽限状态机照常生效——这是「替 dev 用户持有一张测试
+ * license」，不旁路任何校验逻辑；设备指纹算法与 src/license/device-fingerprint.ts 逐字对齐。 */
+
+const LICENSE_KEY_FILE = join(ROOT, 'apps', 'server', 'keys', 'license-private.pem');
+const LICENSE_TTL_SECONDS = 365 * 24 * 3600;
+const LICENSE_TOUCH_THRESHOLD = 7 * 24 * 3600; // 剩余 >7 天仅续宽限，否则重签
+const b64u = (s) => Buffer.from(s, 'utf8').toString('base64url');
+
+function pilotLocalDeviceHash() {
+  let mac = 'no-mac';
+  const ifs = networkInterfaces();
+  for (const name of Object.keys(ifs).sort()) {
+    for (const info of ifs[name] ?? []) {
+      if (!info.internal && info.mac && info.mac !== '00:00:00:00:00:00') { mac = info.mac; break; }
+    }
+    if (mac !== 'no-mac') break;
+  }
+  const canonical = [hostname(), cpus()[0]?.model ?? 'unknown-cpu', mac]
+    .map((s) => s.trim().toLowerCase()).join('\n');
+  return createHash('sha256').update(canonical, 'utf8').digest('hex');
+}
+
+function signDevLicenseJwt() {
+  const header = { alg: 'EdDSA', typ: 'license', kid: 'm0-license-test-1' };
+  const payload = {
+    sub: 'pilot-dev-user', typ: 'license', plan: 'month', tier: 'personal',
+    device_limit: 1, device_hash: '', jti: randomUUID(),
+    exp: Math.floor(Date.now() / 1000) + LICENSE_TTL_SECONDS,
+  };
+  const signingInput = `${b64u(JSON.stringify(header))}.${b64u(JSON.stringify(payload))}`;
+  const signature = edSign(null, Buffer.from(signingInput, 'utf8'), createPrivateKey(readFileSync(LICENSE_KEY_FILE, 'utf8')));
+  return `${signingInput}.${b64u(signature)}`;
+}
+
+/** 就地维护 <app userData>/license.json（e2e launchWithLicense 同款 envelope 形态） */
+function ensureDevLicense() {
+  const licenseFile = process.env.XINGLIAN_LICENSE_FILE
+    ?? join(process.env.XINGLIAN_USER_DATA
+      ?? join(process.env.APPDATA ?? join(process.env.LOCALAPPDATA ?? '', 'Roaming'), 'Electron'),
+      'license.json');
+  const deviceHash = pilotLocalDeviceHash();
+  try {
+    if (existsSync(licenseFile)) {
+      const envelope = JSON.parse(readFileSync(licenseFile, 'utf8'));
+      const payload = JSON.parse(Buffer.from(envelope.licenseJwt.split('.')[1], 'base64url').toString('utf8'));
+      const remain = payload.exp - Math.floor(Date.now() / 1000);
+      if (remain > LICENSE_TOUCH_THRESHOLD) {
+        writeFileSync(licenseFile, `${JSON.stringify({ ...envelope, deviceHash, lastVerifiedAt: new Date().toISOString() }, null, 2)}\n`);
+        console.log(`[pilot] dev license 宽限已续（JWT 剩余 ${Math.round(remain / 86400)} 天，测试密钥对）`);
+        return;
+      }
+    }
+  } catch { /* 损坏 envelope 走重签 */ }
+  if (!existsSync(LICENSE_KEY_FILE)) {
+    console.log('[pilot] 缺 license 测试私钥（apps/server/keys）——跳过 dev license 注入（执行入口将保持锁定）');
+    return;
+  }
+  mkdirSync(join(licenseFile, '..'), { recursive: true });
+  writeFileSync(
+    licenseFile,
+    `${JSON.stringify({ licenseJwt: signDevLicenseJwt(), lastVerifiedAt: new Date().toISOString(), deviceHash }, null, 2)}\n`,
+  );
+  console.log(`[pilot] dev license 已签发（${LICENSE_TTL_SECONDS / 86400} 天，M0 测试密钥对；真机激活归 M5）：${licenseFile}`);
 }
 
 /** run = launch + 自动采集 seam：--terms a,b,c（1~5 词 or 组合）或 --resume <taskId>[,<taskId>…]；--limit 覆盖日配额 */
