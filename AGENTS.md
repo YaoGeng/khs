@@ -39,6 +39,7 @@
 |---|---|---|
 | 加 IPC 通道 | apps/desktop/src/shared/channels.ts + schemas.ts → main/ipc-core.ts | 契约双端镜像同步 |
 | 加 LLM 供应商 | packages/llm-gateway/src/presets.ts | 同步 docs/adr/provider-matrix.md，用 probe 脚本验证 |
+| 1688 检索通道 | packages/adapters-1688/src/api-client.ts + apps/desktop/src/main/{sourcing-api-port,ak-store}.ts | 官方 AI 网关（AK BYOK）优先/CDP 浏览器回落；自验 `ALI_1688_AK=… node apps/desktop/scripts/probe-1688-api.mjs` |
 | 任务/采集编排 | apps/desktop/src/tasks/ | XState 只管任务生命周期，步骤归 runner |
 | 本地 DB 变更 | apps/desktop/src/store/schema.ts + migrations.ts | 写路径必须走 store worker |
 | 适配器热更 | packages/adapter-loader + scripts/adapter-sign.mjs | Ed25519 密钥在 .omo/secrets/ |
@@ -61,6 +62,7 @@
 | deidentifyAuthor / pseudonymizeAuthor | fn | packages/llm-gateway/src/deidentify.ts | — | 作者假名化（出站前） |
 | generateReport | fn | packages/agents/src/report-agent.ts | 2 | 报告 Agent 主入口 |
 | FlowSchema / planKeywordQueries | schema/fn | packages/protocol/src/dsl.ts | 12(包级) | 采集 Flow DSL 契约与关键词规划 |
+| searchOffers1688 / extractAkKeys / buildSignedHeaders | fn | packages/adapters-1688/src/api-client.ts | — | 1688 官方 AI 网关客户端（x-csk 签名金标向量在 api-client.test.ts） |
 | parseSemver / isEngineCompatible / manifestSignablePayload | fn | packages/protocol/src/signing.ts | 12(包级) | 适配器包签名与引擎兼容判定 |
 | WordlistConfigSchema / compareWordlistVersions | schema/fn | packages/protocol/src/wordlist.ts | — | 词单契约与版本比较 |
 
@@ -101,5 +103,7 @@ pnpm -r build        # 全量构建；改包后必跑（下游测试依赖 dist�
 ## NOTES
 
 - 无云端 CI（无 .github/）；docker-compose.yml 仅开发期 pg+redis，测试路径刻意不用 Docker。
-- bench/、dist/、release/ 含大量构建产物，代码检索时一律排除。
+- bench/、dist/、release/ 含大量构建产物，代码检索时一律排除；**bench/ 现存 lint 历史报错（b0d2bd2 起）非新改动所致**。
 - git 未跟踪文件里混有运行产物（out/、test-results/），以 .gitignore 为准判断入库范围。
+- 1688 检索双通道（T-M2-05a）：AK 配置态逐次路由，官方 AI 网关优先、CDP 浏览器回落，**不静默回落**；AK = 用户自有凭证（clawhub.1688.com 钥匙图标/AI版 APP），存储纪律同 LLM BYOK。渠道真伪与调研结论见 `.omo/evidence/m2-outreach/B2-官方渠道调研.md`。
+- 复跑 desktop e2e 前先停常驻 dev 实例（默认 userData 单实例锁会让 electron.launch 静默退出）；查进程用 PowerShell Get-CimInstance 按命令行核实归属，git-bash 的 tasklist //FI 不可靠。
