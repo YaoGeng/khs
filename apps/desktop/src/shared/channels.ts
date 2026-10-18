@@ -95,6 +95,9 @@ export const IPC_CHANNELS = [
   'selection:setChecked',
   'selection:setPinned',
   'selection:setWeights',
+  'sourcing:akClear',
+  'sourcing:akSet',
+  'sourcing:akStatus',
   'tasks:createDemo',
   'tasks:list',
   'tasks:pause',
@@ -255,6 +258,17 @@ export const OUTREACH_ERRORS = {
   EMPTY: 'E-OUTREACH-EMPTY',
   NO_CANDIDATE: 'E-OUTREACH-NO-CANDIDATE',
   CONFIRM_ID_INVALID: 'E-OUTREACH-CONFIRM-ID-INVALID',
+} as const;
+
+/**
+ * 1688 官方 API 检索（T-M2-05a）稳定错误码：INVALID = AK 串无法解析（存面拒绝）；
+ * MISSING = 已走 API 通道但 AK 未配置（防御性，正常路由不会出现）。
+ * 与 adapters-1688 api-client 的 E-1688-API-{AUTH|RATELIMIT|PARAM|SERVICE|NETWORK}
+ * 前缀同族——后者随错误消息透传，renderer 按前缀归因。
+ */
+export const SOURCING_AK_ERRORS = {
+  INVALID: 'E-SOURCING-AK-INVALID',
+  MISSING: 'E-SOURCING-AK-MISSING',
 } as const;
 
 /** 平台 → 首页 URL 与 Profile 子目录名（FR-3.3：每平台独立 Profile 目录持久化登录态） */

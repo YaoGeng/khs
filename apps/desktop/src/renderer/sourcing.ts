@@ -49,6 +49,11 @@ const confirmSkipBtn = document.getElementById('outreach-confirm-skip') as HTMLB
 const confirmCancelBtn = document.getElementById('outreach-confirm-cancel') as HTMLButtonElement | null;
 const productsSection = document.getElementById('products-section');
 const productsGrid = document.getElementById('products-grid');
+// T-M2-05a：1688 官方 API 检索 AK 配置（masked 出口，secret 永不回显）
+const akInput = document.getElementById('sourcing-ak-input') as HTMLInputElement | null;
+const akSaveBtn = document.getElementById('sourcing-ak-save') as HTMLButtonElement | null;
+const akClearBtn = document.getElementById('sourcing-ak-clear') as HTMLButtonElement | null;
+const akStatus = document.getElementById('sourcing-ak-status');
 
 type DimensionId = 'relevance' | 'price' | 'sales' | 'supplier' | 'gallery';
 
@@ -720,6 +725,56 @@ function collectSliderWeights(): Record<DimensionId, number> | null {
   return sum > 0 ? weights : null;
 }
 
+/** T-M2-05a：官方 API 检索 AK 状态渲染（masked 出口；secret 永不回显） */
+async function refreshSourcingAkStatus(): Promise<void> {
+  if (!akStatus) return;
+  try {
+    const result = await invoke<{ configured: boolean; accessKeyIdMasked: string | null; encryption: string | null }>('sourcing:akStatus', {});
+    if (result.configured && result.accessKeyIdMasked) {
+      const enc = result.encryption === 'plaintext-fallback' ? '，明文降级存储' : '';
+      akStatus.textContent = `已配置 ${result.accessKeyIdMasked}（检索走官方 API${enc}）`;
+      if (akClearBtn) akClearBtn.hidden = false;
+      if (akInput) akInput.value = '';
+    } else {
+      akStatus.textContent = '未配置（检索走内置浏览器）';
+      if (akClearBtn) akClearBtn.hidden = true;
+    }
+  } catch (error) {
+    console.warn('[renderer] sourcing:akStatus failed:', error);
+    akStatus.textContent = '';
+  }
+}
+
+async function saveSourcingAk(): Promise<void> {
+  if (!akInput || !akStatus) return;
+  const raw = akInput.value.trim();
+  if (raw.length === 0) {
+    akStatus.textContent = '请先粘贴 AK 原始串';
+    return;
+  }
+  try {
+    const result = await invoke<{ accessKeyIdMasked: string; warning?: string }>('sourcing:akSet', { raw });
+    akStatus.textContent = result.warning
+      ? `已保存 ${result.accessKeyIdMasked}；${result.warning}`
+      : `已保存 ${result.accessKeyIdMasked}，检索已切换官方 API`;
+    await refreshSourcingAkStatus();
+  } catch (error) {
+    const msg = String(error);
+    akStatus.textContent = msg.includes('E-SOURCING-AK-INVALID')
+      ? 'AK 无法解析：请确认是 1688 AI版 APP 复制的完整原始串'
+      : `保存失败：${msg.slice(0, 120)}`;
+  }
+}
+
+async function clearSourcingAk(): Promise<void> {
+  try {
+    await invoke('sourcing:akClear', {});
+    await refreshSourcingAkStatus();
+  } catch (error) {
+    console.warn('[renderer] sourcing:akClear failed:', error);
+  }
+}
+
 export async function refreshSourcingView(): Promise<void> {
   try {
     const [listResult, config] = await Promise.all([
@@ -774,6 +829,15 @@ export function initSourcingView(): void {
   outreachRunBtn?.addEventListener('click', () => {
     void startOutreachRun();
   });
+
+  // T-M2-05a：官方 API 检索 AK 配置（保存/清除/首屏状态）
+  akSaveBtn?.addEventListener('click', () => {
+    void saveSourcingAk();
+  });
+  akClearBtn?.addEventListener('click', () => {
+    void clearSourcingAk();
+  });
+  void refreshSourcingAkStatus();
 
   // main→renderer 推送（PUSH_CHANNELS 白名单）：确认请求 + 批次进度
   bridge?.onPush('outreach:confirm', (payload) => {

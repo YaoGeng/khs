@@ -37,6 +37,9 @@ import {
   OutreachStatusResultSchema,
   ProductsListResultSchema,
   ProductsOpenSourceResultSchema,
+  SourcingAkClearResultSchema,
+  SourcingAkSetResultSchema,
+  SourcingAkStatusResultSchema,
   SelectionSetCheckedResultSchema,
   ReportChartDataResultSchema,
   ReportExportPdfResultSchema,
@@ -97,6 +100,12 @@ import {
   type OutreachStartParams,
   type ProductsListParams,
   type ProductsOpenSourceParams,
+  type SourcingAkClearParams,
+  type SourcingAkClearResult,
+  type SourcingAkSetParams,
+  type SourcingAkSetResult,
+  type SourcingAkStatusParams,
+  type SourcingAkStatusResult,
   type ReportChartDataResult,
   type ReportExportPdfResult,
   type ReportGetResult,
@@ -259,6 +268,8 @@ export interface AppInfoDeps {
   readonly outreach?: OutreachIpcDeps;
   /** T-M2-04：商品卡片（FR-6.5）依赖；未装配时 products: 通道显式报未就绪 */
   readonly products?: ProductsIpcDeps;
+  /** T-M2-05a：1688 官方 API AK 配置依赖；未装配时 sourcing:ak* 通道显式报未就绪 */
+  readonly sourcingAk?: SourcingAkIpcDeps;
   /** M2 产品卡③：自动化档位依赖；未装配时 automation: 通道显式报未就绪 */
   readonly automation?: AutomationIpcDeps;
   /** M2 产品卡②：爆款清单依赖；未装配时 viral: 通道显式报未就绪 */
@@ -307,6 +318,16 @@ export interface OutreachIpcDeps {
 export interface ProductsIpcDeps {
   readonly list: (params: ProductsListParams) => Promise<ProductsListResult>;
   readonly openSource: (params: ProductsOpenSourceParams) => Promise<ProductsOpenSourceResult>;
+}
+
+/**
+ * 1688 官方 API AK 配置链路依赖注入面（T-M2-05a；ak-store main binding）。
+ * 设置性质不设 EULA 门（同 usage:set*）；AK 原始串/secret 全值永不出口（schemas 兜底剥离）。
+ */
+export interface SourcingAkIpcDeps {
+  readonly status: (params: SourcingAkStatusParams) => Promise<SourcingAkStatusResult>;
+  readonly set: (params: SourcingAkSetParams) => Promise<SourcingAkSetResult>;
+  readonly clear: (params: SourcingAkClearParams) => Promise<SourcingAkClearResult>;
 }
 
 /** 校验并执行一次 IPC 调用（主进程 handle 与单测共用同一路径） */
@@ -1017,6 +1038,38 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
             throw new Error(`${IPC_ERRORS.INVALID_PARAMS}: products:openSource 仅放行 1688 域链接（got ${host}）`);
           }
           return validateExit(ProductsOpenSourceResultSchema, await deps.products.openSource(payload), 'products:openSource');
+        },
+      },
+    ],
+    [
+      'sourcing:akStatus',
+      {
+        paramsSchema: channelParamsSchemas['sourcing:akStatus'],
+        // 设置性质读面（同 usage:* 口径）：masked 出口，无 EULA 门
+        handle: async (payload: SourcingAkStatusParams) => {
+          if (!deps.sourcingAk) throw new Error('E-IPC-DEP-MISSING: sourcingAk 链路未装配');
+          return validateExit(SourcingAkStatusResultSchema, await deps.sourcingAk.status(payload), 'sourcing:akStatus');
+        },
+      },
+    ],
+    [
+      'sourcing:akSet',
+      {
+        paramsSchema: channelParamsSchemas['sourcing:akSet'],
+        // AK 原始串经 preload zod 校验 + ak-store 二次解析；密文/降级纪律归 ak-store
+        handle: async (payload: SourcingAkSetParams) => {
+          if (!deps.sourcingAk) throw new Error('E-IPC-DEP-MISSING: sourcingAk 链路未装配');
+          return validateExit(SourcingAkSetResultSchema, await deps.sourcingAk.set(payload), 'sourcing:akSet');
+        },
+      },
+    ],
+    [
+      'sourcing:akClear',
+      {
+        paramsSchema: channelParamsSchemas['sourcing:akClear'],
+        handle: async (payload: SourcingAkClearParams) => {
+          if (!deps.sourcingAk) throw new Error('E-IPC-DEP-MISSING: sourcingAk 链路未装配');
+          return validateExit(SourcingAkClearResultSchema, await deps.sourcingAk.clear(payload), 'sourcing:akClear');
         },
       },
     ],

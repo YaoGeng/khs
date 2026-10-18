@@ -195,6 +195,15 @@
             <h2>智能选品</h2>
             <p class="placeholder">选品任务由「市场洞察」报告⑦章关键词闸门确认后产生；候选清单按当前权重实时重算综合分（库内保留 Agent 原始评分）。</p>
             <p class="license-lock-banner" data-license-lock hidden>已锁定：license 缺失或过期（FR-1.6）——工作流执行入口不可用；历史与日志仍可访问。</p>
+            <!-- 05 T-M2-05a：1688 官方 API 检索通道（AK 配置；BYOK 同纪律，secret 不回显） -->
+            <div class="sourcing-ak" id="sourcing-ak-panel">
+              <label for="sourcing-ak-input">官方 API 检索（可选）：</label>
+              <input id="sourcing-ak-input" type="password" placeholder="粘贴 1688 AI版 APP 的 AK 原始串" spellcheck="false" autocomplete="off" />
+              <button class="btn btn-primary" type="button" id="sourcing-ak-save">保存</button>
+              <button class="btn btn-ghost" type="button" id="sourcing-ak-clear" hidden>清除</button>
+              <span class="sourcing-ak-status" id="sourcing-ak-status"></span>
+              <p class="sourcing-ak-note">配置后检索走 1688 官方 API（AI 版开店 Claw 同款网关，个人 AK 限时免费），不再依赖浏览器抓取；AK 只存本机加密存储，界面仅显示掩码。获取：1688 AI版 APP → 「一键部署开店Claw」→ 复制 AK。</p>
+            </div>
             <!-- 05 T-M2-03（FR-6.3）：候选清单 = 任务卡 + 权重面板（FR-6.2）+ 筛选排序 + 对比表格 -->
             <div class="sourcing-tasks" id="sourcing-task-list" aria-live="polite"></div>
             <p class="sourcing-status" id="sourcing-status">加载中…</p>

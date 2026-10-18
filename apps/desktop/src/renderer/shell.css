@@ -894,3 +894,10 @@ body {
 .product-card-actions { margin-top: auto; }
 /* hidden 属性优先级修复：display:flex 会覆盖 UA 的 [hidden] display:none（遮罩层拦截全页点击） */
 .outreach-confirm-dialog[hidden] { display: none; }
+
+/* T-M2-05a：1688 官方 API 检索 AK 配置块 */
+.sourcing-ak { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 4px; padding: 10px 12px; border: 1px dashed #d0d7de; border-radius: 10px; background: #f6f8fa; }
+.sourcing-ak label { font-size: 13px; color: #1f2328; }
+.sourcing-ak input { flex: 1 1 260px; min-width: 200px; font-size: 13px; }
+.sourcing-ak-status { font-size: 12px; color: #57606a; }
+.sourcing-ak-note { flex-basis: 100%; margin: 4px 0 0; font-size: 11px; color: #6e7781; line-height: 1.5; }

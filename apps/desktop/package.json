@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@xinglian/adapter-loader": "workspace:*",
+    "@xinglian/adapters-1688": "workspace:*",
     "@xinglian/adapters-xhs": "workspace:*",
     "@xinglian/agents": "workspace:*",
     "@xinglian/humanize": "workspace:*",

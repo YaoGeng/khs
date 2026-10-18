@@ -870,6 +870,34 @@ export const ProductsOpenSourceParamsSchema = z.strictObject({
 
 export const ProductsOpenSourceResultSchema = z.object({ opened: z.boolean() });
 
+/* --------------------- 1688 官方 API AK 配置（T-M2-05a；FR-2.7 同纪律） --------------------- */
+
+export const SourcingAkStatusParamsSchema = z.strictObject({});
+
+export const SourcingAkStatusResultSchema = z.object({
+  configured: z.boolean(),
+  /** masked 出口（`****` + akId 后 4 位）；AK 原始串/secret 全值永不出口（schema 兜底剥离多余字段） */
+  accessKeyIdMasked: z.string().nullable(),
+  encryption: z.enum(['safeStorage', 'plaintext-fallback']).nullable(),
+  setAt: z.string().nullable(),
+});
+
+export const SourcingAkSetParamsSchema = z.strictObject({
+  /** 1688 AI版 APP 复制的 AK 原始串（base64url 或原文；真实解析在 ak-store） */
+  raw: z.string().min(32).max(4096),
+});
+
+export const SourcingAkSetResultSchema = z.object({
+  accessKeyIdMasked: z.string(),
+  encryption: z.enum(['safeStorage', 'plaintext-fallback']),
+  /** safeStorage 不可用显式降级时的告警文案（界面 toast） */
+  warning: z.string().optional(),
+});
+
+export const SourcingAkClearParamsSchema = z.strictObject({});
+
+export const SourcingAkClearResultSchema = z.object({ cleared: z.boolean() });
+
 /** main→renderer 推送 payload（PUSH_CHANNELS 白名单通道；preload onPush 门面） */
 export const OutreachConfirmPushSchema = z.object({
   confirmId: z.string(),
@@ -902,6 +930,12 @@ export type ProductsListResult = z.infer<typeof ProductsListResultSchema>;
 export type ProductsOpenSourceParams = z.infer<typeof ProductsOpenSourceParamsSchema>;
 export type ProductCardView = z.infer<typeof ProductCardViewSchema>;
 export type ProductsOpenSourceResult = z.infer<typeof ProductsOpenSourceResultSchema>;
+export type SourcingAkStatusParams = z.infer<typeof SourcingAkStatusParamsSchema>;
+export type SourcingAkStatusResult = z.infer<typeof SourcingAkStatusResultSchema>;
+export type SourcingAkSetParams = z.infer<typeof SourcingAkSetParamsSchema>;
+export type SourcingAkSetResult = z.infer<typeof SourcingAkSetResultSchema>;
+export type SourcingAkClearParams = z.infer<typeof SourcingAkClearParamsSchema>;
+export type SourcingAkClearResult = z.infer<typeof SourcingAkClearResultSchema>;
 
 /* usage:* —— FR-2.5 用量面板 + FR-2.6 全局 RPM（m1 todo 12；聚合数据源=llm_calls 计量元数据） */
 
@@ -1107,6 +1141,9 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'outreach:status': OutreachStatusParamsSchema,
   'products:list': ProductsListParamsSchema,
   'products:openSource': ProductsOpenSourceParamsSchema,
+  'sourcing:akClear': SourcingAkClearParamsSchema,
+  'sourcing:akSet': SourcingAkSetParamsSchema,
+  'sourcing:akStatus': SourcingAkStatusParamsSchema,
   'report:chartData': ReportChartDataParamsSchema,
   'report:exportPdf': ReportExportPdfParamsSchema,
   'report:insertFixture': ReportInsertFixtureParamsSchema,

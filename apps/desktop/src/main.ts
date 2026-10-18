@@ -23,6 +23,8 @@ import { attachMigrationReport, createStoreService, resolveStorePaths, runPreWin
 import { createCollectBinding, type CollectBinding } from './main/collect-binding';
 import { SelectionService, createFixtureSearchPortFromFile } from './tasks/selection-service';
 import { createCdpSourcingPort1688 } from './browser/sourcing-port';
+import { createRoutedSearchPort } from './main/sourcing-api-port';
+import { createAkStore } from './main/ak-store';
 import { createCdpOutreachPort1688, createFixtureOutreachPort } from './browser/outreach-port';
 import { OutreachService } from './main/outreach-service';
 import { createElectronSafeStoragePort } from './main/safe-storage-port';
@@ -231,6 +233,13 @@ if (!gotLock) {
       wordlist: wordlistService,
     });
 
+    // T-M2-05a：1688 官方 API AK 存储（AI版 APP 个人 AK；key-service 同款密文/降级纪律）
+    const akStore = createAkStore({
+      store: storeClient,
+      safeStorage: safeStoragePort,
+      onAudit: (msg, payload) => storeService?.logger.userAction(msg, payload),
+    });
+
     // T-M2-03/T-M2-03b：选品执行服务（三步管道 + 登录守卫闸门）。
     // fixture seam XINGLIAN_SELECTION_FIXTURE=<json 路径> = 候选回放（e2e/联调）；
     // 真实端口惰性取浏览器连接（自开后台 tab 直达 1688 canonical URL；须已接管浏览器）。
@@ -242,13 +251,19 @@ if (!gotLock) {
       notify: showDesktopNotification,
       searchPort: selectionFixture
         ? createFixtureSearchPortFromFile(selectionFixture)
-        : createCdpSourcingPort1688({
-            connection: async () => {
-              const session = await browserService!.prepareAutomationTab();
-              return session.connection;
-            },
-            gate: () => browserService!.whenAutomationAllowed(),
-            delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        : createRoutedSearchPort({
+            // T-M2-05a 传输路由：AK 已配置走官方 API（无需浏览器），未配置回落 CDP 浏览器检索
+            getAk: () => akStore.get(),
+            fetchImpl: globalThis.fetch.bind(globalThis),
+            cdpPort: createCdpSourcingPort1688({
+              connection: async () => {
+                const session = await browserService!.prepareAutomationTab();
+                return session.connection;
+              },
+              gate: () => browserService!.whenAutomationAllowed(),
+              delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+              logger: storeService.logger,
+            }),
             logger: storeService.logger,
           }),
     });
@@ -261,14 +276,18 @@ if (!gotLock) {
     const kickQueuedSelections = async (reason: string): Promise<string[]> => {
       try {
         if (!selectionFixture) {
-          const status = await browserService?.status();
-          if (!status || status.state === 'detached') {
-            storeService?.logger.networkMeta('selection:kick-deferred', {
-              reason,
-              browserState: status?.state ?? 'none',
-              note: '浏览器未接管：queued selection 留队，待接管/下次确认/下轮启动补跑',
-            });
-            return [];
+          // T-M2-05a：AK 已配置时检索走官方 API，无需浏览器接管，不做 detached 留队
+          const apiMode = (await akStore.get()) !== null;
+          if (!apiMode) {
+            const status = await browserService?.status();
+            if (!status || status.state === 'detached') {
+              storeService?.logger.networkMeta('selection:kick-deferred', {
+                reason,
+                browserState: status?.state ?? 'none',
+                note: '浏览器未接管且未配置官方 API AK：queued selection 留队，待接管/下次确认/下轮启动补跑',
+              });
+              return [];
+            }
           }
         }
         const started = await selectionService.startQueued();
@@ -276,7 +295,7 @@ if (!gotLock) {
           storeService?.logger.userAction('selection:queued-started', {
             count: started.length,
             taskIds: started,
-            mode: selectionFixture ? 'fixture' : 'cdp',
+            mode: selectionFixture ? 'fixture' : ((await akStore.get()) !== null ? 'api' : 'cdp'),
             reason,
           });
         }
@@ -561,6 +580,20 @@ if (!gotLock) {
         openSource: async (params) => {
           await shell.openExternal(params.link);
           return { opened: true };
+        },
+      },
+      // T-M2-05a：1688 官方 API AK 配置（sourcing:ak*；masked 出口，密文纪律归 ak-store）
+      sourcingAk: {
+        status: async () => {
+          const [status, ak] = await Promise.all([akStore.status(), akStore.get()]);
+          // configured 以「可解析出有效 AK」为准（元数据在而值损坏时如实报未配置）
+          if (!ak) return { configured: false, accessKeyIdMasked: null, encryption: null, setAt: null };
+          return { ...status, configured: true };
+        },
+        set: async (params) => akStore.setRaw(params.raw),
+        clear: async () => {
+          await akStore.clear();
+          return { cleared: true };
         },
       },
     });

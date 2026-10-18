@@ -42,6 +42,9 @@ importers:
       '@xinglian/adapter-loader':
         specifier: workspace:*
         version: link:../../packages/adapter-loader
+      '@xinglian/adapters-1688':
+        specifier: workspace:*
+        version: link:../../packages/adapters-1688
       '@xinglian/adapters-xhs':
         specifier: workspace:*
         version: link:../../packages/adapters-xhs
