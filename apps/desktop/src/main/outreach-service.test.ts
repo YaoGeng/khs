@@ -107,6 +107,8 @@ function harness(options: HarnessOptions = {}) {
     },
     readFile: async (p) => files.get(p) ?? '',
     confirmTimeoutMs: options.confirmTimeoutMs,
+    offerGapMs: 0,
+    delay: async () => {},
   });
   return { service, mem, files, pushes };
 }
@@ -276,6 +278,24 @@ describe('T-M2-04 批量执行（FR-6.4 confirm 红线 + FR-6.5 入库）', () =
     expect(summary.status).toBe('cancelled');
     expect(mem.events.some((e) => e.type === 'OUTREACH_CONFIRM_TIMEOUT')).toBe(true);
   }, 10_000);
+
+  it('风控信号中止整批：risk-blocked 候选即停 + OUTREACH_RISK_ABORT 审计 + 后续候选不执行', async () => {
+    const { service, mem } = harness({ fixture: { features: { '[class*="module-od-title"] h1': -1 } } });
+    // 仅第二个候选命中风控特征（覆盖默认特征集，首候选仍正常）——用 features 合并语义不可行，
+    // fixture 的 features 是整表覆盖，故用单候选批 + 第二轮语义验证中止逻辑即已覆盖循环 break。
+    await service.setChecked('task-1', '880000000001', true);
+    await service.setChecked('task-1', '880000000002', true);
+    const restore = autoDecide(service, () => 'confirm');
+    // fixture features 为整表：-1 使两个候选都在详情等待期命中风控 → 首个即中止
+    const summary = await service.startRun('task-1', { favorite: false, followShop: false, inquiry: false, quantity: 10 });
+    restore();
+    expect(summary.status).toBe('cancelled');
+    expect(summary.offers).toHaveLength(1);
+    expect(summary.offers[0]?.error).toMatch(/^risk-blocked:/);
+    expect(summary.offers[0]?.productSaved).toBe(false);
+    expect(mem.events.some((e) => e.type === 'OUTREACH_RISK_ABORT')).toBe(true);
+    expect(mem.products.size).toBe(0);
+  });
 
   it('会话窗待联调位点超时 → chat-window-missing（诚实不臆造发送）', async () => {
     const { service } = harness({ fixture: { chatWindowMissing: true } });

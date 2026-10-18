@@ -22,7 +22,7 @@ import { pathToFileURL } from 'node:url';
 import type { Logger } from '@xinglian/logger';
 import { parsePriceRange, parseMonthlySales } from '@xinglian/agents';
 import type { StoreClient, MaterialInput } from '../store';
-import type { OutreachPort, OfferSession } from '../browser/outreach-port';
+import { RiskBlockedError, type OutreachPort, type OfferSession } from '../browser/outreach-port';
 import type { PushChannel } from '../shared/channels';
 
 /** 勾选集 kv 键（FR-6.3；task 维度） */
@@ -149,13 +149,20 @@ export interface OutreachServiceDeps {
   readonly confirmTimeoutMs?: number;
   /** 每 offer 图集下载上限（默认 9） */
   readonly maxMaterialsPerOffer?: number;
+  /** 候选间拟人间隔基值 ms（§7.1；默认 20s，抖动 +0~50% 由服务内加；fixture/e2e 置 0） */
+  readonly offerGapMs?: number;
+  /** 注入延时（单测立即返回；缺省 setTimeout） */
+  readonly delay?: (ms: number) => Promise<void>;
 }
+
+const DEFAULT_OFFER_GAP_MS = 20_000;
 
 const DEFAULT_CONFIRM_TIMEOUT_MS = 10 * 60_000;
 
 export class OutreachService {
   private readonly deps: OutreachServiceDeps;
   private readonly now: () => number;
+  private readonly delay: (ms: number) => Promise<void>;
   private pending: PendingConfirm | null = null;
   private running = false;
   private lastSummary: OutreachRunSummary | null = null;
@@ -164,6 +171,7 @@ export class OutreachService {
   constructor(deps: OutreachServiceDeps) {
     this.deps = deps;
     this.now = deps.now ?? (() => Date.now());
+    this.delay = deps.delay ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
   /** FR-6.3 勾选面：task 维度 offerId 集（kv JSON 数组） */
@@ -327,13 +335,33 @@ export class OutreachService {
     let status: OutreachRunSummary['status'] = 'completed';
     const port = await this.deps.port();
     try {
-      for (const offerId of ordered) {
+      for (const [index, offerId] of ordered.entries()) {
+        // §7.1 拟人间隔：候选之间不背靠背连撞（默认 20s + 半程抖动；fixture/e2e 置 0）
+        if (index > 0 && (this.deps.offerGapMs ?? DEFAULT_OFFER_GAP_MS) > 0) {
+          const gap = this.deps.offerGapMs ?? DEFAULT_OFFER_GAP_MS;
+          await this.delay(gap + Math.round(Math.random() * (gap / 2)));
+        }
         const row = byOffer.get(offerId)!;
         const outcome = await this.runOffer(port, taskId, runId, runOptions, offerId, row.title, row);
         outcomes.push(outcome);
         this.progress.done += 1;
         if (outcome.error?.startsWith('E-OUTREACH-CANCELLED')) {
           status = 'cancelled';
+          break;
+        }
+        // 风控信号：中止整批（§7.3——滑块/验证码期继续请求只会加重），审计 + 通知人工验证
+        if (outcome.error?.startsWith('risk-blocked') || outcome.error?.startsWith('risk-suspected')) {
+          status = 'cancelled';
+          await this.audit(taskId, 'OUTREACH_RISK_ABORT', {
+            runId, offerId, error: outcome.error,
+            remaining: ordered.length - outcomes.length,
+            note: '风控信号中止整批——未执行候选保留勾选，人工完成验证后可重跑',
+          });
+          this.deps.notify?.(
+            '已暂停：1688 风控',
+            '请在打开的浏览器窗口完成人工验证（滑块/验证码）。未执行的候选仍保持勾选，验证通过后可重新点击「收藏 / 询盘」继续。',
+          );
+          this.deps.logger.systemError('outreach:risk-abort', { taskId, runId, offerId, error: outcome.error });
           break;
         }
       }
@@ -354,11 +382,14 @@ export class OutreachService {
     this.lastSummary = summary;
     this.deps.push('outreach:progress' as PushChannel, { taskId, phase: status, done: outcomes.length, total: ordered.length });
     const sent = outcomes.filter((o) => o.inquiry === 'sent' || o.inquiry === 'sent-unverified').length;
+    const riskOutcome = outcomes.find((o) => o.error?.startsWith('risk-blocked') || o.error?.startsWith('risk-suspected'));
     this.deps.notify?.(
-      status === 'completed' ? '收藏/询盘批次完成' : '收藏/询盘批次已取消',
-      status === 'completed'
-        ? `候选 ${outcomes.length} 个：询盘发出 ${sent}，商品卡片入库 ${outcomes.filter((o) => o.productSaved).length}（详见选品页商品卡片）。`
-        : `用户取消：已完成 ${outcomes.length}/${ordered.length}。`,
+      riskOutcome ? '已暂停：1688 风控' : status === 'completed' ? '收藏/询盘批次完成' : '收藏/询盘批次已取消',
+      riskOutcome
+        ? `在候选「${riskOutcome.title.slice(0, 20)}」处触发风控保护。请在浏览器窗口完成人工验证（滑块/验证码），未执行的候选仍保持勾选，验证通过后可重跑。`
+        : status === 'completed'
+          ? `候选 ${outcomes.length} 个：询盘发出 ${sent}，商品卡片入库 ${outcomes.filter((o) => o.productSaved).length}（详见选品页商品卡片）。`
+          : `用户取消：已完成 ${outcomes.length}/${ordered.length}。`,
     );
     return summary;
   }
@@ -433,6 +464,14 @@ export class OutreachService {
       const message = String((error as Error).message);
       if (message.startsWith('E-OUTREACH-CANCELLED')) {
         outcome.error = message;
+        return outcome;
+      }
+      // §7.3 安全侧：风控信号（等待期命中滑块/验证码/登录墙，或详情特征超时=疑似风控页）
+      // → 取页面标题取证（不发起任何新请求）→ 上层中止整批，绝不换下一候选硬撞
+      if (error instanceof RiskBlockedError || message.includes('E-OUTREACH-RISK-BLOCKED') || message.includes('E-OUTREACH-WAIT-TIMEOUT')) {
+        const pageTitle = session ? await session.pageTitle().catch(() => '') : '';
+        outcome.error = `${error instanceof RiskBlockedError ? 'risk-blocked' : 'risk-suspected'}:${pageTitle.slice(0, 60)}`;
+        this.deps.logger.systemError('outreach:risk-signal', { taskId, offerId, error: outcome.error });
         return outcome;
       }
       outcome.error = message.slice(0, 160);

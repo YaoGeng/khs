@@ -30,12 +30,14 @@ export interface DetailExtraction {
 }
 
 export interface OfferSession {
-  /** 轮询等待页面特征命中（超时抛错） */
+  /** 轮询等待页面特征命中（超时抛错；轮询期间风控特征命中即抛 RiskBlockedError） */
   waitForFeature(selector: string, minCount?: number, timeoutMs?: number): Promise<void>;
   /** 一次性特征计数（confirm.expect / verify 核对用） */
   checkFeatures(selectors: string[]): Promise<Record<string, number>>;
   /** blockedFeatures 探测（登录墙/滑块命中返回特征名） */
   detectBlocked(): Promise<string | null>;
+  /** 当前页面标题（风控取证用：超时/中止前读取，不发起任何新请求） */
+  pageTitle(): Promise<string>;
   /** 拟人点击（bbox 中心 + Input.dispatchMouseEvent） */
   click(selector: string): Promise<void>;
   /** 点击聚焦 + insertText 键入 */
@@ -44,6 +46,14 @@ export interface OfferSession {
   /** 页内 fetch 图片 → base64（素材留存；失败返回 null 不抛） */
   fetchAsBase64(url: string): Promise<{ base64: string; mime: string } | null>;
   close(): Promise<void>;
+}
+
+/** 风控信号（02 §7.3 安全侧）：等待期命中滑块/验证码/登录墙——上层必须中止整批而非换下一候选 */
+export class RiskBlockedError extends Error {
+  constructor(feature: string) {
+    super(`E-OUTREACH-RISK-BLOCKED: 页面命中风控特征 ${feature}——需人工完成验证后重试`);
+    this.name = 'RiskBlockedError';
+  }
 }
 
 export interface OutreachPort {
@@ -211,6 +221,9 @@ class CdpOfferSession implements OfferSession {
         // 跳转中上下文销毁：下轮重试
       }
       if ((counts[selector] ?? 0) >= minCount) return;
+      // §7.3 安全侧：等待期同步探测风控特征（滑块/验证码/登录墙）——命中即停，不换候选硬撞
+      const blocked = await this.detectBlocked();
+      if (blocked) throw new RiskBlockedError(blocked);
       if ((this.deps.now ?? (() => Date.now()))() + this.interval > deadline) {
         throw new Error(`E-OUTREACH-WAIT-TIMEOUT: 等待页面特征超时 ${selector}（${timeoutMs}ms）`);
       }
@@ -227,6 +240,14 @@ class CdpOfferSession implements OfferSession {
       return await evaluate<string | null>(this.connection, this.sessionId, DETECT_BLOCKED_SOURCE);
     } catch {
       return null;
+    }
+  }
+
+  async pageTitle(): Promise<string> {
+    try {
+      return await evaluate<string>(this.connection, this.sessionId, 'document.title || ""');
+    } catch {
+      return '';
     }
   }
 
@@ -334,6 +355,7 @@ export function createFixtureOutreachPort(options: FixtureOutreachOptions = {}):
       }
       return {
         async waitForFeature(selector, minCount = 1) {
+          if (features[selector] === -1) throw new RiskBlockedError('fixture-risk-feature');
           if ((features[selector] ?? afterClick[selector] ?? 0) < minCount) {
             throw new Error(`E-OUTREACH-WAIT-TIMEOUT: fixture 缺特征 ${selector}`);
           }
@@ -344,6 +366,9 @@ export function createFixtureOutreachPort(options: FixtureOutreachOptions = {}):
         },
         async detectBlocked() {
           return null;
+        },
+        async pageTitle() {
+          return options.detail?.title ?? 'fixture 详情页';
         },
         async click(selector) {
           if ((features[selector] ?? 0) < 1) throw new Error(`E-OUTREACH-CLICK-TARGET-MISSING: fixture 缺 ${selector}`);

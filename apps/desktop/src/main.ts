@@ -435,6 +435,8 @@ if (!gotLock) {
         if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
       },
       materialsDir: join(app.getPath('userData'), 'materials'),
+      // 候选间拟人间隔（§7.1）：真实模式 20s+抖动，防止背靠背触发风控；fixture/e2e 置 0
+      ...(outreachFixture ? { offerGapMs: 0 } : { offerGapMs: 20_000 }),
     });
 
     registerIpcHandlers({
