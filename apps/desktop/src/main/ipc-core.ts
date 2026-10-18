@@ -51,7 +51,9 @@ import {
   SelectionConfigResultSchema,
   SelectionInsertFixtureResultSchema,
   SelectionListResultSchema,
+  SelectionSetDismissedResultSchema,
   SelectionSetPinnedResultSchema,
+  SelectionSetPreferenceEnabledResultSchema,
   SelectionSetWeightsResultSchema,
   TasksCancelResultSchema,
   TasksCreateDemoResultSchema,
@@ -129,8 +131,12 @@ import {
   type SelectionListResult,
   type SelectionSetCheckedParams,
   type SelectionSetCheckedResult,
+  type SelectionSetDismissedParams,
+  type SelectionSetDismissedResult,
   type SelectionSetPinnedParams,
   type SelectionSetPinnedResult,
+  type SelectionSetPreferenceEnabledParams,
+  type SelectionSetPreferenceEnabledResult,
   type SelectionSetWeightsParams,
   type SelectionSetWeightsResult,
   type TasksListResult,
@@ -305,6 +311,10 @@ export interface SelectionIpcDeps {
   readonly setPinned: (params: SelectionSetPinnedParams) => Promise<SelectionSetPinnedResult>;
   /** T-M2-04：FR-6.3 勾选集写面（kv，setPinned 同款设置性质） */
   readonly setChecked: (params: SelectionSetCheckedParams) => Promise<SelectionSetCheckedResult>;
+  /** T-M2-07：FR-6.7 显式淘汰写面（勾选的对偶信号；流水落 preferences 表，设置性质不设 EULA 门） */
+  readonly setDismissed: (params: SelectionSetDismissedParams) => Promise<SelectionSetDismissedResult>;
+  /** T-M2-07：偏好回流开关（设置性质；关 → effectiveWeights 回落用户显式权重） */
+  readonly setPreferenceEnabled: (params: SelectionSetPreferenceEnabledParams) => Promise<SelectionSetPreferenceEnabledResult>;
   /** QA 播种专用（XINGLIAN_DEBUG_HOOKS=1 才装配）；缺省显式报未就绪 */
   readonly insertFixture?: (params: SelectionInsertFixtureParams) => Promise<SelectionInsertFixtureResult>;
 }
@@ -985,6 +995,30 @@ export function buildIpcRegistry(deps: AppInfoDeps): IpcRegistry {
           if (!deps.selection) throw new Error('E-IPC-DEP-MISSING: selection 链路未装配');
           const result = await deps.selection.setChecked(payload);
           return validateExit(SelectionSetCheckedResultSchema, result, 'selection:setChecked');
+        },
+      },
+    ],
+    [
+      'selection:setDismissed',
+      {
+        paramsSchema: channelParamsSchemas['selection:setDismissed'],
+        // 显式淘汰写面（T-M2-07 / FR-6.7 偏好画像）：偏好信号流水，设置性质不设 EULA 门
+        handle: async (payload: SelectionSetDismissedParams) => {
+          if (!deps.selection) throw new Error('E-IPC-DEP-MISSING: selection 链路未装配');
+          const result = await deps.selection.setDismissed(payload);
+          return validateExit(SelectionSetDismissedResultSchema, result, 'selection:setDismissed');
+        },
+      },
+    ],
+    [
+      'selection:setPreferenceEnabled',
+      {
+        paramsSchema: channelParamsSchemas['selection:setPreferenceEnabled'],
+        // 偏好回流开关（T-M2-07）：设置性质不设 EULA 门（同 selection:setWeights 口径）
+        handle: async (payload: SelectionSetPreferenceEnabledParams) => {
+          if (!deps.selection) throw new Error('E-IPC-DEP-MISSING: selection 链路未装配');
+          const result = await deps.selection.setPreferenceEnabled(payload);
+          return validateExit(SelectionSetPreferenceEnabledResultSchema, result, 'selection:setPreferenceEnabled');
         },
       },
     ],

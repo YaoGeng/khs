@@ -360,6 +360,32 @@ export interface SourcingCandidateFilter {
   limit?: number;
 }
 
+/** 偏好埋点输入（T-M2-07；02 §14.1 preferences 行——append-only 流水，id 由 worker 分配） */
+export interface PreferenceInput {
+  scope: string;
+  key: string;
+  /** 行为载荷对象（JSON 序列化存储） */
+  value?: unknown;
+  /** 缺省取 worker 侧当前时刻 */
+  at?: string;
+}
+
+export interface PreferenceFilter {
+  scope?: string;
+  key?: string;
+  /** 默认 200，上限 1000；updated_at 倒序（最新在前，读面派生用） */
+  limit?: number;
+}
+
+export interface PreferenceRowView {
+  id: string;
+  scope: string;
+  key: string;
+  /** 已 JSON.parse 的 value（worker 侧解析；空/损坏行返回 null） */
+  value: unknown;
+  updatedAt: string;
+}
+
 /**
  * 商品实体状态（02 §14.1 三态 + T-M2-06 工作流扩展）。前三个是选品阶段内态
  * （看板「选品中」列），待发布/推广中/已完成是跨阶段工作流态（FR-7.3 四列看板）：
@@ -523,7 +549,9 @@ export type StoreRequest =
   | (RequestBase & { type: 'listMaterials'; productId: string })
   | (RequestBase & { type: 'upsertEmbedding'; embedding: EmbeddingUpsertInput })
   | (RequestBase & { type: 'knnTopK'; query: KnnQuery })
-  | (RequestBase & { type: 'pruneEmbeddingsCache' });
+  | (RequestBase & { type: 'pruneEmbeddingsCache' })
+  | (RequestBase & { type: 'insertPreference'; row: PreferenceInput })
+  | (RequestBase & { type: 'listPreferences'; filter: PreferenceFilter });
 
 export type StoreRequestType = StoreRequest['type'];
 

@@ -9,7 +9,7 @@
  *   当前批不重放（replay）——丢失面与 ADR-8「日志类可丢、任务类以事件流水可重建」口径一致。
  * 本模块 electron-free（transport 注入），vitest 以内存 transport + 真实 worker 内核直测。
  */
-import { STORE_ERROR_CODES, type CircuitEventFilter, type CircuitEventInput, type CircuitEventRowView, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type CreateTaskInput, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KeywordHitRowView, type KnnHit, type KnnQuery, type LogQueryFilter, type LogRowInput, type LogRowView, type LlmCallFilter, type LlmCallInput, type LlmCallRowView, type MaterialInput, type MaterialRowView, type NoteInput, type NoteQueryFilter, type NoteRowView, type ProductFilter, type ProductInput, type ProductRowView, type ProductStatus, type ReportInput, type ReportRowView, type SourcingCandidateFilter, type SourcingCandidateInput, type SourcingCandidateRowView, type StepInput, type StepRowView, type StoreRequest, type StoreResponse, type TaskEventInput, type TaskEventRowView, type TaskRowView, type TaskStatus, type TaskStatusInput, type KvValue } from './protocol';
+import { STORE_ERROR_CODES, type CircuitEventFilter, type CircuitEventInput, type CircuitEventRowView, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type CreateTaskInput, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KeywordHitRowView, type KnnHit, type KnnQuery, type LogQueryFilter, type LogRowInput, type LogRowView, type LlmCallFilter, type LlmCallInput, type LlmCallRowView, type MaterialInput, type MaterialRowView, type NoteInput, type NoteQueryFilter, type NoteRowView, type PreferenceFilter, type PreferenceInput, type PreferenceRowView, type ProductFilter, type ProductInput, type ProductRowView, type ProductStatus, type ReportInput, type ReportRowView, type SourcingCandidateFilter, type SourcingCandidateInput, type SourcingCandidateRowView, type StepInput, type StepRowView, type StoreRequest, type StoreResponse, type TaskEventInput, type TaskEventRowView, type TaskRowView, type TaskStatus, type TaskStatusInput, type KvValue } from './protocol';
 import type { RetentionPolicy } from '@xinglian/logger';
 
 export interface StoreTransport {
@@ -109,6 +109,9 @@ export interface StoreClient {
   /** 素材留存：image 按 (product, source_url) 去重追加；desc 每商品单行替换 */
   insertMaterials(rows: MaterialInput[]): Promise<{ inserted: number }>;
   listMaterials(productId: string): Promise<MaterialRowView[]>;
+  /** 偏好埋点（T-M2-07；append-only 流水，id 由 worker 分配） */
+  insertPreference(row: PreferenceInput): Promise<{ id: string }>;
+  listPreferences(filter?: PreferenceFilter): Promise<PreferenceRowView[]>;
   /** 嵌入缓存 upsert：rowid 由 worker 分配并与 embeddings_vec 共享（BigInt） */
   upsertEmbedding(embedding: EmbeddingUpsertInput): Promise<EmbeddingUpsertResult>;
   knnTopK(query: KnnQuery): Promise<KnnHit[]>;
@@ -409,6 +412,11 @@ export function createStoreClient(options: StoreClientOptions): StoreClient {
     },
     listProducts: async (filter?: ProductFilter) => {
       const data = await unwrap<{ rows: ProductRowView[] }>(dispatch(false, (id) => ({ id, type: 'listProducts', filter: filter ?? {} })));
+      return data.rows;
+    },
+    insertPreference: (row: PreferenceInput) => unwrap(dispatch(false, (id) => ({ id, type: 'insertPreference', row }))),
+    listPreferences: async (filter?: PreferenceFilter) => {
+      const data = await unwrap<{ rows: PreferenceRowView[] }>(dispatch(false, (id) => ({ id, type: 'listPreferences', filter: filter ?? {} })));
       return data.rows;
     },
     upsertEmbedding: (embedding: EmbeddingUpsertInput) => unwrap(dispatch(false, (id) => ({ id, type: 'upsertEmbedding', embedding }))),

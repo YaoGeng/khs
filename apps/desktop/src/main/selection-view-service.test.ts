@@ -303,3 +303,175 @@ describe('镜像一致性（shared/channels ↔ agents SELECTION_DIMENSIONS）',
     expect(() => createSelectionViewService(makeDeps())).not.toThrow();
   });
 });
+
+/* -------------------- T-M2-07：偏好回流接线（淘汰写面 + config preference 块 + 开关） -------------------- */
+
+import { createPreferenceService, PREFERENCE_BEHAVIOR_KEY, PREFERENCE_SCOPE } from './preference-service';
+import type { PreferenceRowView } from '../store/protocol';
+
+/** 在 makeDeps 的同一 kv/候选行之上挂真实 PreferenceService（流水独立数组、毫秒单调时序） */
+function withPreference(deps: SelectionViewDeps & FakeHandle): { preference: ReturnType<typeof createPreferenceService>; prefRows: PreferenceRowView[] } {
+  const prefRows: PreferenceRowView[] = [];
+  let seq = 0;
+  const preference = createPreferenceService({
+    store: {
+      whenReady: deps.store.whenReady,
+      kvGet: deps.store.kvGet,
+      kvSet: deps.store.kvSet,
+      listSourcingCandidates: deps.store.listSourcingCandidates,
+      insertPreference: async (row) => {
+        seq += 1;
+        prefRows.push({
+          id: `p${seq}`,
+          scope: row.scope,
+          key: row.key,
+          value: row.value ?? null,
+          updatedAt: row.at ?? new Date(Date.UTC(2026, 9, 17, 2, 0, 0, seq)).toISOString(),
+        });
+        return { id: `p${seq}` };
+      },
+      listPreferences: async (filter) =>
+        prefRows
+          .filter((r) => (filter?.scope === undefined || r.scope === filter.scope) && (filter?.key === undefined || r.key === filter.key))
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          .slice(0, Math.min(filter?.limit ?? 200, 1000)),
+    },
+  });
+  return { preference, prefRows };
+}
+
+describe('T-M2-07 偏好回流接线', () => {
+  const WEIGHTS = { relevance: 25, price: 15, sales: 20, supplier: 10, gallery: 15, repurchase: 15 };
+
+  function seedCandidates(deps: SelectionViewDeps & FakeHandle, spec: Array<{ i: number; relevance: number }>): void {
+    for (const { i, relevance } of spec) {
+      deps.rows.push({
+        id: deps.rows.length + 1,
+        taskId: 't1',
+        selectionId: 's1',
+        rank: i + 1,
+        offerId: `offer-${i}`,
+        keyword: '防晒帽',
+        total: 60,
+        dimensions: dims({ relevance, price: 50, sales: 50, supplier: 50, gallery: 50 }),
+        title: `候选 ${i}`,
+        priceText: null,
+        salesText: null,
+        supplierName: null,
+        supplierAddress: null,
+        sourceUrl: null,
+        createdAt: '2026-10-17T00:00:00.000Z',
+      });
+    }
+  }
+
+  it('setDismissed：流水记录 + 勾选互斥（自动移出勾选集）+ 幂等重放不重复记流水', async () => {
+    const deps = makeDeps();
+    const { preference, prefRows } = withPreference(deps);
+    const svc = createSelectionViewService({ ...deps, preference });
+    seedCandidates(deps, [
+      { i: 0, relevance: 100 },
+      { i: 1, relevance: 0 },
+    ]);
+    deps.kv.set('selection:checked:t1', JSON.stringify(['offer-0', 'offer-1']));
+
+    const first = await svc.setDismissed({ taskId: 't1', offerId: 'offer-0', dismissed: true });
+    expect(first.offerIds).toEqual(['offer-0']);
+    expect(JSON.parse(deps.kv.get('selection:checked:t1') ?? '[]')).toEqual(['offer-1']); // 互斥移出
+    expect(prefRows.filter((r) => r.key === PREFERENCE_BEHAVIOR_KEY)).toHaveLength(1);
+
+    // 幂等：重复淘汰不追加流水；撤销后集合清空且记 dismissed=false 行
+    await svc.setDismissed({ taskId: 't1', offerId: 'offer-0', dismissed: true });
+    expect(prefRows.filter((r) => r.key === PREFERENCE_BEHAVIOR_KEY)).toHaveLength(1);
+    const off = await svc.setDismissed({ taskId: 't1', offerId: 'offer-0', dismissed: false });
+    expect(off.offerIds).toEqual([]);
+    expect(prefRows.filter((r) => r.key === PREFERENCE_BEHAVIOR_KEY)).toHaveLength(2);
+  });
+
+  it('setDismissed 未装配 preference → E-PREFERENCE-UNWIRED（不静默）', async () => {
+    const deps = makeDeps();
+    const svc = createSelectionViewService(deps);
+    await expect(svc.setDismissed({ taskId: 't1', offerId: 'offer-0', dismissed: true })).rejects.toThrow(/E-PREFERENCE-UNWIRED/);
+    await expect(svc.setPreferenceEnabled({ enabled: true })).rejects.toThrow(/E-PREFERENCE-UNWIRED/);
+  });
+
+  it('getConfig preference 块：样本不足出中性默认（effective=weights）；达标后乘性融合生效', async () => {
+    const deps = makeDeps();
+    const { preference } = withPreference(deps);
+    const svc = createSelectionViewService({ ...deps, preference });
+    seedCandidates(deps, [
+      { i: 0, relevance: 100 },
+      { i: 1, relevance: 100 },
+      { i: 2, relevance: 100 },
+      { i: 3, relevance: 0 },
+      { i: 4, relevance: 0 },
+      { i: 5, relevance: 0 },
+      { i: 6, relevance: 0 },
+      { i: 7, relevance: 0 },
+    ]);
+
+    const before = await svc.getConfig();
+    expect(before.preference.enabled).toBe(true);
+    expect(before.preference.sampleInsufficient).toBe(true);
+    expect(before.preference.effectiveWeights).toEqual(WEIGHTS);
+
+    for (const i of [0, 1, 2]) await outreachLikeCheck(deps, preference, i);
+    for (const i of [3, 4, 5, 6, 7]) await preference.recordDismissed('t1', `offer-${i}`, true);
+
+    const after = await svc.getConfig();
+    expect(after.preference.adopted).toBe(3);
+    expect(after.preference.dismissed).toBe(5);
+    expect(after.preference.sampleInsufficient).toBe(false);
+    expect(after.preference.dimBias.relevance).toBe(0.5);
+    expect(after.preference.effectiveWeights.relevance).toBe(38); // 25×1.5 → 38
+    expect(after.weights).toEqual(WEIGHTS); // 用户显式权重不被覆盖
+  });
+
+  it('setPreferenceEnabled(false) → enabled=false + effectiveWeights 回落用户权重', async () => {
+    const deps = makeDeps();
+    const { preference } = withPreference(deps);
+    const svc = createSelectionViewService({ ...deps, preference });
+    seedCandidates(deps, [
+      { i: 0, relevance: 100 },
+      { i: 1, relevance: 100 },
+      { i: 2, relevance: 100 },
+      { i: 3, relevance: 0 },
+      { i: 4, relevance: 0 },
+      { i: 5, relevance: 0 },
+      { i: 6, relevance: 0 },
+      { i: 7, relevance: 0 },
+    ]);
+    for (const i of [0, 1, 2]) await preference.recordChecked('t1', `offer-${i}`, true);
+    for (const i of [3, 4, 5, 6, 7]) await preference.recordDismissed('t1', `offer-${i}`, true);
+
+    const result = await svc.setPreferenceEnabled({ enabled: false });
+    expect(result.preference.enabled).toBe(false);
+    expect(result.preference.effectiveWeights).toEqual(WEIGHTS);
+    expect(result.preference.dimBias.relevance).toBe(0.5); // bias 仍在（画像照常派生），只是不融合
+  });
+
+  it('setPinned 触发 pinned 埋点（强采纳信号入流水）', async () => {
+    const deps = makeDeps();
+    const { preference, prefRows } = withPreference(deps);
+    const svc = createSelectionViewService({ ...deps, preference });
+    seedCandidates(deps, [{ i: 0, relevance: 100 }]);
+    await svc.setPinned({ taskId: 't1', offerId: 'offer-0', pinned: true });
+    const kinds = prefRows.filter((r) => r.scope === PREFERENCE_SCOPE).map((r) => (r.value as { kind: string }).kind);
+    expect(kinds).toEqual(['pinned']);
+  });
+});
+
+/** 模拟 outreach.setChecked 的埋点语义（勾选 → recordChecked；互斥撤销归 outreach 侧） */
+async function outreachLikeCheck(
+  deps: SelectionViewDeps & FakeHandle,
+  preference: ReturnType<typeof createPreferenceService>,
+  i: number,
+): Promise<void> {
+  const offerId = `offer-${i}`;
+  if ((await preference.dismissedSet('t1')).includes(offerId)) {
+    await preference.recordDismissed('t1', offerId, false);
+  }
+  await preference.recordChecked('t1', offerId, true);
+  const raw = JSON.parse(deps.kv.get('selection:checked:t1') ?? '[]') as string[];
+  deps.kv.set('selection:checked:t1', JSON.stringify([...new Set([...raw, offerId])]));
+}

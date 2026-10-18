@@ -132,6 +132,53 @@ describe('consent 留痕内核（todo 9 / FR-1.9+FR-12.6）', () => {
   });
 });
 
+describe('偏好画像流水内核（T-M2-07 / FR-6.7）', () => {
+  it('insertPreference append-only：id worker 分配、value 保真、listPreferences updated_at 倒序 + scope/key 过滤', () => {
+    const a = handleStoreRequest(db, {
+      id: 20,
+      type: 'insertPreference',
+      row: { scope: 'selection', key: 'behavior', value: { kind: 'checked', offerId: 'o1', flag: true }, at: '2026-10-19T01:00:00.000Z' },
+    }).data as { id: string };
+    const b = handleStoreRequest(db, {
+      id: 21,
+      type: 'insertPreference',
+      row: { scope: 'selection', key: 'behavior', value: { kind: 'dismissed', offerId: 'o2', flag: true }, at: '2026-10-19T02:00:00.000Z' },
+    }).data as { id: string };
+    handleStoreRequest(db, {
+      id: 22,
+      type: 'insertPreference',
+      row: { scope: 'other', key: 'behavior', value: { kind: 'checked', offerId: 'o3', flag: true }, at: '2026-10-19T03:00:00.000Z' },
+    });
+    expect(a.id).toBeTruthy();
+    expect(b.id).not.toBe(a.id);
+
+    const all = handleStoreRequest(db, { id: 23, type: 'listPreferences', filter: { scope: 'selection' } }).data as {
+      rows: Array<{ id: string; value: Record<string, unknown>; updatedAt: string }>;
+    };
+    expect(all.rows).toHaveLength(2);
+    expect(all.rows[0]?.value).toEqual({ kind: 'dismissed', offerId: 'o2', flag: true });
+    expect(all.rows[0]?.updatedAt).toBe('2026-10-19T02:00:00.000Z');
+    expect(all.rows[1]?.value).toEqual({ kind: 'checked', offerId: 'o1', flag: true });
+
+    // key 过滤 + limit
+    const keyed = handleStoreRequest(db, { id: 24, type: 'listPreferences', filter: { scope: 'selection', key: 'behavior', limit: 1 } }).data as {
+      rows: unknown[];
+    };
+    expect(keyed.rows).toHaveLength(1);
+  });
+
+  it('value 缺省 → null 行可读；scope/key 空串 → BAD_REQUEST', () => {
+    handleStoreRequest(db, { id: 25, type: 'insertPreference', row: { scope: 'selection', key: 'profile' } });
+    const rows = (handleStoreRequest(db, { id: 26, type: 'listPreferences', filter: { scope: 'selection', key: 'profile' } }).data as { rows: Array<{ value: unknown }> }).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.value).toBeNull();
+
+    expect(() =>
+      handleStoreRequest(db, { id: 27, type: 'insertPreference', row: { scope: '', key: 'behavior' } }),
+    ).toThrow(/BAD-REQUEST/);
+  });
+});
+
 describe('落库 sink（组装点）', () => {
   it('攒批：不满批不落库、flush 后落库、prune 走 store', async () => {
     const sent: Array<{ id: number; type: string; rows?: LogRowInput[]; policy?: unknown }> = [];

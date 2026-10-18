@@ -6,8 +6,9 @@
  * 协议：__init 握手 → StoreRequest{ id, type, ... } → StoreResponse{ id, ok, data|err, writeMs }。
  * 事务粒度（ADR-8 §7.2）：insertLogs 分片 ≤100 行/事务；其余单行写各自成事务。
  */
+import { randomUUID } from 'node:crypto';
 import { openAndMigrate } from './db';
-import { EMBEDDINGS_RETENTION_DAYS, PRODUCT_STATUSES, STORE_ERROR_CODES, isTaskStatus, type CircuitEventFilter, type CircuitEventInput, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KnnQuery, type LlmCallFilter, type MaterialInput, type NoteInput, type NoteQueryFilter, type NoteRowView, type ProductFilter, type ProductInput, type ReportInput, type ReportRowView, type SourcingCandidateFilter, type SourcingCandidateInput, type StoreRequest, type StoreResponse, type CreateTaskInput, type LogQueryFilter, type LlmCallInput, type StepInput, type TaskEventInput, type TaskStatusInput, type RetentionPolicy } from './protocol';
+import { EMBEDDINGS_RETENTION_DAYS, PRODUCT_STATUSES, STORE_ERROR_CODES, isTaskStatus, type CircuitEventFilter, type CircuitEventInput, type CollectRunStatsInput, type CollectRunStatsView, type ConsentInput, type ConsentRowView, type EmbeddingUpsertInput, type EmbeddingUpsertResult, type KeywordHitFilter, type KeywordHitInput, type KnnQuery, type LlmCallFilter, type MaterialInput, type NoteInput, type NoteQueryFilter, type NoteRowView, type PreferenceFilter, type PreferenceInput, type ProductFilter, type ProductInput, type ReportInput, type ReportRowView, type SourcingCandidateFilter, type SourcingCandidateInput, type StoreRequest, type StoreResponse, type CreateTaskInput, type LogQueryFilter, type LlmCallInput, type StepInput, type TaskEventInput, type TaskStatusInput, type RetentionPolicy } from './protocol';
 
 type SqliteDatabase = import('better-sqlite3').SqliteDatabase;
 
@@ -866,6 +867,54 @@ export function handleStoreRequest(db: SqliteDatabase, request: StoreRequest): {
           .run(cutoff);
         const cacheDeleted = db.prepare('DELETE FROM embeddings_cache WHERE last_used_at < ?').run(cutoff);
         return { cacheDeleted: Number(cacheDeleted.changes), vecDeleted: Number(vecDeleted.changes) };
+      }
+
+      case 'insertPreference': {
+        // append-only 流水（T-M2-07）：id 由 worker 分配（randomUUID），无 upsert 语义
+        const row = request.row as PreferenceInput;
+        if (typeof row.scope !== 'string' || row.scope.length === 0 || typeof row.key !== 'string' || row.key.length === 0) {
+          throw new Error(`${STORE_ERROR_CODES.BAD_REQUEST}: preferences scope/key 必须为非空字符串`);
+        }
+        const id = randomUUID();
+        db.prepare(
+          `INSERT INTO preferences (id, scope, key, value_json, updated_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        ).run(
+          id,
+          row.scope,
+          row.key,
+          row.value === undefined ? null : JSON.stringify(row.value),
+          row.at ?? new Date().toISOString(),
+        );
+        return { id };
+      }
+
+      case 'listPreferences': {
+        const filter = request.filter as PreferenceFilter;
+        const limit = Math.min(Math.max(1, filter.limit ?? 200), 1000);
+        const conds: string[] = [];
+        const args: Array<string | number> = [];
+        if (filter.scope !== undefined) {
+          conds.push('scope = ?');
+          args.push(filter.scope);
+        }
+        if (filter.key !== undefined) {
+          conds.push('key = ?');
+          args.push(filter.key);
+        }
+        const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
+        const rows = db
+          .prepare(`SELECT * FROM preferences ${where} ORDER BY updated_at DESC, id DESC LIMIT ?`)
+          .all(...args, limit) as Array<Record<string, unknown>>;
+        return {
+          rows: rows.map((row) => ({
+            id: String(row.id),
+            scope: String(row.scope),
+            key: String(row.key),
+            value: parseJsonOrNull(row.value_json as string | null),
+            updatedAt: String(row.updated_at),
+          })),
+        };
       }
 
       default: {

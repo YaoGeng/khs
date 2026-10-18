@@ -393,6 +393,33 @@ function downV5(db: SqliteDatabase): void {
   `);
 }
 
+/**
+ * v6（M2 T-M2-07）：偏好画像表（02 §14.1 preferences 行，FR-6.7/FR-9.8）。
+ * - 字段严格按架构五字段（id/scope/key/value_json/updated_at）；**append-only 流水**：
+ *   行为埋点与画像快照都走 INSERT（不建 scope+key 唯一约束），当前态/最新画像由
+ *   读面按 updated_at 倒序派生——单一事实源，不双写 kv。
+ * - 本地表（本地学习不上传，FR-6.7 口径）：无出站面，retention 归既有模式。
+ */
+function upV6(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE preferences (
+      id          TEXT    PRIMARY KEY,
+      scope       TEXT    NOT NULL,
+      key         TEXT    NOT NULL,
+      value_json  TEXT,
+      updated_at  TEXT    NOT NULL
+    );
+    CREATE INDEX idx_preferences_scope_key ON preferences (scope, key, updated_at);
+  `);
+}
+
+function downV6(db: SqliteDatabase): void {
+  db.exec(`
+    DROP INDEX IF EXISTS idx_preferences_scope_key;
+    DROP TABLE IF EXISTS preferences;
+  `);
+}
+
 /** 迁移链：只追加不回改（发布后已应用版本不可变更，M1+ 走 0004+） */
 export const MIGRATIONS: readonly MigrationStep[] = [
   { version: 1, name: '0001-initial-m0-tables', up: upV1, down: downV1 },
@@ -400,6 +427,7 @@ export const MIGRATIONS: readonly MigrationStep[] = [
   { version: 3, name: '0003-insight-m1-tables', up: upV3, down: downV3 },
   { version: 4, name: '0004-m2-sourcing-candidates', up: upV4, down: downV4 },
   { version: 5, name: '0005-m2-products-materials', up: upV5, down: downV5 },
+  { version: 6, name: '0006-m2-preferences', up: upV6, down: downV6 },
 ];
 
 function ensureLedger(db: SqliteDatabase): void {

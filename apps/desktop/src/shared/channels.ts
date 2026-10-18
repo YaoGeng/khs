@@ -51,6 +51,13 @@
  *   同 selection:setChecked 口径）；
  * - products:enterPublish——一键转场（FR-7.2）：已对接 → 待发布，落 PRODUCT_ENTER_PUBLISH
  *   审计事件 + 返回上下文摘要（素材计数/供应商/报告 topic，可推导引用不复制本体）。
+ * M2 T-M2-07（FR-6.7 偏好画像 v1）：
+ * - selection:setDismissed——候选显式淘汰写面（勾选的对偶信号；流水落 preferences 表，
+ *   setChecked/setPinned 同款设置性质不设 EULA 门；淘汰集从流水派生，kv 不双写）；
+ * - selection:setPreferenceEnabled——偏好回流开关（kv `selection:preference:enabled`，
+ *   设置性质；关 → config.effectiveWeights 回落用户显式权重）；
+ * - selection:config 扩展 preference 块（画像现算 + effectiveWeights 读时融合，
+ *   用户显式权重不被静默覆盖——可解释可见）。
  */
 export const IPC_CHANNELS = [
   'app:info',
@@ -102,7 +109,9 @@ export const IPC_CHANNELS = [
   'selection:insertFixture',
   'selection:list',
   'selection:setChecked',
+  'selection:setDismissed',
   'selection:setPinned',
+  'selection:setPreferenceEnabled',
   'selection:setWeights',
   'sourcing:akClear',
   'sourcing:akSet',

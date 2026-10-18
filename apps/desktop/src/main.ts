@@ -31,6 +31,7 @@ import { createElectronSafeStoragePort } from './main/safe-storage-port';
 import { createGatewayKeyReader, createKeyService, type KeyService, type SafeStoragePort } from './main/key-service';
 import { createReportService, type ReportLlmConfig, type ReportService, type StructuredGateway } from './main/report-service';
 import { createUsageService, type UsageService } from './main/usage-service';
+import { createPreferenceService } from './main/preference-service';
 import { createSelectionViewService } from './main/selection-view-service';
 import { createAutomationTierService } from './main/automation-tier';
 import { createViralService, type ViralService } from './main/viral-service';
@@ -419,9 +420,13 @@ if (!gotLock) {
     // m1 todo 12：用量面板 + 全局 RPM（FR-2.5/2.6；llm_calls 聚合 + 自填单价 + 探测档展示）
     usageService = createUsageService({ store: storeClient });
 
+    // T-M2-07：偏好画像服务（FR-6.7 偏好回流归口：勾选/置顶/淘汰埋点 → 读时派生 → 权重乘性微调；
+    // 本地学习不上传，preferences 表 append-only 流水）
+    const preferenceService = createPreferenceService({ store: storeClient });
+
     // 05 T-M2-03：选品候选清单视图服务（FR-6.2 权重/FR-6.3 对比表格读面；构造期含
     // shared↔agents 五维镜像一致性断言——漂移即启动期可见）
-    const selectionViewService = createSelectionViewService({ store: storeClient, runner: storeService.runner });
+    const selectionViewService = createSelectionViewService({ store: storeClient, runner: storeService.runner, preference: preferenceService });
 
     // T-M2-04：收藏/询盘执行服务（FR-6.3 勾选 → FR-6.4 confirm 红线弹窗 → FR-6.5 素材+卡片）。
     // fixture seam XINGLIAN_OUTREACH_FIXTURE=1 = 内存会话回放（e2e 全链路不碰真站；
@@ -429,6 +434,7 @@ if (!gotLock) {
     const outreachFixture = process.env.XINGLIAN_OUTREACH_FIXTURE === '1';
     const outreachService = new OutreachService({
       store: storeClient,
+      preference: preferenceService,
       port: outreachFixture
         ? () => Promise.resolve(createFixtureOutreachPort())
         : () =>
@@ -549,7 +555,8 @@ if (!gotLock) {
       // 05 T-M2-03：选品候选清单（selection:*；FR-6.2 权重可调/FR-6.3 对比表格）
       selection: {
         list: () => selectionViewService.listSelections(),
-        // T-M2-04：candidates = 视图读面 + 勾选集合并（checked 归 outreach kv，组合根组装）
+        // T-M2-04：candidates = 视图读面 + 勾选/淘汰集合并（checked 归 outreach kv、
+        // dismissed 归 preference 流水，组合根组装契约全形）
         candidates: async (params) => {
           const result = await selectionViewService.listCandidates(params.taskId);
           return { ...result, checked: await outreachService.listChecked(params.taskId) };
@@ -559,6 +566,9 @@ if (!gotLock) {
         setPinned: (params) => selectionViewService.setPinned(params),
         setChecked: (params) =>
           outreachService.setChecked(params.taskId, params.offerId, params.checked).then((offerIds) => ({ taskId: params.taskId, offerIds })),
+        // T-M2-07：显式淘汰 + 偏好回流开关（FR-6.7 偏好画像写面）
+        setDismissed: (params) => selectionViewService.setDismissed(params),
+        setPreferenceEnabled: (params) => selectionViewService.setPreferenceEnabled(params),
         // QA 播种专用（缺省显式报未就绪）：仅 debug 门控装配
         ...(process.env.XINGLIAN_DEBUG_HOOKS === '1'
           ? {

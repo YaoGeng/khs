@@ -26,6 +26,7 @@ import { RiskBlockedError, type OutreachPort, type OfferSession } from '../brows
 import { PRODUCT_ERRORS, type PushChannel } from '../shared/channels';
 import type { ProductsEnterPublishResult, ProductsSetStatusResult } from '../shared/schemas';
 import type { ProductStatus } from '../store/protocol';
+import type { PreferenceService } from './preference-service';
 
 /** 勾选集 kv 键（FR-6.3；task 维度） */
 export const checkedKey = (taskId: string): string => `selection:checked:${taskId}`;
@@ -155,6 +156,11 @@ export interface OutreachServiceDeps {
   readonly offerGapMs?: number;
   /** 注入延时（单测立即返回；缺省 setTimeout） */
   readonly delay?: (ms: number) => Promise<void>;
+  /** T-M2-07 偏好埋点（生产恒注入；缺省 = 埋点旁路关闭，既有单测免改装配） */
+  readonly preference?: Pick<
+    PreferenceService,
+    'recordChecked' | 'recordDismissed' | 'dismissedSet'
+  >;
 }
 
 const DEFAULT_OFFER_GAP_MS = 20_000;
@@ -190,7 +196,7 @@ export class OutreachService {
     this.delay = deps.delay ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
-  /** FR-6.3 勾选面：task 维度 offerId 集（kv JSON 数组） */
+  /** FR-6.3 勾选面：task 维度 offerId 集（kv JSON 数组）+ T-M2-07 埋点与淘汰互斥 */
   async setChecked(taskId: string, offerId: string, checked: boolean): Promise<string[]> {
     await this.deps.store.whenReady();
     const raw = await this.deps.store.kvGet(checkedKey(taskId));
@@ -200,7 +206,21 @@ export class OutreachService {
     else set.delete(offerId);
     const ids = [...set];
     await this.deps.store.kvSet(checkedKey(taskId), JSON.stringify(ids));
+    await this.recordPreferenceSignal(taskId, offerId, checked);
     return ids;
+  }
+
+  /**
+   * T-M2-07 偏好埋点（旁路观测：preference 未装配即跳过）。勾选 → 撤销该候选淘汰末态
+   * （互斥）；取消勾选 ≠ 淘汰，不记 dismissed 信号。
+   */
+  private async recordPreferenceSignal(taskId: string, offerId: string, checked: boolean): Promise<void> {
+    const preference = this.deps.preference;
+    if (!preference) return;
+    if (checked && (await preference.dismissedSet(taskId)).includes(offerId)) {
+      await preference.recordDismissed(taskId, offerId, false);
+    }
+    await preference.recordChecked(taskId, offerId, checked);
   }
 
   async listChecked(taskId: string): Promise<string[]> {

@@ -11,18 +11,26 @@
  *   取证结论），任务卡如实展示，不臆造候选、不自动重试。
  * - shared/channels SELECTION_DIMENSIONS_SCHEMA 与 agents SELECTION_DIMENSIONS 是
  *   互链镜像（渲染 bundle 不带 agents 包）：本服务构造期断言键集一致，漂移即抛。
+ * - T-M2-07 偏好回流：埋点/派生/融合归 preference-service（组合根注入）；本服务只
+ *   做淘汰写面编排（流水 + 勾选互斥簿记）与 config preference 块出口。
  */
 import { randomUUID } from 'node:crypto';
 import { SELECTION_DIMENSIONS, type DimensionScore } from '@xinglian/agents';
 import { SELECTION_DIMENSIONS_SCHEMA, type SelectionDimensionId } from '../shared/channels';
+import { checkedKey } from './outreach-service';
+import type { PreferenceService } from './preference-service';
 import type {
   SelectionCandidatesResult,
   SelectionConfigResult,
   SelectionInsertFixtureParams,
   SelectionInsertFixtureResult,
   SelectionListResult,
+  SelectionSetDismissedParams,
+  SelectionSetDismissedResult,
   SelectionSetPinnedParams,
   SelectionSetPinnedResult,
+  SelectionSetPreferenceEnabledParams,
+  SelectionSetPreferenceEnabledResult,
   SelectionSummary,
   SelectionWeights,
 } from '../shared/schemas';
@@ -49,6 +57,8 @@ export interface SelectionViewDeps {
     | 'listSourcingCandidates'
   >;
   readonly runner: Pick<TaskRunner, 'listTaskViews'>;
+  /** T-M2-07 偏好回流（生产恒注入；缺省 = 埋点旁路关闭、config 出 neutrality 默认块） */
+  readonly preference?: PreferenceService;
   readonly now?: () => Date;
 }
 
@@ -173,7 +183,6 @@ export class SelectionViewService {
       );
     }
   }
-
   /** selection:list —— 选品任务卡（最新在前；candidateCount 取自 persist 步骤产出） */
   async listSelections(): Promise<SelectionListResult> {
     await this.deps.store.whenReady();
@@ -201,15 +210,16 @@ export class SelectionViewService {
     return { selections };
   }
 
-  /** selection:candidates —— 某任务 TopN 候选 + 置顶集（重算由渲染层按 config 权重现算；
- *   checked 勾选集归 outreach kv，组合根合并后返回契约全形——T-M2-04） */
+  /** selection:candidates —— 某任务 TopN 候选 + 置顶/淘汰集（重算由渲染层按 config 权重现算；
+   *   checked 勾选集归 outreach kv，dismissed 淘汰集归 preference 流水——组合根合并后返回契约全形） */
   async listCandidates(taskId: string): Promise<Omit<SelectionCandidatesResult, 'checked'>> {
     await this.deps.store.whenReady();
     const candidates = await this.deps.store.listSourcingCandidates({ taskId, limit: 500 });
-    return { candidates, pinned: await this.readPinned(taskId) };
+    const dismissed = this.deps.preference ? await this.deps.preference.dismissedSet(taskId) : [];
+    return { candidates, pinned: await this.readPinned(taskId), dismissed };
   }
 
-  /** selection:config —— 五维元数据 + 当前权重（kv 无记录 = Agent 默认） */
+  /** selection:config —— 六维元数据 + 当前权重 + 偏好画像块（T-M2-07；kv 无记录 = Agent 默认） */
   async getConfig(): Promise<SelectionConfigResult> {
     await this.deps.store.whenReady();
     const dimensions = SELECTION_DIMENSIONS_SCHEMA.map((id) => ({
@@ -219,7 +229,18 @@ export class SelectionViewService {
     }));
     const raw = await readKvJson(this.deps.store, SELECTION_WEIGHTS_KEY);
     const weights = parseWeights(raw) ?? defaultSelectionWeights();
-    return { dimensions, weights, customized: raw !== null && parseWeights(raw) !== null };
+    const preference = this.deps.preference
+      ? await this.deps.preference.deriveInfo(weights)
+      : {
+          // preference 未装配（部分单测场景）：出中性默认块（不生效、如实标注样本不足）
+          enabled: false,
+          adopted: 0,
+          dismissed: 0,
+          sampleInsufficient: true,
+          dimBias: Object.fromEntries(SELECTION_DIMENSIONS_SCHEMA.map((id) => [id, 0])) as Record<SelectionDimensionId, number>,
+          effectiveWeights: weights,
+        };
+    return { dimensions, weights, customized: raw !== null && parseWeights(raw) !== null, preference };
   }
 
   /** selection:setWeights —— 权重持久化（全局 kv；重算发生在下次读取） */
@@ -229,7 +250,7 @@ export class SelectionViewService {
     return this.getConfig();
   }
 
-  /** selection:setPinned —— 置顶切换（kv offerId 集；幂等） */
+  /** selection:setPinned —— 置顶切换（kv offerId 集；幂等）+ 强采纳埋点（T-M2-07） */
   async setPinned(params: SelectionSetPinnedParams): Promise<SelectionSetPinnedResult> {
     await this.deps.store.whenReady();
     const current = await this.readPinned(params.taskId);
@@ -238,7 +259,31 @@ export class SelectionViewService {
     else set.delete(params.offerId);
     const offerIds = [...set];
     await this.deps.store.kvSet(selectionPinnedKey(params.taskId), JSON.stringify(offerIds));
+    await this.deps.preference?.recordPinned(params.taskId, params.offerId, params.pinned);
     return { taskId: params.taskId, offerIds };
+  }
+
+  /**
+   * selection:setDismissed —— 显式淘汰切换（T-M2-07；FR-6.7 勾选的对偶信号）。
+   * 流水单一事实源（kv 不双写）；互斥：淘汰自动移出勾选集（kv 簿记，行为流水各记各的）。
+   */
+  async setDismissed(params: SelectionSetDismissedParams): Promise<SelectionSetDismissedResult> {
+    await this.deps.store.whenReady();
+    if (!this.deps.preference) throw new Error('E-PREFERENCE-UNWIRED: preference 链路未装配（selection:setDismissed）');
+    const current = await this.deps.preference.dismissedSet(params.taskId);
+    if (current.includes(params.offerId) !== params.dismissed) {
+      await this.deps.preference.recordDismissed(params.taskId, params.offerId, params.dismissed);
+      if (params.dismissed) await this.removeFromCheckedKv(params.taskId, params.offerId);
+    }
+    return { taskId: params.taskId, offerIds: await this.deps.preference.dismissedSet(params.taskId) };
+  }
+
+  /** selection:setPreferenceEnabled —— 偏好回流开关（kv；关 → effectiveWeights 回落用户权重） */
+  async setPreferenceEnabled(params: SelectionSetPreferenceEnabledParams): Promise<SelectionSetPreferenceEnabledResult> {
+    await this.deps.store.whenReady();
+    if (!this.deps.preference) throw new Error('E-PREFERENCE-UNWIRED: preference 链路未装配（selection:setPreferenceEnabled）');
+    await this.deps.preference.setEnabled(params.enabled);
+    return this.getConfig();
   }
 
   /**
@@ -313,6 +358,14 @@ export class SelectionViewService {
     const value = await readKvJson(this.deps.store, selectionPinnedKey(taskId));
     if (!Array.isArray(value)) return [];
     return value.filter((id): id is string => typeof id === 'string' && id.length > 0);
+  }
+
+  /** 勾选集 kv 移出（淘汰互斥簿记；勾选集键语义归 outreach-service，此处只做集合运算） */
+  private async removeFromCheckedKv(taskId: string, offerId: string): Promise<void> {
+    const value = await readKvJson(this.deps.store, checkedKey(taskId));
+    const ids = Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : [];
+    if (!ids.includes(offerId)) return;
+    await this.deps.store.kvSet(checkedKey(taskId), JSON.stringify(ids.filter((id) => id !== offerId)));
   }
 }
 

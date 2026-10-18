@@ -668,6 +668,8 @@ export const SelectionCandidatesResultSchema = z.object({
   pinned: z.array(z.string()),
   /** T-M2-04（FR-6.3）：该任务勾选的 offerId 集（kv `selection:checked:<taskId>`） */
   checked: z.array(z.string()),
+  /** T-M2-07：该任务显式淘汰的 offerId 集（preferences 流水最末态派生，kv 不双写） */
+  dismissed: z.array(z.string()),
 });
 
 export const SelectionConfigParamsSchema = z.strictObject({});
@@ -679,11 +681,29 @@ export const SelectionDimensionMetaSchema = z.object({
   default: z.number().int().min(0).max(100),
 });
 
+/**
+ * 偏好画像块（T-M2-07；FR-6.7 勾选/淘汰 → 评分自动加权，本地学习）。
+ * dimBias ∈ [-0.5,+0.5]（乘性微调系数，derivedProfile 现算）；effectiveWeights =
+ * 用户显式权重 × (1+bias) 重归一——enabled=false 或样本不足时等于 weights（不静默改分）。
+ */
+export const SelectionPreferenceInfoSchema = z.object({
+  /** 回流开关（kv `selection:preference:enabled`，默认 true） */
+  enabled: z.boolean(),
+  /** 流水派生的采纳/淘汰样本数（最末态口径） */
+  adopted: z.number().int().nonnegative(),
+  dismissed: z.number().int().nonnegative(),
+  /** 样本不足（adopted<3 或 others<5）→ bias 全 0、effectiveWeights=weights */
+  sampleInsufficient: z.boolean(),
+  dimBias: z.record(z.enum(SELECTION_DIMENSIONS_SCHEMA), z.number().min(-0.5).max(0.5)),
+  effectiveWeights: SelectionWeightsSchema,
+});
+
 export const SelectionConfigResultSchema = z.object({
   dimensions: z.array(SelectionDimensionMetaSchema),
   weights: SelectionWeightsSchema,
   /** 用户是否已保存过自定义权重（kv 有记录即 true） */
   customized: z.boolean(),
+  preference: SelectionPreferenceInfoSchema,
 });
 
 export const SelectionSetWeightsParamsSchema = z.strictObject({ weights: SelectionWeightsSchema });
@@ -700,6 +720,23 @@ export const SelectionSetPinnedResultSchema = z.object({
   taskId: z.string(),
   offerIds: z.array(z.string()),
 });
+
+/** 显式淘汰（T-M2-07；与勾选互斥——dismiss=true 自动移出勾选集，勾选同理） */
+export const SelectionSetDismissedParamsSchema = z.strictObject({
+  taskId: z.string().min(1).max(64),
+  offerId: z.string().min(1).max(64),
+  dismissed: z.boolean(),
+});
+
+/** dismissed offerIds = 该任务淘汰集当前态（preferences 流水最末态派生，kv 不双写） */
+export const SelectionSetDismissedResultSchema = z.object({
+  taskId: z.string(),
+  offerIds: z.array(z.string()),
+});
+
+export const SelectionSetPreferenceEnabledParamsSchema = z.strictObject({ enabled: z.boolean() });
+
+export const SelectionSetPreferenceEnabledResultSchema = SelectionConfigResultSchema;
 
 /** QA 播种专用（XINGLIAN_DEBUG_HOOKS=1 才装配）：直接落 completed 任务 + 候选 + 三步 + stats */
 export const SelectionInsertFixtureParamsSchema = z.strictObject({
@@ -738,6 +775,11 @@ export type SelectionSetWeightsParams = z.infer<typeof SelectionSetWeightsParams
 export type SelectionSetWeightsResult = z.infer<typeof SelectionSetWeightsResultSchema>;
 export type SelectionSetPinnedParams = z.infer<typeof SelectionSetPinnedParamsSchema>;
 export type SelectionSetPinnedResult = z.infer<typeof SelectionSetPinnedResultSchema>;
+export type SelectionPreferenceInfo = z.infer<typeof SelectionPreferenceInfoSchema>;
+export type SelectionSetDismissedParams = z.infer<typeof SelectionSetDismissedParamsSchema>;
+export type SelectionSetDismissedResult = z.infer<typeof SelectionSetDismissedResultSchema>;
+export type SelectionSetPreferenceEnabledParams = z.infer<typeof SelectionSetPreferenceEnabledParamsSchema>;
+export type SelectionSetPreferenceEnabledResult = z.infer<typeof SelectionSetPreferenceEnabledResultSchema>;
 export type SelectionInsertFixtureParams = z.infer<typeof SelectionInsertFixtureParamsSchema>;
 export type SelectionInsertFixtureResult = z.infer<typeof SelectionInsertFixtureResultSchema>;
 
@@ -1204,7 +1246,9 @@ export const channelParamsSchemas: Record<IpcChannel, z.ZodType> = {
   'selection:insertFixture': SelectionInsertFixtureParamsSchema,
   'selection:list': SelectionListParamsSchema,
   'selection:setChecked': SelectionSetCheckedParamsSchema,
+  'selection:setDismissed': SelectionSetDismissedParamsSchema,
   'selection:setPinned': SelectionSetPinnedParamsSchema,
+  'selection:setPreferenceEnabled': SelectionSetPreferenceEnabledParamsSchema,
   'selection:setWeights': SelectionSetWeightsParamsSchema,
   'tasks:createDemo': TasksCreateDemoParamsSchema,
   'tasks:list': TasksListParamsSchema,

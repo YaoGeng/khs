@@ -337,3 +337,22 @@ export const materials = sqliteTable(
   },
   (t) => [index('idx_materials_product').on(t.productId, t.kind)],
 );
+
+/* -------------------- M2 store v6（0006 迁移投影；DDL 真源 migrations.ts upV6） -------------------- */
+
+/**
+ * 偏好画像（T-M2-07；02 §14.1 preferences 行，FR-6.7/FR-9.8）。append-only 行为流水 +
+ * 画像快照（读面按 updated_at 倒序派生当前态）；value_json = 行为埋点或画像载荷；
+ * 本地学习不上传。
+ */
+export const preferences = sqliteTable(
+  'preferences',
+  {
+    id: text('id').primaryKey(),
+    scope: text('scope').notNull(),
+    key: text('key').notNull(),
+    valueJson: text('value_json'),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [index('idx_preferences_scope_key').on(t.scope, t.key, t.updatedAt)],
+);
